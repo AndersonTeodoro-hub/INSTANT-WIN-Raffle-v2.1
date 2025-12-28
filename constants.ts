@@ -4,27 +4,26 @@ import { injected, walletConnect } from 'wagmi/connectors';
 
 // --- CONFIGURATION ---
 
-// [IMPORTANTE - DEPLOY]
-// Esta é uma ID pública. Para garantir que o QR Code funcione 100% no mobile sem erros de "Rate Limit":
-// 1. Crie uma conta em https://cloud.reown.com (Grátis)
-// 2. Crie um novo projeto
-// 3. Substitua a string abaixo pela SUA Project ID.
+// [PASSO FINAL - IMPORTANTE]
+// 1. Acesse: https://cloud.reown.com (É o painel oficial do WalletConnect)
+// 2. Crie um projeto "App"
+// 3. Copie a "Project ID" e cole abaixo dentro das aspas.
+// Isso fará o QR Code e a conexão Deep Link funcionarem perfeitamente no mobile.
 export const PROJECT_ID = '3a8170812b534d0ff9d794f19a901d64'; 
 
 // Metadata para o modal de conexão (aparece no celular do usuário)
 const metadata = {
   name: 'Instant Win',
   description: 'Arbitrum Raffle Protocol',
-  url: 'https://instantwin.finance', // Substitua pelo seu domínio real quando tiver
+  url: 'https://instantwin.finance', // Coloque seu domínio aqui quando comprar
   icons: ['https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png']
 };
 
 export const wagmiConfig = createConfig({
   chains: [arbitrum], // Arbitrum One (Mainnet ID 42161)
   transports: {
-    // 'http()' usa RPCs públicos. Para alta performance em produção, 
-    // recomenda-se usar uma chave da Alchemy ou Infura aqui.
-    // Ex: [arbitrum.id]: http('https://arb-mainnet.g.alchemy.com/v2/SUA-CHAVE')
+    // Usando RPC público da Arbitrum. 
+    // Em produção, se tiver muitos usuários, considere usar Alchemy ou Infura.
     [arbitrum.id]: http(), 
   },
   connectors: [
@@ -44,7 +43,7 @@ export const CONTRACTS = {
   // Endereço oficial do USDC Nativo na Arbitrum One
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   
-  // Seus contratos (Certifique-se que estes endereços estão corretos na Mainnet)
+  // Seus contratos na Mainnet
   USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',
   SHARES_REGISTRY: '0x089B10b8Af63277FA4D8B8ECb23603B451245F59',
   RAFFLE_MANAGER: '0xA018d2fdE729349c1CAE20b6B72007c817Bc342c',
