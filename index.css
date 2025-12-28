@@ -1,0 +1,17 @@
+body {
+  background-color: #000000;
+  color: #ffffff;
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom utility for glass-like borders */
+.card-border {
+  border: 1px solid #1E1E22;
+}
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
