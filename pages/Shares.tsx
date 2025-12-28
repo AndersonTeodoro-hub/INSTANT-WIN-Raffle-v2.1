@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { CONTRACTS, SHARES_ABI, USDC_ABI } from '../constants';
-import { parseUnits, formatUnits } from 'viem';
+import { formatUnits } from 'viem';
 import { Button } from '../components/Button';
 import { PieChart, TrendingUp, ShieldCheck, AlertCircle } from 'lucide-react';
 
@@ -16,12 +16,7 @@ export const Shares: React.FC = () => {
     functionName: 'sharePrice',
   });
 
-  const { data: userShares } = useReadContract({
-    address: CONTRACTS.SHARES_REGISTRY,
-    abi: SHARES_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-  });
+  // (Removed unused userShares hook)
 
   const { data: claimable } = useReadContract({
     address: CONTRACTS.SHARES_REGISTRY,
@@ -58,7 +53,7 @@ export const Shares: React.FC = () => {
 
   const { isLoading: approvingTx } = useWaitForTransactionReceipt({ hash: approveHash });
   const { isLoading: buyingTx, isSuccess: boughtSuccess } = useWaitForTransactionReceipt({ hash: buyHash });
-  const { isLoading: claimingTx, isSuccess: claimedSuccess } = useWaitForTransactionReceipt({ hash: claimHash });
+  const { isLoading: claimingTx } = useWaitForTransactionReceipt({ hash: claimHash });
 
   useEffect(() => {
     if (boughtSuccess) setAmount('1');

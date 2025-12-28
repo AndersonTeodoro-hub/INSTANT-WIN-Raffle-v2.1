@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { CONTRACTS, USERNAME_ABI, USDC_ABI, RAFFLE_ABI, SHARES_ABI } from '../constants';
 import { formatUnits } from 'viem';
-import { User, Wallet, Trophy, PieChart, Clock, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
+import { User, Wallet, PieChart, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 
 export const Dashboard: React.FC = () => {
-  const { address, isConnected } = useAccount();
+  const { address } = useAccount();
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
 

@@ -3,7 +3,7 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { CONTRACTS, RAFFLE_ABI, USDC_ABI } from '../constants';
 import { parseUnits, formatUnits } from 'viem';
 import { Button } from '../components/Button';
-import { Clock, Ticket, Activity, Loader2, Info } from 'lucide-react';
+import { Clock, Ticket, Activity, Info } from 'lucide-react';
 
 export const Raffle: React.FC = () => {
   const { address, isConnected } = useAccount();

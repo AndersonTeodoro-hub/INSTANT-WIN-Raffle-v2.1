@@ -5,11 +5,8 @@ import { injected, walletConnect } from 'wagmi/connectors';
 // --- CONFIGURATION ---
 
 // [PASSO FINAL - IMPORTANTE]
-// 1. Acesse: https://cloud.reown.com (É o painel oficial do WalletConnect)
-// 2. Crie um projeto "App"
-// 3. Copie a "Project ID" e cole abaixo dentro das aspas.
-// Isso fará o QR Code e a conexão Deep Link funcionarem perfeitamente no mobile.
-export const PROJECT_ID = '3a8170812b534d0ff9d794f19a901d64'; 
+// Project ID atualizada para conexão mobile/QR Code estável.
+export const PROJECT_ID = '94daeb9a2c7c766816ab3ea56255520b'; 
 
 // Metadata para o modal de conexão (aparece no celular do usuário)
 const metadata = {
