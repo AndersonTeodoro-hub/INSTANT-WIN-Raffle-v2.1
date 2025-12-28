@@ -10,8 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     
-    <!-- Tailwind via CDN is useful for quick styling in index.html, 
-         but technically Vite handles CSS. We keep it for the config script mainly. -->
+    <!-- Tailwind via CDN apenas para fallback, o Vite processa o CSS real -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <script>
@@ -59,7 +58,8 @@
         },
       }
     </script>
-  <script type="importmap">
+    <!-- IMPORTMAP REMOVIDO: Isso corrige o erro de carregamento na Vercel -->
+<script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@^19.2.3",
