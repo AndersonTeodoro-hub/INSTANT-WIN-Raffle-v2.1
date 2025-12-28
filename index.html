@@ -2,16 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>INSTANT WIN | Arbitrum</title>
+    <meta name="description" content="Decentralized Raffle on Arbitrum One">
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     
-    <!-- Tailwind CDN -->
+    <!-- Tailwind via CDN is useful for quick styling in index.html, 
+         but technically Vite handles CSS. We keep it for the config script mainly. -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Tailwind Configuration -->
     <script>
       tailwind.config = {
         theme: {

@@ -3,7 +3,7 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { CONTRACTS, RAFFLE_ABI, USDC_ABI } from '../constants';
 import { parseUnits, formatUnits } from 'viem';
 import { Button } from '../components/Button';
-import { Clock, Ticket, Activity, Loader2 } from 'lucide-react';
+import { Clock, Ticket, Activity, Loader2, Info } from 'lucide-react';
 
 export const Raffle: React.FC = () => {
   const { address, isConnected } = useAccount();
@@ -177,8 +177,8 @@ export const Raffle: React.FC = () => {
             
             <div className="bg-dark-input rounded-2xl p-6 border border-dark-border mb-6">
                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-xs font-bold text-gray-500 uppercase">Amount</span>
-                    <span className="text-xs font-bold text-gray-500 uppercase">Cost: 1 USDC</span>
+                    <span className="text-xs font-bold text-gray-500 uppercase">Total Cost (1 Ticket = 1 USDC)</span>
+                    <span className="text-xs font-bold text-brand uppercase">Receive: {amount || 0} Tickets</span>
                  </div>
                  
                  <div className="flex items-center gap-4">
@@ -188,6 +188,7 @@ export const Raffle: React.FC = () => {
                         onChange={(e) => setAmount(e.target.value)}
                         className="bg-transparent text-4xl font-bold text-white outline-none w-full placeholder:text-gray-800"
                         placeholder="0"
+                        min="1"
                         disabled={isTransitioning}
                     />
                     <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded border border-gray-800">
@@ -205,7 +206,7 @@ export const Raffle: React.FC = () => {
                         isLoading={isApproving || approvingTx}
                         disabled={!isConnected || isTransitioning}
                     >
-                        Approve USDC
+                        Approve {amount} USDC
                     </Button>
                 ) : (
                     <Button 
@@ -215,9 +216,14 @@ export const Raffle: React.FC = () => {
                         isLoading={isBuying || buyingTx}
                         disabled={!isConnected || isTransitioning}
                     >
-                        {isTransitioning ? 'Wait for Next Round' : 'Buy Tickets'}
+                        {isTransitioning ? 'Wait for Next Round' : `Buy ${amount} Tickets Now`}
                     </Button>
                 )}
+            </div>
+            
+            <div className="mt-4 flex items-start gap-2 text-xs text-gray-500">
+                <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>By buying tickets, you agree that the prize distribution is handled automatically by the smart contract on Arbitrum One. 100% On-chain.</p>
             </div>
         </div>
 

@@ -8,14 +8,19 @@ import { injected, walletConnect } from 'wagmi/connectors';
 // 1. Go to https://cloud.reown.com (WalletConnect)
 // 2. Create a Project
 // 3. Paste the Project ID below.
-// If you leave this specific test ID, mobile wallets might fail in production due to rate limits.
 export const PROJECT_ID = '3a8170812b534d0ff9d794f19a901d64'; 
+
+// Metadata for the wallet connection modal
+const metadata = {
+  name: 'Instant Win',
+  description: 'Arbitrum Raffle Protocol',
+  url: 'https://instantwin.finance', 
+  icons: ['https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png']
+};
 
 export const wagmiConfig = createConfig({
   chains: [arbitrum],
   transports: {
-    // Recommendation: Replace the empty http() with an Alchemy or Infura URL for better stability.
-    // Example: http('https://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY')
     [arbitrum.id]: http(), 
   },
   connectors: [
@@ -23,11 +28,9 @@ export const wagmiConfig = createConfig({
     walletConnect({ 
         projectId: PROJECT_ID, 
         showQrModal: true,
-        metadata: {
-            name: 'Instant Win',
-            description: 'Arbitrum Raffle Protocol',
-            url: 'https://instantwin.finance', // Update this to your Vercel URL after deploy
-            icons: ['https://avatars.githubusercontent.com/u/37784886']
+        metadata: metadata,
+        qrModalOptions: {
+            themeMode: 'dark',
         }
     }),
   ],
@@ -113,7 +116,7 @@ export const RAFFLE_ABI = [
     outputs: [
       {
         components: [
-            { name: 'status', type: 'uint8' }, // 0: Pending, 1: Active, 2: Calculated, 3: Finalized
+            { name: 'status', type: 'uint8' }, 
             { name: 'endTime', type: 'uint256' },
             { name: 'totalPot', type: 'uint256' },
             { name: 'ticketsSold', type: 'uint256' },
