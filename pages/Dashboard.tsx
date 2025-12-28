@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { CONTRACTS, USERNAME_ABI, USDC_ABI, RAFFLE_ABI, SHARES_ABI } from '../constants';
 import { formatUnits } from 'viem';
-import { User, Wallet, Trophy, PieChart, Clock, Ticket, ArrowRight, Zap } from 'lucide-react';
+import { User, Wallet, Trophy, PieChart, Clock, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 
 export const Dashboard: React.FC = () => {
   const { address, isConnected } = useAccount();
   const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Queries
   const { data: username } = useReadContract({
@@ -25,19 +26,25 @@ export const Dashboard: React.FC = () => {
     args: address ? [address] : undefined,
   });
 
+  // DYNAMIC POLLING: Check every 1s if round is ending/transitioning, otherwise every 5s
+  const pollInterval = timeLeft <= 10 || isTransitioning ? 1000 : 5000;
+
   const { data: currentRoundId, refetch: refetchRoundId } = useReadContract({
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
     functionName: 'currentRoundId',
-    query: { refetchInterval: 5000 }
+    query: { refetchInterval: pollInterval }
   });
 
-  const { data: roundInfo } = useReadContract({
+  const { data: roundInfo, refetch: refetchRoundInfo } = useReadContract({
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
     functionName: 'getRoundInfo',
     args: currentRoundId ? [currentRoundId] : undefined,
-    query: { enabled: !!currentRoundId, refetchInterval: 5000 }
+    query: { 
+        enabled: !!currentRoundId, 
+        refetchInterval: pollInterval 
+    }
   });
 
   const { data: sharesBalance } = useReadContract({
@@ -52,12 +59,23 @@ export const Dashboard: React.FC = () => {
     if (!roundInfo) return;
     const endTime = Number((roundInfo as any).endTime);
     
+    // Check if we are potentially in a transition (Time is passed but ID hasn't changed yet)
+    const now = Math.floor(Date.now() / 1000);
+    if (endTime <= now) {
+        setIsTransitioning(true);
+        refetchRoundId();
+        refetchRoundInfo();
+    } else {
+        setIsTransitioning(false);
+    }
+
     const interval = setInterval(() => {
-      const now = Math.floor(Date.now() / 1000);
-      const diff = endTime - now;
+      const currentNow = Math.floor(Date.now() / 1000);
+      const diff = endTime - currentNow;
       
       if (diff <= 0) {
         setTimeLeft(0);
+        setIsTransitioning(true); // Trigger aggressive polling
         refetchRoundId();
       } else {
         setTimeLeft(diff);
@@ -65,7 +83,7 @@ export const Dashboard: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [roundInfo, refetchRoundId]);
+  }, [roundInfo, refetchRoundId, refetchRoundInfo]);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -101,7 +119,7 @@ export const Dashboard: React.FC = () => {
             label="Wallet" 
             value={usdcBalance ? `${formatUnits(usdcBalance as bigint, 6)} USDC` : '0.00'} 
             icon={Wallet} 
-            to="/" // Stay here, logic is for viewing
+            to="/" 
         />
         <MiniCard 
             label="Shares" 
@@ -129,17 +147,25 @@ export const Dashboard: React.FC = () => {
             {/* Live Indicator */}
             <div className="inline-flex items-center gap-2 bg-brand/10 border border-brand/20 px-4 py-1.5 rounded-full mb-8 animate-fade-in-up">
                 <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-brand"></span>
+                  <span className={`absolute inline-flex h-full w-full rounded-full bg-brand opacity-75 ${!isTransitioning && 'animate-ping'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-3 w-3 ${isTransitioning ? 'bg-gray-500' : 'bg-brand'}`}></span>
                 </span>
-                <span className="text-brand text-xs font-bold tracking-[0.2em] uppercase">Round #{currentRoundId?.toString()} Live</span>
+                <span className={`text-xs font-bold tracking-[0.2em] uppercase ${isTransitioning ? 'text-gray-400' : 'text-brand'}`}>
+                    {isTransitioning ? 'Finalizing Round...' : `Round #${currentRoundId?.toString()} Live`}
+                </span>
             </div>
 
             {/* The Timer */}
             <h1 className="text-7xl md:text-[10rem] font-bold text-white leading-none font-mono tracking-tighter mb-4 drop-shadow-2xl">
-                {timeLeft === 0 ? '00:00:00' : formatTime(timeLeft)}
+                {isTransitioning ? (
+                    <span className="text-5xl md:text-8xl animate-pulse text-gray-400">STARTING...</span>
+                ) : (
+                    timeLeft === 0 ? '00:00:00' : formatTime(timeLeft)
+                )}
             </h1>
-            <p className="text-gray-500 font-medium text-lg uppercase tracking-widest mb-10">Time Remaining</p>
+            <p className="text-gray-500 font-medium text-lg uppercase tracking-widest mb-10">
+                {isTransitioning ? 'Automating New Round (30 min)' : 'Time Remaining'}
+            </p>
 
             {/* Pot Size */}
             <div className="flex flex-col md:flex-row items-center gap-6 md:gap-12 mb-12 bg-black/30 p-6 rounded-3xl border border-white/5 backdrop-blur-sm">
@@ -164,13 +190,18 @@ export const Dashboard: React.FC = () => {
                 <Link to="/raffle">
                     <Button 
                         variant="connect" 
-                        className="w-full h-20 text-xl md:text-2xl rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] hover:scale-105 transition-all duration-300 relative overflow-hidden group"
+                        disabled={isTransitioning}
+                        className="w-full h-20 text-xl md:text-2xl rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] hover:scale-105 transition-all duration-300 relative overflow-hidden group disabled:opacity-50 disabled:shadow-none"
                     >
                         <span className="relative z-10 flex items-center gap-3">
-                            ENTER ROUND NOW <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+                            {isTransitioning ? (
+                                <><Loader2 className="animate-spin w-6 h-6" /> Processing...</>
+                            ) : (
+                                <>ENTER ROUND NOW <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" /></>
+                            )}
                         </span>
                         {/* Shine Effect */}
-                        <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent z-0"></div>
+                        {!isTransitioning && <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent z-0"></div>}
                     </Button>
                 </Link>
                 <p className="mt-4 text-xs text-gray-500">

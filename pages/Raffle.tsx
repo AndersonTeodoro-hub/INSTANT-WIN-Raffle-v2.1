@@ -3,19 +3,23 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { CONTRACTS, RAFFLE_ABI, USDC_ABI } from '../constants';
 import { parseUnits, formatUnits } from 'viem';
 import { Button } from '../components/Button';
-import { Clock, Ticket, Activity } from 'lucide-react';
+import { Clock, Ticket, Activity, Loader2 } from 'lucide-react';
 
 export const Raffle: React.FC = () => {
   const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState<string>('5');
   const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Dynamic Polling for rapid updates during round transitions
+  const pollInterval = timeLeft <= 10 || isTransitioning ? 1000 : 5000;
 
   // Queries
   const { data: currentRoundId, refetch: refetchRoundId } = useReadContract({
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
     functionName: 'currentRoundId',
-    query: { refetchInterval: 3000 }
+    query: { refetchInterval: pollInterval }
   });
 
   const { data: roundInfo, refetch: refetchInfo } = useReadContract({
@@ -23,7 +27,10 @@ export const Raffle: React.FC = () => {
     abi: RAFFLE_ABI,
     functionName: 'getRoundInfo',
     args: currentRoundId ? [currentRoundId] : undefined,
-    query: { enabled: !!currentRoundId, refetchInterval: 5000 }
+    query: { 
+        enabled: !!currentRoundId, 
+        refetchInterval: pollInterval 
+    }
   });
 
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
@@ -57,13 +64,23 @@ export const Raffle: React.FC = () => {
   useEffect(() => {
     if (!roundInfo) return;
     const endTime = Number((roundInfo as any).endTime);
+    const now = Math.floor(Date.now() / 1000);
+
+    // Initial check
+    if (endTime <= now) {
+        setIsTransitioning(true);
+        refetchRoundId();
+    } else {
+        setIsTransitioning(false);
+    }
     
     const interval = setInterval(() => {
-      const now = Math.floor(Date.now() / 1000);
-      const diff = endTime - now;
+      const currentNow = Math.floor(Date.now() / 1000);
+      const diff = endTime - currentNow;
       
       if (diff <= 0) {
         setTimeLeft(0);
+        setIsTransitioning(true);
         refetchRoundId();
       } else {
         setTimeLeft(diff);
@@ -106,16 +123,16 @@ export const Raffle: React.FC = () => {
     return (allowance as bigint) < parseUnits(amount, 6);
   };
 
-  const isFinalizing = timeLeft === 0 && roundInfo;
-
   return (
     <div className="max-w-6xl mx-auto py-8">
       
       {/* 1. Centered Pool Status */}
       <div className="text-center mb-12">
         <div className="inline-flex items-center gap-2 bg-[#1A1A1D] border border-gray-800 px-4 py-1.5 rounded-full mb-6">
-            <div className="w-2 h-2 bg-brand rounded-full animate-pulse"></div>
-            <span className="text-brand text-xs font-bold tracking-widest uppercase">Live Pool Arbitrum</span>
+            <div className={`w-2 h-2 rounded-full ${isTransitioning ? 'bg-gray-500' : 'bg-brand animate-pulse'}`}></div>
+            <span className={`text-xs font-bold tracking-widest uppercase ${isTransitioning ? 'text-gray-500' : 'text-brand'}`}>
+                {isTransitioning ? 'Finalizing Round' : 'Live Pool Arbitrum'}
+            </span>
         </div>
         
         <p className="text-gray-500 font-mono text-sm uppercase tracking-widest mb-2">Current Prize Pool</p>
@@ -130,7 +147,11 @@ export const Raffle: React.FC = () => {
                     <Clock className="w-3 h-3" /> Time Left
                 </div>
                 <span className="text-2xl font-mono font-bold text-white">
-                    {isFinalizing ? 'CALCULATING' : formatTime(timeLeft)}
+                    {isTransitioning ? (
+                        <span className="text-brand text-lg animate-pulse">STARTING...</span>
+                    ) : (
+                        formatTime(timeLeft)
+                    )}
                 </span>
             </div>
             
@@ -167,6 +188,7 @@ export const Raffle: React.FC = () => {
                         onChange={(e) => setAmount(e.target.value)}
                         className="bg-transparent text-4xl font-bold text-white outline-none w-full placeholder:text-gray-800"
                         placeholder="0"
+                        disabled={isTransitioning}
                     />
                     <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded border border-gray-800">
                         <span className="text-white font-bold">USDC</span>
@@ -181,7 +203,7 @@ export const Raffle: React.FC = () => {
                         className="w-full py-4 text-lg"
                         onClick={handleApprove}
                         isLoading={isApproving || approvingTx}
-                        disabled={!isConnected}
+                        disabled={!isConnected || isTransitioning}
                     >
                         Approve USDC
                     </Button>
@@ -191,9 +213,9 @@ export const Raffle: React.FC = () => {
                         className="w-full py-4 text-lg"
                         onClick={handleBuy}
                         isLoading={isBuying || buyingTx}
-                        disabled={!isConnected}
+                        disabled={!isConnected || isTransitioning}
                     >
-                        Buy Tickets
+                        {isTransitioning ? 'Wait for Next Round' : 'Buy Tickets'}
                     </Button>
                 )}
             </div>
@@ -218,7 +240,7 @@ export const Raffle: React.FC = () => {
                 <div className="w-full h-px bg-gray-900"></div>
                 <div className="flex justify-between items-center">
                     <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">Automation</span>
-                    <span className="text-white font-bold">Keeper Network</span>
+                    <span className="text-white font-bold">Every 30 Mins</span>
                 </div>
             </div>
 
