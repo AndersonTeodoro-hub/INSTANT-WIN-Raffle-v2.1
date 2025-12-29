@@ -26,9 +26,9 @@ export const Raffle: React.FC = () => {
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
     functionName: 'getRoundInfo',
-    args: currentRoundId ? [currentRoundId] : undefined,
+    args: currentRoundId !== undefined ? [currentRoundId] : undefined,
     query: { 
-        enabled: !!currentRoundId, 
+        enabled: currentRoundId !== undefined, 
         refetchInterval: pollInterval 
     }
   });
@@ -60,35 +60,68 @@ export const Raffle: React.FC = () => {
     if (!approvingTx && approveHash) refetchAllowance(); 
   }, [approvingTx, approveHash, refetchAllowance]);
 
-  // Timer Logic
+  // Robust endTime resolver (handles object or tuple/array returns)
+  const resolveEndTime = (ri: any): number | null => {
+    if (!ri) return null;
+
+    const toNum = (v: any) => {
+      try { return Number(v); } catch { return NaN; }
+    };
+
+    // 1) Try by name
+    const byName = ri.endTime ?? ri.endTimestamp ?? ri.endAt;
+    const n1 = toNum(byName);
+    if (Number.isFinite(n1) && n1 > 1_600_000_000 && n1 < 2_400_000_000) return n1;
+
+    // 2) Try by expected tuple index (ABI: [status, endTime, totalPot, ticketsSold, participantCount])
+    const idx = Array.isArray(ri) ? ri : [ri.status, ri.endTime, ri.totalPot, ri.ticketsSold, ri.participantCount];
+    const n2 = toNum(idx[1]);
+    if (Number.isFinite(n2) && n2 > 1_600_000_000 && n2 < 2_400_000_000) return n2;
+
+    // 3) Fallback: scan values for a plausible unix timestamp (seconds)
+    const candidates = Array.isArray(ri) ? ri : Object.values(ri);
+    for (const v of candidates) {
+      const n = toNum(v);
+      if (Number.isFinite(n) && n > 1_600_000_000 && n < 2_400_000_000) return n;
+    }
+
+    return null;
+  };
+
+  // Timer Logic (fixed)
   useEffect(() => {
     if (!roundInfo) return;
-    const endTime = Number((roundInfo as any).endTime);
-    const now = Math.floor(Date.now() / 1000);
 
-    // Initial check
-    if (endTime <= now) {
-        setIsTransitioning(true);
-        refetchRoundId();
-    } else {
-        setIsTransitioning(false);
+    const endTime = resolveEndTime(roundInfo);
+
+    if (!endTime) {
+      setTimeLeft(0);
+      setIsTransitioning(true);
+      refetchRoundId();
+      setTimeout(() => refetchInfo(), 1200);
+      return;
     }
-    
-    const interval = setInterval(() => {
-      const currentNow = Math.floor(Date.now() / 1000);
-      const diff = endTime - currentNow;
+
+    const tick = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const diff = endTime - now;
       
       if (diff <= 0) {
         setTimeLeft(0);
         setIsTransitioning(true);
         refetchRoundId();
+        setTimeout(() => refetchInfo(), 1200);
       } else {
+        setIsTransitioning(false);
         setTimeLeft(diff);
       }
-    }, 1000);
+    };
 
+    tick();
+
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [roundInfo, refetchRoundId]);
+  }, [roundInfo, refetchRoundId, refetchInfo]);
 
   const handleApprove = () => {
     if (!amount) return;
