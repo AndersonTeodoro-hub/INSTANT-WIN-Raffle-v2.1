@@ -15,7 +15,7 @@ export const Dashboard: React.FC = () => {
   const { data: username } = useReadContract({
     address: CONTRACTS.USERNAME_REGISTRY,
     abi: USERNAME_ABI,
-    functionName: 'addressToUsername',
+    functionName: 'walletToUsername',
     args: address ? [address] : undefined,
   });
 
