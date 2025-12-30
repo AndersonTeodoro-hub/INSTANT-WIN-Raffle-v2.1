@@ -64,7 +64,11 @@ export const USDC_ABI = [
   },
 ] as const;
 
+// =============================================================================
+// USERNAME ABI - CORRIGIDO para corresponder ao contrato deployado
+// =============================================================================
 export const USERNAME_ABI = [
+  // registerUsername - registar um username
   {
     name: 'registerUsername',
     type: 'function',
@@ -72,27 +76,31 @@ export const USERNAME_ABI = [
     inputs: [{ name: 'username', type: 'string' }],
     outputs: [],
   },
+  // isUsernameAvailable - verificar se username está disponível (NÃO isAvailable!)
   {
-    name: 'usernameToAddress',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'username', type: 'string' }],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    name: 'addressToUsername',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'addr', type: 'address' }],
-    outputs: [{ name: '', type: 'string' }],
-  },
-  {
-    name: 'isAvailable',
+    name: 'isUsernameAvailable',
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'username', type: 'string' }],
     outputs: [{ name: '', type: 'bool' }],
   },
+  // usernameToWallet - obter wallet de um username (NÃO usernameToAddress!)
+  {
+    name: 'usernameToWallet',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'username', type: 'string' }],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  // walletToUsername - obter username de uma wallet (NÃO addressToUsername!)
+  {
+    name: 'walletToUsername',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'wallet', type: 'address' }],
+    outputs: [{ name: '', type: 'string' }],
+  },
+  // hasUsername - verificar se wallet já tem username
   {
     name: 'hasUsername',
     type: 'function',
@@ -100,13 +108,28 @@ export const USERNAME_ABI = [
     inputs: [{ name: 'addr', type: 'address' }],
     outputs: [{ name: '', type: 'bool' }],
   },
+  // getUsername - obter username de uma wallet
+  {
+    name: 'getUsername',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'wallet', type: 'address' }],
+    outputs: [{ name: '', type: 'string' }],
+  },
+  // getWallet - obter wallet de um username
+  {
+    name: 'getWallet',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'username', type: 'string' }],
+    outputs: [{ name: '', type: 'address' }],
+  },
 ] as const;
 
 // =============================================================================
-// RAFFLE ABI - CORRIGIDO para corresponder ao contrato deployado
+// RAFFLE ABI - CORRIGIDO
 // =============================================================================
 export const RAFFLE_ABI = [
-  // currentRoundId - retorna o ID da rodada atual
   {
     name: 'currentRoundId',
     type: 'function',
@@ -114,8 +137,6 @@ export const RAFFLE_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
-  // getCurrentRound - ESTA É A FUNÇÃO CORRETA (não getRoundInfo!)
-  // Retorna: (roundId, totalPool, endTime, participantCount, ticketCount, isActive)
   {
     name: 'getCurrentRound',
     type: 'function',
@@ -130,7 +151,6 @@ export const RAFFLE_ABI = [
       { name: 'isActive', type: 'bool' },
     ],
   },
-  // buyTickets - comprar tickets (parâmetro é quantidade de tickets, não USDC amount)
   {
     name: 'buyTickets',
     type: 'function',
@@ -138,7 +158,6 @@ export const RAFFLE_ABI = [
     inputs: [{ name: 'ticketCount', type: 'uint256' }],
     outputs: [],
   },
-  // getWinners - buscar vencedores de uma rodada
   {
     name: 'getWinners',
     type: 'function',
@@ -146,7 +165,6 @@ export const RAFFLE_ABI = [
     inputs: [{ name: 'roundId', type: 'uint256' }],
     outputs: [{ name: '', type: 'address[]' }],
   },
-  // Constantes úteis
   {
     name: 'TICKET_PRICE',
     type: 'function',
