@@ -12,7 +12,6 @@ export const Dashboard: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // User data queries
   const { data: username } = useReadContract({
     address: CONTRACTS.USERNAME_REGISTRY,
     abi: USERNAME_ABI,
@@ -34,17 +33,12 @@ export const Dashboard: React.FC = () => {
     args: address ? [address] : undefined,
   });
 
-  // Dynamic polling: aggressive near end / during transition
   const pollInterval = useMemo(() => {
     if (isTransitioning) return 1000;
     if (timeLeft <= 10) return 1000;
     return 5000;
   }, [timeLeft, isTransitioning]);
 
-  // =============================================================================
-  // CORREÇÃO: Usar getCurrentRound() em vez de getRoundInfo()
-  // getCurrentRound retorna: (roundId, totalPool, endTime, participantCount, ticketCount, isActive)
-  // =============================================================================
   const { data: currentRoundData, refetch: refetchRound } = useReadContract({
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
@@ -52,17 +46,12 @@ export const Dashboard: React.FC = () => {
     query: { refetchInterval: pollInterval },
   });
 
-  // Extract values from the tuple response
   const roundId = currentRoundData?.[0];
   const totalPool = currentRoundData?.[1] ?? 0n;
   const endTime = currentRoundData?.[2];
-  const participantCount = currentRoundData?.[3] ?? 0n;
   const ticketCount = currentRoundData?.[4] ?? 0n;
   const isActive = currentRoundData?.[5] ?? false;
 
-  // =============================================================================
-  // TIMER LOGIC
-  // =============================================================================
   useEffect(() => {
     if (endTime === undefined) return;
 
@@ -75,7 +64,6 @@ export const Dashboard: React.FC = () => {
       if (diff <= 0 || !isActive) {
         setTimeLeft(0);
         setIsTransitioning(true);
-        // Refetch after a short delay to get the new round
         setTimeout(() => refetchRound(), 1500);
       } else {
         setIsTransitioning(false);
@@ -88,9 +76,6 @@ export const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [endTime, isActive, refetchRound]);
 
-  // =============================================================================
-  // HELPERS
-  // =============================================================================
   const formatTime = (seconds: number) => {
     const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     const h = Math.floor(safe / 3600);
@@ -116,7 +101,6 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
-      {/* 1. Top Bar: Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MiniCard label="Identity" value={username ? `@${username}` : 'Register'} icon={User} to="/username" />
         <MiniCard
@@ -129,7 +113,6 @@ export const Dashboard: React.FC = () => {
         <MiniCard label="Network" value="Arbitrum One" icon={Zap} to="/" />
       </div>
 
-      {/* 2. HERO SECTION: THE TIMER CTA */}
       <div className="relative rounded-[40px] overflow-hidden border border-brand/20 shadow-[0_0_50px_rgba(245,158,11,0.1)]">
         <div className="absolute inset-0 bg-dark-card z-0"></div>
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-brand/5 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2 z-0 pointer-events-none"></div>
