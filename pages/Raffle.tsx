@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { CONTRACTS, RAFFLE_ABI, USDC_ABI } from '../constants';
-import { parseUnits, formatUnits } from 'viem';
+import { formatUnits } from 'viem';
 import { Button } from '../components/Button';
 import { Clock, Ticket, Activity, Info } from 'lucide-react';
 
@@ -11,16 +11,12 @@ export const Raffle: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // Dynamic polling
   const pollInterval = useMemo(() => {
     if (isTransitioning) return 1000;
     if (timeLeft <= 10) return 1000;
     return 5000;
   }, [timeLeft, isTransitioning]);
 
-  // =============================================================================
-  // CORREÇÃO: Usar getCurrentRound() em vez de getRoundInfo()
-  // =============================================================================
   const { data: currentRoundData, refetch: refetchRound } = useReadContract({
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
@@ -28,16 +24,12 @@ export const Raffle: React.FC = () => {
     query: { refetchInterval: pollInterval },
   });
 
-  // Extract values from tuple: (roundId, totalPool, endTime, participantCount, ticketCount, isActive)
-  const roundId = currentRoundData?.[0];
   const totalPool = currentRoundData?.[1] ?? 0n;
   const endTime = currentRoundData?.[2];
-  const participantCount = currentRoundData?.[3] ?? 0n;
   const ticketCount = currentRoundData?.[4] ?? 0n;
   const isActive = currentRoundData?.[5] ?? false;
 
-  // Calculate cost: 1 ticket = 1 USDC (1_000_000 in 6 decimals)
-  const ticketPrice = 1_000_000n; // 1 USDC
+  const ticketPrice = 1_000_000n;
   const totalCost = useMemo(() => {
     const qty = parseInt(ticketAmount) || 0;
     return BigInt(qty) * ticketPrice;
@@ -68,9 +60,6 @@ export const Raffle: React.FC = () => {
     if (!approvingTx && approveHash) refetchAllowance();
   }, [approvingTx, approveHash, refetchAllowance]);
 
-  // =============================================================================
-  // TIMER LOGIC
-  // =============================================================================
   useEffect(() => {
     if (endTime === undefined) return;
 
@@ -95,9 +84,6 @@ export const Raffle: React.FC = () => {
     return () => clearInterval(interval);
   }, [endTime, isActive, refetchRound]);
 
-  // =============================================================================
-  // HANDLERS
-  // =============================================================================
   const handleApprove = () => {
     if (!ticketAmount || totalCost <= 0n) return;
     writeApprove({
@@ -112,7 +98,6 @@ export const Raffle: React.FC = () => {
     const qty = parseInt(ticketAmount) || 0;
     if (qty <= 0) return;
     
-    // CORREÇÃO: buyTickets recebe quantidade de tickets, não USDC
     writeBuy({
       address: CONTRACTS.RAFFLE_MANAGER,
       abi: RAFFLE_ABI,
