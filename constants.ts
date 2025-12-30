@@ -4,23 +4,18 @@ import { injected, walletConnect } from 'wagmi/connectors';
 
 // --- CONFIGURATION ---
 
-// [PASSO FINAL - IMPORTANTE]
-// Project ID atualizada para conexão mobile/QR Code estável.
 export const PROJECT_ID = '94daeb9a2c7c766816ab3ea56255520b'; 
 
-// Metadata para o modal de conexão (aparece no celular do usuário)
 const metadata = {
   name: 'Instant Win',
   description: 'Arbitrum Raffle Protocol',
-  url: 'https://instantwin.finance', // Coloque seu domínio aqui quando comprar
+  url: 'https://instantwin.finance',
   icons: ['https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png']
 };
 
 export const wagmiConfig = createConfig({
-  chains: [arbitrum], // Arbitrum One (Mainnet ID 42161)
+  chains: [arbitrum],
   transports: {
-    // Usando RPC público da Arbitrum. 
-    // Em produção, se tiver muitos usuários, considere usar Alchemy ou Infura.
     [arbitrum.id]: http(), 
   },
   connectors: [
@@ -37,10 +32,7 @@ export const wagmiConfig = createConfig({
 });
 
 export const CONTRACTS = {
-  // Endereço oficial do USDC Nativo na Arbitrum One
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  
-  // Seus contratos na Mainnet
   USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',
   SHARES_REGISTRY: '0x089B10b8Af63277FA4D8B8ECb23603B451245f59',
   RAFFLE_MANAGER: '0xA018d2fdE729349c1CAE20b6B72007c817Bc342c',
@@ -101,9 +93,20 @@ export const USERNAME_ABI = [
     inputs: [{ name: 'username', type: 'string' }],
     outputs: [{ name: '', type: 'bool' }],
   },
+  {
+    name: 'hasUsername',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'addr', type: 'address' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 ] as const;
 
+// =============================================================================
+// RAFFLE ABI - CORRIGIDO para corresponder ao contrato deployado
+// =============================================================================
 export const RAFFLE_ABI = [
+  // currentRoundId - retorna o ID da rodada atual
   {
     name: 'currentRoundId',
     type: 'function',
@@ -111,39 +114,53 @@ export const RAFFLE_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  // getCurrentRound - ESTA É A FUNÇÃO CORRETA (não getRoundInfo!)
+  // Retorna: (roundId, totalPool, endTime, participantCount, ticketCount, isActive)
   {
-    name: 'getRoundInfo',
+    name: 'getCurrentRound',
     type: 'function',
     stateMutability: 'view',
-    inputs: [{ name: 'roundId', type: 'uint256' }],
+    inputs: [],
     outputs: [
-      {
-        components: [
-            { name: 'status', type: 'uint8' }, 
-            { name: 'endTime', type: 'uint256' },
-            { name: 'totalPot', type: 'uint256' },
-            { name: 'ticketsSold', type: 'uint256' },
-            { name: 'participantCount', type: 'uint256' }
-        ],
-        name: '',
-        type: 'tuple'
-      }
+      { name: 'roundId', type: 'uint256' },
+      { name: 'totalPool', type: 'uint256' },
+      { name: 'endTime', type: 'uint256' },
+      { name: 'participantCount', type: 'uint256' },
+      { name: 'ticketCount', type: 'uint256' },
+      { name: 'isActive', type: 'bool' },
     ],
   },
+  // buyTickets - comprar tickets (parâmetro é quantidade de tickets, não USDC amount)
   {
     name: 'buyTickets',
     type: 'function',
     stateMutability: 'nonpayable',
-    inputs: [{ name: 'amountUSDC', type: 'uint256' }],
+    inputs: [{ name: 'ticketCount', type: 'uint256' }],
     outputs: [],
   },
+  // getWinners - buscar vencedores de uma rodada
   {
-      name: 'getWinners',
-      type: 'function',
-      stateMutability: 'view',
-      inputs: [{ name: 'roundId', type: 'uint256' }],
-      outputs: [{name: '', type: 'address[]'}]
-  }
+    name: 'getWinners',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'roundId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'address[]' }],
+  },
+  // Constantes úteis
+  {
+    name: 'TICKET_PRICE',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'MAX_TICKETS_PER_WALLET',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
 ] as const;
 
 export const SHARES_ABI = [
@@ -188,5 +205,5 @@ export const SHARES_ABI = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
-  }
+  },
 ] as const;
