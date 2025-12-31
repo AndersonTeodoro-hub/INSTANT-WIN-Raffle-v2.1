@@ -1,4 +1,3 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createPublicClient, http } from 'viem';
 import { arbitrum } from 'viem/chains';
 
@@ -44,7 +43,7 @@ const SHARES_ABI = [
   },
 ] as const;
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   res.setHeader('Cache-Control', 's-maxage=5, stale-while-revalidate');
