@@ -43,7 +43,11 @@ export const Dashboard: React.FC = () => {
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
     functionName: 'getCurrentRound',
-    query: { refetchInterval: pollInterval },
+    query: { 
+      refetchInterval: pollInterval,
+      gcTime: 0,
+      staleTime: 0,
+    },
   });
 
   const roundId = currentRoundData?.[0];
