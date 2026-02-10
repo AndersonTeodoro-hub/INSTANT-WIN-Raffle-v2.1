@@ -16,7 +16,7 @@ const metadata = {
 export const wagmiConfig = createConfig({
   chains: [arbitrum],
   transports: {
-    [arbitrum.id]: http(), 
+    [arbitrum.id]: http('https://arb1.arbitrum.io/rpc'), 
   },
   connectors: [
     injected(),
