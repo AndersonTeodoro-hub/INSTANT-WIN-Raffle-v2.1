@@ -21,11 +21,16 @@ export const Raffle: React.FC = () => {
     address: CONTRACTS.RAFFLE_MANAGER,
     abi: RAFFLE_ABI,
     functionName: 'getCurrentRound',
-    query: { refetchInterval: pollInterval },
+    query: { 
+      refetchInterval: pollInterval,
+      gcTime: 0,
+      staleTime: 0,
+    },
   });
 
   const totalPool = currentRoundData?.[1] ?? 0n;
   const endTime = currentRoundData?.[2];
+  const participantCount = currentRoundData?.[3] ?? 0n;
   const ticketCount = currentRoundData?.[4] ?? 0n;
   const isActive = currentRoundData?.[5] ?? false;
 
@@ -50,8 +55,12 @@ export const Raffle: React.FC = () => {
 
   useEffect(() => {
     if (boughtSuccess) {
+      // Multiple refetches to beat RPC cache
       refetchRound();
       refetchAllowance();
+      setTimeout(() => refetchRound(), 1000);
+      setTimeout(() => refetchRound(), 3000);
+      setTimeout(() => refetchRound(), 5000);
       setTicketAmount('1');
     }
   }, [boughtSuccess, refetchRound, refetchAllowance]);
@@ -149,6 +158,7 @@ export const Raffle: React.FC = () => {
               <Ticket className="w-3 h-3" /> Tickets Sold
             </div>
             <span className="text-2xl font-mono font-bold text-white">{ticketCount.toString()}</span>
+            <span className="text-xs text-gray-500 mt-1">{participantCount.toString()} participant{Number(participantCount) !== 1 ? 's' : ''}</span>
           </div>
         </div>
       </div>
