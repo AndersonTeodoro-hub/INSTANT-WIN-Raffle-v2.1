@@ -149,7 +149,7 @@ const es: LandingCopy = {
   header: { enterApp: 'Abrir app' },
   hero: {
     badge: 'Con tecnología Chainlink VRF',
-    headlineTop: 'Comprobablemente justo.',
+    headlineTop: 'Demostrablemente justo.',
     headlineBottom: 'Pago al instante.',
     sub: '3 ganadores cada 30 minutos. Boletos desde 1 USDC. En Arbitrum One.',
     cta: 'JUGAR AHORA',
