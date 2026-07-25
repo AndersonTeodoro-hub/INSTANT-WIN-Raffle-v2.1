@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Instant Win — Arbitrum Raffle Protocol
 
-# Run and deploy your AI Studio app
+Instant-win raffle dApp on Arbitrum One.
 
-This contains everything you need to run your app locally.
+## Stack
 
-View your app in AI Studio: https://ai.studio/apps/drive/1yg4zZXBQ_pmLwybI6h1e3WRBbIX-CEpa
+- Vite
+- React 18
+- Wagmi v2
+- Arbitrum One
 
-## Run Locally
+## Commands
 
-**Prerequisites:**  Node.js
+```bash
+npm install     # install dependencies
+npm run dev     # start dev server
+npm run build   # type-check + production build
+```
 
+## Variáveis de ambiente
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+`VITE_WC_PROJECT_ID` (WalletConnect Project ID) é **obrigatória**.
+
+- **Produção:** configurar no dashboard do Vercel.
+- **Desenvolvimento local:** definir em `.env.local` (nunca commitado).
+
+A app lança um erro em runtime se a variável não estiver definida.

@@ -4,7 +4,10 @@ import { injected, walletConnect } from 'wagmi/connectors';
 
 // --- CONFIGURATION ---
 
-export const PROJECT_ID = '94daeb9a2c7c766816ab3ea56255520b'; 
+const PROJECT_ID = import.meta.env.VITE_WC_PROJECT_ID;
+if (!PROJECT_ID) {
+  throw new Error('VITE_WC_PROJECT_ID não definida — configurar no Vercel ou em .env.local');
+}
 
 const metadata = {
   name: 'Instant Win',
