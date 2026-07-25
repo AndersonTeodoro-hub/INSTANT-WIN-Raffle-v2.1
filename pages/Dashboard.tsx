@@ -106,15 +106,15 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MiniCard label="Identity" value={username ? `@${username}` : 'Register'} icon={User} to="/username" />
+        <MiniCard label="Identity" value={username ? `@${username}` : 'Register'} icon={User} to="/play/identity" />
         <MiniCard
           label="Wallet"
           value={usdcBalance ? `${formatUnits(usdcBalance as bigint, 6)} USDC` : '0.00'}
           icon={Wallet}
-          to="/"
+          to="/play"
         />
-        <MiniCard label="Shares" value={sharesBalance ? sharesBalance.toString() : '0'} icon={PieChart} to="/shares" />
-        <MiniCard label="Network" value="Arbitrum One" icon={Zap} to="/" />
+        <MiniCard label="Shares" value={sharesBalance ? sharesBalance.toString() : '0'} icon={PieChart} to="/play/shares" />
+        <MiniCard label="Network" value="Arbitrum One" icon={Zap} to="/play" />
       </div>
 
       <div className="relative rounded-[40px] overflow-hidden border border-brand/20 shadow-[0_0_50px_rgba(245,158,11,0.1)]">
@@ -167,7 +167,7 @@ export const Dashboard: React.FC = () => {
           </div>
 
           <div className="w-full max-w-md">
-            <Link to="/raffle">
+            <Link to="/play/raffle">
               <Button
                 variant="connect"
                 disabled={isTransitioning}

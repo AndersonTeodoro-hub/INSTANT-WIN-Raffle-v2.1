@@ -11,10 +11,10 @@ export const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
   const navItems = [
-    { path: '/', label: 'Overview', icon: Zap },
-    { path: '/raffle', label: 'Raffle', icon: Ticket },
-    { path: '/shares', label: 'Shares', icon: PieChart },
-    { path: '/username', label: 'Identity', icon: User },
+    { path: '/play', label: 'Overview', icon: Zap },
+    { path: '/play/raffle', label: 'Raffle', icon: Ticket },
+    { path: '/play/shares', label: 'Shares', icon: PieChart },
+    { path: '/play/identity', label: 'Identity', icon: User },
   ];
 
   return (
@@ -22,7 +22,7 @@ export const Navbar: React.FC = () => {
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
         
         {/* Brand */}
-        <Link to="/" className="flex items-center gap-3">
+        <Link to="/play" className="flex items-center gap-3">
           <div className="bg-brand p-2 rounded-lg">
             <Trophy className="w-6 h-6 text-black fill-black" />
           </div>
