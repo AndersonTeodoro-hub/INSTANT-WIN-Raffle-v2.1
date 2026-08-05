@@ -38,7 +38,20 @@ export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',
   SHARES_REGISTRY: '0x089B10b8Af63277FA4D8B8ECb23603B451245f59',
-  RAFFLE_MANAGER: '0xA018d2fdE729349c1CAE20b6B72007c817Bc342c',
+  // RaffleManagerV2 — Arbitrum One, verificado (Sourcify exact_match).
+  RAFFLE_MANAGER: '0x4149406c1f0A4D680ad5d5278370ee65478254f8',
+} as const;
+
+/** Bloco de deploy da RaffleManagerV2 — piso para queries de eventos. */
+export const RAFFLE_DEPLOY_BLOCK = 490447325n;
+
+/** RaffleManagerV2.State — tem de bater com o enum do contrato. */
+export const RoundState = {
+  NONE: 0,
+  OPEN: 1,
+  DRAWING: 2,
+  SETTLED: 3,
+  CANCELLED: 4,
 } as const;
 
 // --- ABIS ---
@@ -129,59 +142,137 @@ export const USERNAME_ABI = [
   },
 ] as const;
 
+/** Único sítio onde vive a assinatura do evento — reutilizado no ABI e no getLogs. */
+export const PRIZE_AWARDED_EVENT = {
+  type: 'event',
+  name: 'PrizeAwarded',
+  inputs: [
+    { name: 'roundId', type: 'uint256', indexed: true },
+    { name: 'winner', type: 'address', indexed: true },
+    { name: 'rank', type: 'uint8', indexed: true },
+    { name: 'amount', type: 'uint256', indexed: false },
+  ],
+  anonymous: false,
+} as const;
+
 // =============================================================================
-// RAFFLE ABI - CORRIGIDO
+// RAFFLE ABI — RaffleManagerV2
+// Extraído do artefacto compilado que produziu o bytecode deployado
+// (instant-win-audit/v2/out/RaffleManagerV2.sol/RaffleManagerV2.json), não
+// escrito à mão. Alterar apenas re-extraindo do artefacto.
 // =============================================================================
 export const RAFFLE_ABI = [
   {
-    name: 'currentRoundId',
     type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
     name: 'getCurrentRound',
-    type: 'function',
-    stateMutability: 'view',
     inputs: [],
     outputs: [
       { name: 'roundId', type: 'uint256' },
-      { name: 'totalPool', type: 'uint256' },
+      { name: 'state', type: 'uint8' },
       { name: 'endTime', type: 'uint256' },
       { name: 'participantCount', type: 'uint256' },
-      { name: 'ticketCount', type: 'uint256' },
-      { name: 'isActive', type: 'bool' },
+      { name: 'totalTickets', type: 'uint256' },
+      { name: 'pool', type: 'uint256' },
     ],
+    stateMutability: 'view',
   },
   {
-    name: 'buyTickets',
     type: 'function',
-    stateMutability: 'nonpayable',
+    name: 'buyTickets',
     inputs: [{ name: 'ticketCount', type: 'uint256' }],
     outputs: [],
+    stateMutability: 'nonpayable',
   },
   {
-    name: 'getWinners',
     type: 'function',
+    name: 'claim',
+    inputs: [],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'claimable',
+    inputs: [{ name: '', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'claimRefund',
     inputs: [{ name: 'roundId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'address[]' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
   {
+    type: 'function',
+    name: 'ticketsOf',
+    inputs: [
+      { name: '', type: 'uint256' },
+      { name: '', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'refunded',
+    inputs: [
+      { name: '', type: 'uint256' },
+      { name: '', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'rounds',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'state', type: 'uint8' },
+      { name: 'endTime', type: 'uint40' },
+      { name: 'requestedAt', type: 'uint40' },
+      { name: 'totalTickets', type: 'uint256' },
+      { name: 'pool', type: 'uint256' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'TICKET_PRICE',
-    type: 'function',
-    stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
   },
   {
-    name: 'MAX_TICKETS_PER_WALLET',
     type: 'function',
-    stateMutability: 'view',
+    name: 'MAX_TICKETS_PER_WALLET',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
   },
+  {
+    type: 'function',
+    name: 'MIN_PARTICIPANTS',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'currentRoundId',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'paused',
+    inputs: [],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+  },
+  PRIZE_AWARDED_EVENT,
 ] as const;
 
 export const SHARES_ABI = [

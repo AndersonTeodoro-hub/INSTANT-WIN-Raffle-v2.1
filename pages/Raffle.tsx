@@ -1,8 +1,9 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { CONTRACTS, RAFFLE_ABI, USDC_ABI } from '../constants';
+import { CONTRACTS, RAFFLE_ABI, USDC_ABI, RoundState } from '../constants';
 import { formatUnits } from 'viem';
 import { Button } from '../components/Button';
+import { ClaimPanel, PreviousRound } from '../components/RoundPanels';
 import { Clock, Ticket, Activity, Info } from 'lucide-react';
 
 export const Raffle: React.FC = () => {
@@ -28,11 +29,26 @@ export const Raffle: React.FC = () => {
     },
   });
 
-  const totalPool = currentRoundData?.[1] ?? 0n;
-  const endTime = currentRoundData?.[2];
-  const participantCount = currentRoundData?.[3] ?? 0n;
-  const ticketCount = currentRoundData?.[4] ?? 0n;
-  const isActive = currentRoundData?.[5] ?? false;
+  // RaffleManagerV2.getCurrentRound() → (roundId, state, endTime, participantCount, totalTickets, pool)
+  const roundId = currentRoundData?.[0] as bigint | undefined;
+  const state = currentRoundData?.[1] as number | undefined;
+  const endTime = currentRoundData?.[2] as bigint | undefined;
+  const participantCount = (currentRoundData?.[3] ?? 0n) as bigint;
+  const ticketCount = (currentRoundData?.[4] ?? 0n) as bigint;
+  const totalPool = (currentRoundData?.[5] ?? 0n) as bigint;
+  const isOpen = state === RoundState.OPEN;
+  const canBuy = isOpen && !isTransitioning;
+
+  // A ronda corrente é sempre OPEN (uma nova abre no fecho da anterior); o
+  // caso real a distinguir é OPEN-mas-expirada, à espera de closeRound().
+  const statusLabel = useMemo(() => {
+    if (state === undefined) return 'Loading Round';
+    if (state === RoundState.OPEN) return isTransitioning ? 'Round Ended · Awaiting Close' : 'Live Pool Arbitrum';
+    if (state === RoundState.DRAWING) return 'Drawing Winners…';
+    if (state === RoundState.SETTLED) return 'Round Settled';
+    if (state === RoundState.CANCELLED) return 'Round Cancelled · Refunds Open';
+    return 'Idle';
+  }, [state, isTransitioning]);
 
   const ticketPrice = 1_000_000n;
   const totalCost = useMemo(() => {
@@ -78,7 +94,7 @@ export const Raffle: React.FC = () => {
       const now = Math.floor(Date.now() / 1000);
       const diff = endTimeSec - now;
 
-      if (diff <= 0 || !isActive) {
+      if (diff <= 0 || !isOpen) {
         setTimeLeft(0);
         setIsTransitioning(true);
         setTimeout(() => refetchRound(), 1500);
@@ -91,7 +107,7 @@ export const Raffle: React.FC = () => {
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [endTime, isActive, refetchRound]);
+  }, [endTime, isOpen, refetchRound]);
 
   const handleApprove = () => {
     if (!ticketAmount || totalCost <= 0n) return;
@@ -134,7 +150,7 @@ export const Raffle: React.FC = () => {
         <div className="inline-flex items-center gap-2 bg-[#1A1A1D] border border-gray-800 px-4 py-1.5 rounded-full mb-6">
           <div className={`w-2 h-2 rounded-full ${isTransitioning ? 'bg-gray-500' : 'bg-brand animate-pulse'}`}></div>
           <span className={`text-xs font-bold tracking-widest uppercase ${isTransitioning ? 'text-gray-500' : 'text-brand'}`}>
-            {isTransitioning ? 'Finalizing Round' : 'Live Pool Arbitrum'}
+            {statusLabel}
           </span>
         </div>
 
@@ -184,7 +200,7 @@ export const Raffle: React.FC = () => {
                 placeholder="0"
                 min="1"
                 max="100"
-                disabled={isTransitioning}
+                disabled={!canBuy}
               />
               <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded border border-gray-800">
                 <span className="text-white font-bold">TICKETS</span>
@@ -199,7 +215,7 @@ export const Raffle: React.FC = () => {
                 className="w-full py-4 text-lg"
                 onClick={handleApprove}
                 isLoading={isApproving || approvingTx}
-                disabled={!isConnected || isTransitioning}
+                disabled={!isConnected || !canBuy}
               >
                 Approve {formatUnits(totalCost, 6)} USDC
               </Button>
@@ -209,9 +225,9 @@ export const Raffle: React.FC = () => {
                 className="w-full py-4 text-lg"
                 onClick={handleBuy}
                 isLoading={isBuying || buyingTx}
-                disabled={!isConnected || isTransitioning}
+                disabled={!isConnected || !canBuy}
               >
-                {isTransitioning ? 'Wait for Next Round' : `Buy ${ticketAmount} Ticket${parseInt(ticketAmount) !== 1 ? 's' : ''}`}
+                {!canBuy ? 'Wait for Next Round' : `Buy ${ticketAmount} Ticket${parseInt(ticketAmount) !== 1 ? 's' : ''}`}
               </Button>
             )}
           </div>
@@ -222,6 +238,7 @@ export const Raffle: React.FC = () => {
           </div>
         </div>
 
+        <div className="space-y-8">
         <div className="bg-dark-card border border-dark-border rounded-3xl p-8">
           <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Activity className="w-5 h-5 text-green-500" /> Status
@@ -261,6 +278,10 @@ export const Raffle: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+
+        <ClaimPanel currentRoundId={roundId} />
+        <PreviousRound currentRoundId={roundId} />
         </div>
       </div>
     </div>
