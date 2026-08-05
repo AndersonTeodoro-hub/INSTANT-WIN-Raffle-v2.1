@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
-import { CONTRACTS, USERNAME_ABI, USDC_ABI, RAFFLE_ABI, SHARES_ABI } from '../constants';
+import { CONTRACTS, USERNAME_ABI, USDC_ABI, RAFFLE_ABI, SHARES_ABI, RoundState } from '../constants';
 import { formatUnits } from 'viem';
 import { User, Wallet, PieChart, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -50,11 +50,13 @@ export const Dashboard: React.FC = () => {
     },
   });
 
-  const roundId = currentRoundData?.[0];
-  const totalPool = currentRoundData?.[1] ?? 0n;
-  const endTime = currentRoundData?.[2];
-  const ticketCount = currentRoundData?.[4] ?? 0n;
-  const isActive = currentRoundData?.[5] ?? false;
+  // RaffleManagerV2.getCurrentRound() → (roundId, state, endTime, participantCount, totalTickets, pool)
+  const roundId = currentRoundData?.[0] as bigint | undefined;
+  const state = currentRoundData?.[1] as number | undefined;
+  const endTime = currentRoundData?.[2] as bigint | undefined;
+  const ticketCount = (currentRoundData?.[4] ?? 0n) as bigint;
+  const totalPool = (currentRoundData?.[5] ?? 0n) as bigint;
+  const isOpen = state === RoundState.OPEN;
 
   useEffect(() => {
     if (endTime === undefined) return;
@@ -65,7 +67,7 @@ export const Dashboard: React.FC = () => {
       const now = Math.floor(Date.now() / 1000);
       const diff = endTimeSec - now;
 
-      if (diff <= 0 || !isActive) {
+      if (diff <= 0 || !isOpen) {
         setTimeLeft(0);
         setIsTransitioning(true);
         setTimeout(() => refetchRound(), 1500);
@@ -78,7 +80,7 @@ export const Dashboard: React.FC = () => {
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [endTime, isActive, refetchRound]);
+  }, [endTime, isOpen, refetchRound]);
 
   const formatTime = (seconds: number) => {
     const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
