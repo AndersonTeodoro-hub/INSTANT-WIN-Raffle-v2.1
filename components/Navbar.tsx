@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ConnectWallet } from './ConnectWallet';
-import { Trophy, Menu, Zap, Ticket, User } from 'lucide-react';
+import { Menu, Zap, Ticket, User } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAccount } from 'wagmi';
 
@@ -20,19 +20,31 @@ export const Navbar: React.FC = () => {
     <nav className="border-b border-dark-border bg-dark-bg/80 backdrop-blur-md sticky top-0 z-50">
       <div className="container mx-auto px-4 h-16 sm:h-20 flex items-center justify-between gap-2">
 
-        {/* Brand — a wordmark desaparece abaixo de 400px para o header não transbordar */}
-        <Link to="/play" className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="bg-brand p-2 rounded-lg shrink-0">
-            <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-black fill-black" />
-          </div>
-          <div className="hidden min-[400px]:flex items-center gap-2 min-w-0">
-            <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight truncate">
-              INSTANT WIN
-            </span>
-            <span className="font-mono bg-brand/20 text-brand text-[10px] font-bold px-1.5 py-0.5 rounded border border-brand/20 shrink-0">
-              ARB
-            </span>
-          </div>
+        {/* Brand — wordmark em HTML puro, sem imagem. Abaixo de 400px fica só o
+            check verde como marca mínima, para o header não transbordar. */}
+        <Link to="/play" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2">
+          <span className="hidden min-[400px]:inline font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
+            INSTANT WIN
+          </span>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+            className="shrink-0 translate-y-[1px]"
+          >
+            <path
+              d="M4 12.5 L9.5 18 L20 6"
+              stroke="#22c55e"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span className="hidden min-[400px]:inline font-mono bg-brand/20 text-brand text-[10px] font-bold px-1.5 py-0.5 rounded border border-brand/20 shrink-0">
+            ARB
+          </span>
         </Link>
 
         {/* Desktop Nav */}

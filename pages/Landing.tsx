@@ -42,11 +42,28 @@ export const Landing: React.FC = () => {
       {/* Minimal public header — language selector + Enter App. No wallet connect here. */}
       <header className="relative z-20 border-b border-dark-border/60 backdrop-blur-sm sticky top-0 bg-black/70">
         <div className="container mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="bg-brand p-2 rounded-lg">
-              <Trophy className="w-5 h-5 text-black fill-black" />
-            </div>
-            <span className="font-display font-bold text-lg text-white tracking-tight hidden sm:inline">INSTANT WIN</span>
+          {/* Mesma marca da navbar: wordmark em HTML puro + check verde inline.
+              Abaixo de 400px fica só o check. */}
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="hidden min-[400px]:inline font-display font-bold text-xl text-white tracking-tight leading-none truncate">
+              INSTANT WIN
+            </span>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+              className="shrink-0 translate-y-[1px]"
+            >
+              <path
+                d="M4 12.5 L9.5 18 L20 6"
+                stroke="#22c55e"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
