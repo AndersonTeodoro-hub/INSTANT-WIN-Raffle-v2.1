@@ -18,18 +18,20 @@ export const Navbar: React.FC = () => {
 
   return (
     <nav className="border-b border-dark-border bg-dark-bg/80 backdrop-blur-md sticky top-0 z-50">
-      <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-        
-        {/* Brand */}
-        <Link to="/play" className="flex items-center gap-3">
-          <div className="bg-brand p-2 rounded-lg">
-            <Trophy className="w-6 h-6 text-black fill-black" />
+      <div className="container mx-auto px-4 h-16 sm:h-20 flex items-center justify-between gap-2">
+
+        {/* Brand — a wordmark desaparece abaixo de 400px para o header não transbordar */}
+        <Link to="/play" className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="bg-brand p-2 rounded-lg shrink-0">
+            <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-black fill-black" />
           </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-                <span className="font-display font-bold text-xl text-white tracking-tight">INSTANT WIN</span>
-                <span className="bg-brand/20 text-brand text-[10px] font-bold px-1.5 py-0.5 rounded border border-brand/20">ARB</span>
-            </div>
+          <div className="hidden min-[400px]:flex items-center gap-2 min-w-0">
+            <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight truncate">
+              INSTANT WIN
+            </span>
+            <span className="font-mono bg-brand/20 text-brand text-[10px] font-bold px-1.5 py-0.5 rounded border border-brand/20 shrink-0">
+              ARB
+            </span>
           </div>
         </Link>
 
@@ -67,8 +69,10 @@ export const Navbar: React.FC = () => {
 
             <ConnectWallet />
             
-            <button 
-                className="md:hidden p-2 text-gray-400"
+            <button
+                className="md:hidden flex items-center justify-center w-11 h-11 -mr-2 text-gray-400"
+                aria-label="Open menu"
+                aria-expanded={isMobileMenuOpen}
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
                 <Menu className="w-6 h-6" />
@@ -84,7 +88,7 @@ export const Navbar: React.FC = () => {
                     key={item.path}
                     to={item.path}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="block py-3 px-4 text-gray-300 hover:bg-white/5 rounded-lg mb-1"
+                    className="flex items-center min-h-[44px] py-3 px-4 text-gray-300 hover:bg-white/5 rounded-lg mb-1"
                 >
                     <div className="flex items-center gap-3">
                         <item.icon className="w-5 h-5 text-brand" />

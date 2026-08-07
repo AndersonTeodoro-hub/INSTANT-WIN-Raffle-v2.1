@@ -9,6 +9,7 @@ import { Landing } from './pages/Landing';
 import { Dashboard } from './pages/Dashboard';
 import { Raffle } from './pages/Raffle';
 import { Username } from './pages/Username';
+import { useLang, translations } from './pages/landing.i18n';
 
 const queryClient = new QueryClient();
 
@@ -22,21 +23,38 @@ const GameLayout: React.FC = () => (
 
     <Navbar />
 
-    <main className="flex-1 container mx-auto px-4 py-12 relative z-10">
+    <main className="flex-1 container mx-auto px-4 py-6 sm:py-12 relative z-10">
       <Outlet />
     </main>
 
-    <footer className="border-t border-dark-border py-8 mt-12 bg-black/80 backdrop-blur-sm relative z-10">
-      <div className="container mx-auto px-4 text-center">
-         <p className="text-gray-600 text-sm font-medium">© 2024 Instant Win Protocol. All rights reserved.</p>
-         <div className="flex justify-center items-center gap-2 mt-3 text-xs text-gray-500">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_#22c55e]"></span>
-            Live on Arbitrum One
-         </div>
-      </div>
-    </footer>
+    <GameFooter />
   </div>
 );
+
+/**
+ * Rodapé das páginas do jogo. O aviso de jogo responsável segue o idioma que o
+ * visitante escolheu na landing (persistido em localStorage), para não voltar a
+ * inglês assim que se entra no app.
+ */
+const GameFooter: React.FC = () => {
+  const [lang] = useLang();
+  const t = translations[lang];
+
+  return (
+    <footer className="border-t border-dark-border py-6 sm:py-8 mt-8 bg-black/80 backdrop-blur-sm relative z-10">
+      <div className="container mx-auto px-4 text-center space-y-2">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">
+          {t.footer.responsibleShort}
+        </p>
+        <div className="flex justify-center items-center gap-2 font-mono text-[11px] text-gray-600">
+          <span className="w-2 h-2 rounded-full bg-success animate-pulse shadow-[0_0_5px_#22c55e]" />
+          Live on Arbitrum One
+        </div>
+        <p className="font-mono text-[10px] text-gray-700">© 2026 Instant Win Protocol</p>
+      </div>
+    </footer>
+  );
+};
 
 const App: React.FC = () => {
   return (
