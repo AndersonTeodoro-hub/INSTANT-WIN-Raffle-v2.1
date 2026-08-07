@@ -1,10 +1,11 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { CONTRACTS, RAFFLE_ABI, USDC_ABI, RoundState } from '../constants';
+import { CONTRACTS, RAFFLE_ABI, USDC_ABI, USERNAME_ABI, RoundState } from '../constants';
 import { formatUnits } from 'viem';
+import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { ClaimPanel, PreviousRound } from '../components/RoundPanels';
-import { Clock, Ticket, Activity, Info } from 'lucide-react';
+import { Clock, Ticket, Activity, Info, AlertTriangle, CheckCircle2, Percent } from 'lucide-react';
 
 export const Raffle: React.FC = () => {
   const { address, isConnected } = useAccount();
@@ -63,6 +64,47 @@ export const Raffle: React.FC = () => {
     args: address ? [address, CONTRACTS.RAFFLE_MANAGER] : undefined,
   });
 
+  // Sem username o contrato reverte com NoUsername(). Ler antes de deixar comprar,
+  // em vez de mandar o jogador contra um revert.
+  const { data: hasName, refetch: refetchHasName } = useReadContract({
+    address: CONTRACTS.USERNAME_REGISTRY,
+    abi: USERNAME_ABI,
+    functionName: 'hasUsername',
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  // V3: uma compra por wallet por ronda. ticketsOf > 0 significa "já entrou".
+  const { data: myTickets, refetch: refetchMyTickets } = useReadContract({
+    address: CONTRACTS.RAFFLE_MANAGER,
+    abi: RAFFLE_ABI,
+    functionName: 'ticketsOf',
+    args: roundId !== undefined && address ? [roundId, address] : undefined,
+    query: { enabled: roundId !== undefined && !!address, refetchInterval: 10000 },
+  });
+
+  const { data: oddsBps, refetch: refetchOdds } = useReadContract({
+    address: CONTRACTS.RAFFLE_MANAGER,
+    abi: RAFFLE_ABI,
+    functionName: 'winOddsBps',
+    args: roundId !== undefined && address ? [roundId, address] : undefined,
+    query: { enabled: roundId !== undefined && !!address, refetchInterval: 10000 },
+  });
+
+  const needsUsername = isConnected && hasName === false;
+  const alreadyEntered = ((myTickets ?? 0n) as bigint) > 0n;
+  /** Ronda aberta E o jogador está em condições de entrar. */
+  const canPurchase = canBuy && !needsUsername && !alreadyEntered;
+
+  // Trocar de conta no MetaMask (accountsChanged) muda `address`; forçar a
+  // re-leitura de tudo o que é por-wallet para não ficar estado da conta anterior.
+  useEffect(() => {
+    refetchAllowance();
+    refetchHasName();
+    refetchMyTickets();
+    refetchOdds();
+  }, [address, refetchAllowance, refetchHasName, refetchMyTickets, refetchOdds]);
+
   const { writeContract: writeApprove, data: approveHash, isPending: isApproving } = useWriteContract();
   const { writeContract: writeBuy, data: buyHash, isPending: isBuying } = useWriteContract();
 
@@ -74,8 +116,14 @@ export const Raffle: React.FC = () => {
       // Multiple refetches to beat RPC cache
       refetchRound();
       refetchAllowance();
+      refetchMyTickets();
+      refetchOdds();
       setTimeout(() => refetchRound(), 1000);
-      setTimeout(() => refetchRound(), 3000);
+      setTimeout(() => {
+        refetchRound();
+        refetchMyTickets();
+        refetchOdds();
+      }, 3000);
       setTimeout(() => refetchRound(), 5000);
       setTicketAmount('1');
     }
@@ -185,6 +233,46 @@ export const Raffle: React.FC = () => {
 
           <h2 className="text-2xl font-bold text-white mb-8 uppercase">Buy Your Chance</h2>
 
+          {needsUsername && (
+            <div className="mb-6 flex items-start gap-3 bg-dark-input border border-amber-500/30 rounded-2xl p-4">
+              <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="text-white font-bold">You need a username to enter</p>
+                <p className="text-gray-400">
+                  Every ticket is tied to a registered identity.{' '}
+                  <Link to="/play/identity" className="text-brand font-bold underline hover:text-amber-400">
+                    Register one here
+                  </Link>
+                  .
+                </p>
+              </div>
+            </div>
+          )}
+
+          {alreadyEntered && (
+            <div className="mb-6 flex items-start gap-3 bg-dark-input border border-green-500/30 rounded-2xl p-4">
+              <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="text-white font-bold">You already entered this round</p>
+                <p className="text-gray-400">
+                  {(myTickets as bigint).toString()} ticket{(myTickets as bigint) !== 1n ? 's' : ''} in round{' '}
+                  {roundId?.toString()}. One entry per wallet per round — you can enter again next round.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isConnected && !needsUsername && (
+            <div className="mb-6 flex items-center justify-between bg-dark-input border border-dark-border rounded-2xl px-5 py-3">
+              <span className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <Percent className="w-3 h-3" /> Your odds
+              </span>
+              <span className="text-xl font-mono font-bold text-brand">
+                {(Number((oddsBps ?? 0n) as bigint) / 100).toFixed(1)}%
+              </span>
+            </div>
+          )}
+
           <div className="bg-dark-input rounded-2xl p-6 border border-dark-border mb-6">
             <div className="flex justify-between items-center mb-4">
               <span className="text-xs font-bold text-gray-500 uppercase">Tickets (1 Ticket = 1 USDC)</span>
@@ -200,7 +288,7 @@ export const Raffle: React.FC = () => {
                 placeholder="0"
                 min="1"
                 max="100"
-                disabled={!canBuy}
+                disabled={!canPurchase}
               />
               <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded border border-gray-800">
                 <span className="text-white font-bold">TICKETS</span>
@@ -215,9 +303,13 @@ export const Raffle: React.FC = () => {
                 className="w-full py-4 text-lg"
                 onClick={handleApprove}
                 isLoading={isApproving || approvingTx}
-                disabled={!isConnected || !canBuy}
+                disabled={!isConnected || !canPurchase}
               >
-                Approve {formatUnits(totalCost, 6)} USDC
+                {needsUsername
+                  ? 'Register a Username First'
+                  : alreadyEntered
+                    ? 'Already Entered This Round'
+                    : `Approve ${formatUnits(totalCost, 6)} USDC`}
               </Button>
             ) : (
               <Button
@@ -225,9 +317,15 @@ export const Raffle: React.FC = () => {
                 className="w-full py-4 text-lg"
                 onClick={handleBuy}
                 isLoading={isBuying || buyingTx}
-                disabled={!isConnected || !canBuy}
+                disabled={!isConnected || !canPurchase}
               >
-                {!canBuy ? 'Wait for Next Round' : `Buy ${ticketAmount} Ticket${parseInt(ticketAmount) !== 1 ? 's' : ''}`}
+                {needsUsername
+                  ? 'Register a Username First'
+                  : alreadyEntered
+                    ? 'Already Entered This Round'
+                    : !canBuy
+                      ? 'Wait for Next Round'
+                      : `Buy ${ticketAmount} Ticket${parseInt(ticketAmount) !== 1 ? 's' : ''}`}
               </Button>
             )}
           </div>
