@@ -9,7 +9,6 @@ import { Landing } from './pages/Landing';
 import { Dashboard } from './pages/Dashboard';
 import { Raffle } from './pages/Raffle';
 import { Username } from './pages/Username';
-import { Shares } from './pages/Shares';
 
 const queryClient = new QueryClient();
 
@@ -50,14 +49,14 @@ const App: React.FC = () => {
             <Route path="/play" element={<GameLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="raffle" element={<Raffle />} />
-              <Route path="shares" element={<Shares />} />
               <Route path="identity" element={<Username />} />
             </Route>
 
             {/* Legacy routes → new equivalents (keep old links alive) */}
             <Route path="/raffle" element={<Navigate to="/play/raffle" replace />} />
-            <Route path="/shares" element={<Navigate to="/play/shares" replace />} />
             <Route path="/username" element={<Navigate to="/play/identity" replace />} />
+            {/* /shares e /play/shares foram removidos com a camada de investidores do V3;
+                caem no catch-all abaixo. */}
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

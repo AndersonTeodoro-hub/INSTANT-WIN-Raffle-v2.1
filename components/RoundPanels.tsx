@@ -19,6 +19,11 @@ const TICKET_PRICE = 1_000_000n;
 // Rondas mais antigas continuam reclamáveis on-chain via claimRefund(roundId) directo.
 const REFUND_WINDOW = 10;
 
+/** Blocos por pedido de getLogs. Pequeno o bastante para o RPC público aceitar. */
+const LOG_CHUNK = 9_000n;
+/** Tecto de pedidos por consulta: ~90k blocos ≈ 6h em Arbitrum. */
+const MAX_LOG_CHUNKS = 10;
+
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const usdc = (v: bigint) => formatUnits(v, 6);
 
@@ -174,26 +179,43 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
   const { data: winners } = useQuery({
     queryKey: ['prizeAwarded', prevId?.toString()],
     enabled: !!client && !!prevId && state === RoundState.SETTLED,
-    retry: false,
+    retry: 2,
     queryFn: async () => {
+      // O RPC público da Arbitrum rejeita intervalos largos de getLogs, e uma janela
+      // única e fixa também perde a ronda se ela tiver liquidado há mais tempo do que
+      // a janela. Varremos para trás em pedaços pequenos e paramos assim que houver
+      // resultados — na prática o primeiro pedaço chega, porque a ronda anterior
+      // acabou de fechar.
       const latest = await client!.getBlockNumber();
-      // ponytail: janela de 100k blocos (~7h em Arbitrum) cobre a ronda anterior de 30 min.
-      const window = 100_000n;
-      const from = latest > window && latest - window > RAFFLE_DEPLOY_BLOCK ? latest - window : RAFFLE_DEPLOY_BLOCK;
-      const logs = await client!.getLogs({
-        address: CONTRACTS.RAFFLE_MANAGER,
-        event: PRIZE_AWARDED_EVENT,
-        args: { roundId: prevId },
-        fromBlock: from,
-        toBlock: latest,
-      });
-      return logs
-        .map((l) => ({
-          winner: l.args.winner as `0x${string}`,
-          rank: Number(l.args.rank),
-          amount: l.args.amount as bigint,
-        }))
-        .sort((a, b) => a.rank - b.rank);
+      let to = latest;
+
+      for (let i = 0; i < MAX_LOG_CHUNKS && to >= RAFFLE_DEPLOY_BLOCK; i++) {
+        const candidate = to > LOG_CHUNK ? to - LOG_CHUNK + 1n : 0n;
+        const from = candidate > RAFFLE_DEPLOY_BLOCK ? candidate : RAFFLE_DEPLOY_BLOCK;
+
+        const logs = await client!.getLogs({
+          address: CONTRACTS.RAFFLE_MANAGER,
+          event: PRIZE_AWARDED_EVENT,
+          args: { roundId: prevId },
+          fromBlock: from,
+          toBlock: to,
+        });
+
+        if (logs.length > 0) {
+          return logs
+            .map((l) => ({
+              winner: l.args.winner as `0x${string}`,
+              rank: Number(l.args.rank),
+              amount: l.args.amount as bigint,
+            }))
+            .sort((a, b) => a.rank - b.rank);
+        }
+
+        if (from <= RAFFLE_DEPLOY_BLOCK) break;
+        to = from - 1n;
+      }
+
+      return [] as { winner: `0x${string}`; rank: number; amount: bigint }[];
     },
   });
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ConnectWallet } from './ConnectWallet';
-import { Trophy, Menu, Zap, Ticket, User, PieChart } from 'lucide-react';
+import { Trophy, Menu, Zap, Ticket, User } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAccount } from 'wagmi';
 
@@ -13,7 +13,6 @@ export const Navbar: React.FC = () => {
   const navItems = [
     { path: '/play', label: 'Overview', icon: Zap },
     { path: '/play/raffle', label: 'Raffle', icon: Ticket },
-    { path: '/play/shares', label: 'Shares', icon: PieChart },
     { path: '/play/identity', label: 'Identity', icon: User },
   ];
 

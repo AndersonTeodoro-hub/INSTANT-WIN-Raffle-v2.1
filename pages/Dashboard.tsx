@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
-import { CONTRACTS, USERNAME_ABI, USDC_ABI, RAFFLE_ABI, SHARES_ABI, RoundState } from '../constants';
+import { CONTRACTS, USERNAME_ABI, USDC_ABI, RAFFLE_ABI, RoundState } from '../constants';
 import { formatUnits } from 'viem';
-import { User, Wallet, PieChart, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
+import { User, Wallet, Coins, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 
@@ -26,11 +26,13 @@ export const Dashboard: React.FC = () => {
     args: address ? [address] : undefined,
   });
 
-  const { data: sharesBalance } = useReadContract({
-    address: CONTRACTS.SHARES_REGISTRY,
-    abi: SHARES_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
+  // O V3 devolve os 12,5% ex-investidores ao pool: este é o valor com que a
+  // próxima ronda vai abrir. Substitui o cartão "Shares", que já não existe.
+  const { data: pendingCarry } = useReadContract({
+    address: CONTRACTS.RAFFLE_MANAGER,
+    abi: RAFFLE_ABI,
+    functionName: 'pendingCarry',
+    query: { refetchInterval: 15000 },
   });
 
   const pollInterval = useMemo(() => {
@@ -115,7 +117,12 @@ export const Dashboard: React.FC = () => {
           icon={Wallet}
           to="/play"
         />
-        <MiniCard label="Shares" value={sharesBalance ? sharesBalance.toString() : '0'} icon={PieChart} to="/play/shares" />
+        <MiniCard
+          label="Next Pool"
+          value={`${formatUnits((pendingCarry ?? 0n) as bigint, 6)} USDC`}
+          icon={Coins}
+          to="/play/raffle"
+        />
         <MiniCard label="Network" value="Arbitrum One" icon={Zap} to="/play" />
       </div>
 

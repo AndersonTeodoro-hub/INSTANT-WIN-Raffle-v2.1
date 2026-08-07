@@ -37,15 +37,15 @@ export const wagmiConfig = createConfig({
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',
-  SHARES_REGISTRY: '0x089B10b8Af63277FA4D8B8ECb23603B451245f59',
-  // RaffleManagerV2 — Arbitrum One, verificado (Sourcify exact_match).
-  RAFFLE_MANAGER: '0x4149406c1f0A4D680ad5d5278370ee65478254f8',
+  // RaffleManagerV3 — Arbitrum One, verificado (Sourcify + Arbiscan).
+  // Não há SHARES_REGISTRY: o V3 eliminou a camada de investidores.
+  RAFFLE_MANAGER: '0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a',
 } as const;
 
-/** Bloco de deploy da RaffleManagerV2 — piso para queries de eventos. */
-export const RAFFLE_DEPLOY_BLOCK = 490447325n;
+/** Bloco de deploy da RaffleManagerV3 — piso para queries de eventos. */
+export const RAFFLE_DEPLOY_BLOCK = 492021006n;
 
-/** RaffleManagerV2.State — tem de bater com o enum do contrato. */
+/** RaffleManagerV3.State — tem de bater com o enum do contrato. */
 export const RoundState = {
   NONE: 0,
   OPEN: 1,
@@ -156,9 +156,9 @@ export const PRIZE_AWARDED_EVENT = {
 } as const;
 
 // =============================================================================
-// RAFFLE ABI — RaffleManagerV2
+// RAFFLE ABI — RaffleManagerV3
 // Extraído do artefacto compilado que produziu o bytecode deployado
-// (instant-win-audit/v2/out/RaffleManagerV2.sol/RaffleManagerV2.json), não
+// (instant-win-audit/v2/out/RaffleManagerV3.sol/RaffleManagerV3.json), não
 // escrito à mão. Alterar apenas re-extraindo do artefacto.
 // =============================================================================
 export const RAFFLE_ABI = [
@@ -170,7 +170,9 @@ export const RAFFLE_ABI = [
       { name: 'roundId', type: 'uint256' },
       { name: 'state', type: 'uint8' },
       { name: 'endTime', type: 'uint256' },
-      { name: 'participantCount', type: 'uint256' },
+      // V3 renomeou este campo de `participantCount` para `buyers` (posição [3]
+      // inalterada; a UI lê por índice, não por nome).
+      { name: 'buyers', type: 'uint256' },
       { name: 'totalTickets', type: 'uint256' },
       { name: 'pool', type: 'uint256' },
     ],
@@ -272,50 +274,23 @@ export const RAFFLE_ABI = [
     outputs: [{ name: '', type: 'bool' }],
     stateMutability: 'view',
   },
+  // --- novas no V3 ---
+  {
+    type: 'function',
+    name: 'winOddsBps',
+    inputs: [
+      { name: 'roundId', type: 'uint256' },
+      { name: 'account', type: 'address' },
+    ],
+    outputs: [{ name: 'bps', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'pendingCarry',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
   PRIZE_AWARDED_EVENT,
-] as const;
-
-export const SHARES_ABI = [
-  {
-    name: 'buyShares',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'amount', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'claimRewards',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [],
-    outputs: [],
-  },
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'totalSupply',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'getClaimableRewards',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'sharePrice',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
 ] as const;
