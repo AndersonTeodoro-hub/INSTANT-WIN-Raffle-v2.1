@@ -47,7 +47,7 @@ const GameFooter: React.FC = () => {
           {t.footer.responsibleShort}
         </p>
         <div className="flex justify-center items-center gap-2 font-mono text-[11px] text-gray-600">
-          <span className="w-2 h-2 rounded-full bg-success animate-pulse shadow-[0_0_5px_#22c55e]" />
+          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
           Live on Arbitrum One
         </div>
         <p className="font-mono text-[10px] text-gray-700">© 2026 Instant Win Protocol</p>

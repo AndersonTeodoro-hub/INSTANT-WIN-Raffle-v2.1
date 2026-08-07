@@ -42,7 +42,7 @@ export const Navbar: React.FC = () => {
               strokeLinejoin="round"
             />
           </svg>
-          <span className="hidden min-[400px]:inline font-mono bg-brand/20 text-brand text-[10px] font-bold px-1.5 py-0.5 rounded border border-brand/20 shrink-0">
+          <span className="hidden min-[400px]:inline font-mono text-gray-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-gray-700 shrink-0">
             ARB
           </span>
         </Link>
@@ -72,7 +72,7 @@ export const Navbar: React.FC = () => {
             <div className="hidden lg:flex flex-col items-end mr-2">
                 <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Status</span>
                 <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <span className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
                     <span className="text-xs font-mono text-gray-400">
                         {isConnected && address ? `${address.slice(0,6)}...${address.slice(-4)}` : 'Not Connected'}
                     </span>

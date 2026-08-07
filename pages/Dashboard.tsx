@@ -95,11 +95,9 @@ export const Dashboard: React.FC = () => {
   const MiniCard = ({ label, value, icon: Icon, to }: any) => (
     <Link
       to={to}
-      className="bg-dark-card border border-dark-border p-4 rounded-2xl flex items-center gap-4 hover:border-gray-600 transition-colors group"
+      className="bg-dark-card border border-dark-border p-4 rounded-xl flex items-center gap-4 hover:border-gray-600 transition-colors group"
     >
-      <div className="bg-dark-input p-2 rounded-lg text-gray-400 group-hover:text-white transition-colors">
-        <Icon className="w-5 h-5" />
-      </div>
+      <Icon className="w-5 h-5 shrink-0 text-gray-400 group-hover:text-white transition-colors" />
       <div>
         <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{label}</p>
         <p className="text-white font-bold truncate max-w-[120px]">{value}</p>
@@ -126,22 +124,22 @@ export const Dashboard: React.FC = () => {
         <MiniCard label="Network" value="Arbitrum One" icon={Zap} to="/play" />
       </div>
 
-      <div className="relative rounded-[40px] overflow-hidden border border-brand/20 shadow-[0_0_50px_rgba(245,158,11,0.1)]">
+      <div className="relative rounded-xl overflow-hidden border border-brand/20">
         <div className="absolute inset-0 bg-dark-card z-0"></div>
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-brand/5 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2 z-0 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/2 z-0 pointer-events-none"></div>
 
         <div className="relative z-10 flex flex-col items-center justify-center py-10 px-4 sm:py-16 sm:px-6 text-center">
-          <div className="inline-flex items-center gap-2 bg-brand/10 border border-brand/20 px-4 py-1.5 rounded-full mb-8 animate-fade-in-up">
+          <div className="inline-flex items-center gap-2 border border-gray-700 px-4 py-1.5 rounded-lg mb-8 animate-fade-in-up">
             <span className="relative flex h-3 w-3">
               <span
-                className={`absolute inline-flex h-full w-full rounded-full bg-brand opacity-75 ${
+                className={`absolute inline-flex h-full w-full rounded-full bg-gray-400 opacity-75 ${
                   !isTransitioning && 'animate-ping'
                 }`}
               ></span>
-              <span className={`relative inline-flex rounded-full h-3 w-3 ${isTransitioning ? 'bg-gray-500' : 'bg-brand'}`}></span>
+              <span className={`relative inline-flex rounded-full h-3 w-3 ${isTransitioning ? 'bg-gray-600' : 'bg-gray-400'}`}></span>
             </span>
-            <span className={`text-xs font-bold tracking-[0.2em] uppercase ${isTransitioning ? 'text-gray-400' : 'text-brand'}`}>
+            <span className={`font-mono text-xs font-bold tracking-[0.2em] uppercase ${isTransitioning ? 'text-gray-500' : 'text-gray-300'}`}>
               {isTransitioning ? 'Finalizing Round...' : `Round #${roundId?.toString() ?? '...'} Live`}
             </span>
           </div>
@@ -159,10 +157,10 @@ export const Dashboard: React.FC = () => {
             {isTransitioning ? 'Round ended · awaiting close' : 'Time Remaining'}
           </p>
 
-          <div className="flex flex-col md:flex-row items-center gap-6 md:gap-12 mb-12 bg-black/30 p-6 rounded-3xl border border-white/5 backdrop-blur-sm">
+          <div className="flex flex-col md:flex-row items-center gap-6 md:gap-12 mb-12 bg-black/30 p-6 rounded-xl border border-white/5 backdrop-blur-sm">
             <div className="text-center">
               <p className="text-xs text-gray-500 font-bold uppercase mb-1">Total Prize Pool</p>
-              <p className="text-4xl font-bold text-white">
+              <p className="font-mono text-4xl font-bold text-brand tabular-nums">
                 {formatUnits(totalPool as bigint, 6)} <span className="text-lg text-gray-600">USDC</span>
               </p>
             </div>
@@ -181,7 +179,7 @@ export const Dashboard: React.FC = () => {
               <Button
                 variant="connect"
                 disabled={isTransitioning}
-                className="w-full h-20 text-xl md:text-2xl rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] hover:scale-105 transition-all duration-300 relative overflow-hidden group disabled:opacity-50 disabled:shadow-none"
+                className="w-full h-20 text-xl md:text-2xl rounded-lg transition-colors relative overflow-hidden group disabled:opacity-50"
               >
                 <span className="relative z-10 flex items-center gap-3">
                   {isTransitioning ? (

@@ -73,7 +73,7 @@ export const ConnectWallet: React.FC = () => {
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="bg-dark-card border border-dark-border rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+              className="bg-dark-card border border-dark-border rounded-xl p-6 w-full max-w-sm shadow-2xl"
             >
               <h3 className="text-xl font-bold mb-6 text-white text-center">Select Wallet</h3>
               <div className="flex flex-col gap-3">

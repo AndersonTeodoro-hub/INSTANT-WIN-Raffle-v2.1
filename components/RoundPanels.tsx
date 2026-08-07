@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatUnits } from 'viem';
 import { CONTRACTS, RAFFLE_ABI, RAFFLE_DEPLOY_BLOCK, RoundState, PRIZE_AWARDED_EVENT } from '../constants';
 import { Button } from './Button';
+import { WinCard } from './WinCard';
 import { Gift, Undo2, Trophy, Dices, Ban } from 'lucide-react';
 
 const TICKET_PRICE = 1_000_000n;
@@ -91,14 +92,17 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
   const busy = isPending || confirming;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8">
+    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
       <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
         <Gift className="w-5 h-5 text-brand" /> Your Winnings
       </h3>
 
-      <div className="bg-dark-input rounded-2xl p-6 border border-dark-border mb-4">
+      {/* Recibo de vitória: há prémio por reclamar, ou um claim acabou de confirmar. */}
+      {(prize > 0n || isSuccess) && <WinCard fallbackAmount={prize} claimTxHash={isSuccess ? hash : undefined} />}
+
+      <div className="bg-dark-input rounded-xl p-6 border border-dark-border mb-4">
         <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Claimable</p>
-        <p className="text-4xl font-bold text-white font-mono">
+        <p className="font-mono text-4xl font-bold text-brand tabular-nums">
           {usdc(prize)} <span className="text-lg text-gray-600 font-normal">USDC</span>
         </p>
       </div>
@@ -131,7 +135,7 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
             >
               <div>
                 <p className="text-xs text-gray-500 font-bold uppercase">Round #{r.id.toString()}</p>
-                <p className="text-white font-mono font-bold">{usdc(r.amount)} USDC</p>
+                <p className="font-mono font-bold text-brand tabular-nums">{usdc(r.amount)} USDC</p>
               </div>
               <Button
                 variant="outline"
@@ -222,7 +226,7 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
   if (!prevId || state === undefined || state === RoundState.NONE || state === RoundState.OPEN) return null;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8">
+    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
       <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
         {state === RoundState.DRAWING && <Dices className="w-5 h-5 text-blue-500 animate-pulse" />}
         {state === RoundState.SETTLED && <Trophy className="w-5 h-5 text-brand" />}

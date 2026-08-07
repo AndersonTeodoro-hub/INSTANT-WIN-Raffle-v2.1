@@ -69,7 +69,7 @@ export const Username: React.FC = () => {
         <p className="text-gray-500 text-sm sm:text-base">Register a unique username on Arbitrum One to identify yourself across the suite.</p>
       </div>
 
-      <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-10 w-full max-w-xl">
+      <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-10 w-full max-w-xl">
         
         {/* Current Identity */}
         {hasRegisteredUsername && (

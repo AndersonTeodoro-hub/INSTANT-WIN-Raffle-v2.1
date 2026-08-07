@@ -136,7 +136,7 @@ export const RecentWinners: React.FC = () => {
   };
 
   return (
-    <section className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8">
+    <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
       <div className="flex items-center justify-between gap-3 mb-5">
         <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight flex items-center gap-2">
           <Trophy className="w-5 h-5 text-brand shrink-0" /> Recent Winners

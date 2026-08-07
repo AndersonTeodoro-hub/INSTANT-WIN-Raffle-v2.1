@@ -16,7 +16,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props 
 }) => {
   // Styles based on the screenshots
-  const baseStyles = "px-6 py-3 rounded-xl font-bold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 text-sm md:text-base";
+  const baseStyles = "px-6 py-3 rounded-lg font-bold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 text-sm md:text-base";
   
   const variants = {
     primary: "bg-action hover:bg-action-hover text-white shadow-lg shadow-blue-900/20", // The Blue "Approve/Buy" button

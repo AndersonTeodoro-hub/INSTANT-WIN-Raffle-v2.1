@@ -217,9 +217,9 @@ export const Raffle: React.FC = () => {
       {/* ================= PRIMEIRA DOBRA ================= */}
 
       <div className="text-center mb-6">
-        <div className="inline-flex items-center gap-2 bg-dark-input border border-dark-border px-3 py-1.5 rounded-full mb-4">
-          <span className={`w-2 h-2 rounded-full ${isTransitioning ? 'bg-gray-500' : 'bg-brand animate-pulse'}`} />
-          <span className={`font-mono text-[10px] sm:text-xs font-bold tracking-widest uppercase ${isTransitioning ? 'text-gray-500' : 'text-brand'}`}>
+        <div className="inline-flex items-center gap-2 bg-dark-input border border-dark-border px-3 py-1.5 rounded-lg mb-4">
+          <span className={`w-2 h-2 rounded-full ${isTransitioning ? 'bg-gray-600' : 'bg-gray-400 animate-pulse'}`} />
+          <span className={`font-mono text-[10px] sm:text-xs font-bold tracking-widest uppercase ${isTransitioning ? 'text-gray-500' : 'text-gray-300'}`}>
             {statusLabel}
           </span>
         </div>
@@ -229,7 +229,7 @@ export const Raffle: React.FC = () => {
         </p>
 
         {/* Herói absoluto. clamp() escala de 360px ao desktop sem overflow. */}
-        <h1 className="font-mono font-bold text-white tracking-tighter leading-none tabular-nums text-[clamp(3.25rem,16vw,7rem)]">
+        <h1 className="font-mono font-bold text-brand tracking-tighter leading-none tabular-nums text-[clamp(3.25rem,16vw,7rem)]">
           {formatUnits(totalPool, 6)}
           <span className="block font-sans text-base sm:text-xl text-gray-600 font-normal tracking-normal mt-2">
             USDC
@@ -237,7 +237,7 @@ export const Raffle: React.FC = () => {
         </h1>
 
         {seed > 0n && (
-          <div className="mt-4 inline-flex items-center gap-2 border border-success/30 bg-success/5 px-3 py-1.5 rounded-full max-w-full">
+          <div className="mt-4 inline-flex items-center gap-2 border border-success/30 bg-success/5 px-3 py-1.5 rounded-lg max-w-full">
             <Sprout className="w-3 h-3 text-success shrink-0" />
             <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-success truncate">
               Seeded round · {formatUnits(seed, 6)} carried in
@@ -248,7 +248,7 @@ export const Raffle: React.FC = () => {
 
       {/* Relógio e bilhetes, colados ao bloco de compra */}
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="bg-dark-card border border-dark-border rounded-2xl px-3 py-3 flex flex-col items-center">
+        <div className="bg-dark-card border border-dark-border rounded-xl px-3 py-3 flex flex-col items-center">
           <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase text-gray-500 mb-1">
             <Clock className="w-3 h-3 shrink-0" /> Time left
           </span>
@@ -257,7 +257,7 @@ export const Raffle: React.FC = () => {
           </span>
         </div>
 
-        <div className="bg-dark-card border border-dark-border rounded-2xl px-3 py-3 flex flex-col items-center">
+        <div className="bg-dark-card border border-dark-border rounded-xl px-3 py-3 flex flex-col items-center">
           <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase text-gray-500 mb-1">
             <Ticket className="w-3 h-3 shrink-0" /> Tickets
           </span>
@@ -271,9 +271,9 @@ export const Raffle: React.FC = () => {
       </div>
 
       {/* Bloco de compra — CTA único e dominante */}
-      <section className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8 mb-3">
+      <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8 mb-3">
         {needsUsername && (
-          <div className="mb-4 flex items-start gap-3 bg-dark-input border border-brand/30 rounded-2xl p-4">
+          <div className="mb-4 flex items-start gap-3 bg-dark-input border border-brand/30 rounded-xl p-4">
             <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
             <div className="text-sm min-w-0">
               <p className="text-white font-bold">You need a username to enter</p>
@@ -289,7 +289,7 @@ export const Raffle: React.FC = () => {
         )}
 
         {alreadyEntered && (
-          <div className="mb-4 flex items-start gap-3 bg-dark-input border border-success/30 rounded-2xl p-4">
+          <div className="mb-4 flex items-start gap-3 bg-dark-input border border-success/30 rounded-xl p-4">
             <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
             <div className="text-sm min-w-0">
               <p className="text-white font-bold">You already entered this round</p>
@@ -302,12 +302,12 @@ export const Raffle: React.FC = () => {
           </div>
         )}
 
-        <div className="bg-dark-input rounded-2xl p-4 sm:p-6 border border-dark-border mb-4">
+        <div className="bg-dark-input rounded-xl p-4 sm:p-6 border border-dark-border mb-4">
           <div className="flex justify-between items-center gap-2 mb-3">
             <span className="font-mono text-[10px] sm:text-xs font-bold text-gray-500 uppercase">
               1 ticket = 1 USDC
             </span>
-            <span className="font-mono text-[10px] sm:text-xs font-bold text-brand uppercase tabular-nums">
+            <span className="font-mono text-[10px] sm:text-xs font-bold text-gray-400 uppercase tabular-nums">
               Cost: {formatUnits(totalCost, 6)}
             </span>
           </div>
@@ -359,7 +359,7 @@ export const Raffle: React.FC = () => {
 
         {/* Odds live, imediatamente a seguir ao CTA */}
         {isConnected && !needsUsername && (
-          <div className="mt-4 flex items-center justify-between gap-3 bg-dark-input border border-dark-border rounded-2xl px-4 py-3 min-h-[44px]">
+          <div className="mt-4 flex items-center justify-between gap-3 bg-dark-input border border-dark-border rounded-xl px-4 py-3 min-h-[44px]">
             <span className="flex items-center gap-2 font-mono text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">
               <Percent className="w-3 h-3 shrink-0" /> Your odds
             </span>
@@ -372,7 +372,7 @@ export const Raffle: React.FC = () => {
 
       {/* Gancho: a próxima ronda já tem dinheiro dentro */}
       {((pendingCarry ?? 0n) as bigint) > 0n && (
-        <div className="mb-6 flex items-center gap-3 bg-dark-card border border-dark-border rounded-2xl px-4 py-3">
+        <div className="mb-6 flex items-center gap-3 bg-dark-card border border-dark-border rounded-xl px-4 py-3">
           <Sprout className="w-4 h-4 text-success shrink-0" />
           <p className="font-mono text-xs sm:text-sm text-gray-300">
             Next round already starts with{' '}
@@ -391,7 +391,7 @@ export const Raffle: React.FC = () => {
         <ClaimPanel currentRoundId={roundId} />
         <PreviousRound currentRoundId={roundId} />
 
-        <section className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8">
+        <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
           <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
             <Activity className="w-5 h-5 text-success shrink-0" /> Round facts
           </h3>
@@ -416,8 +416,8 @@ export const Raffle: React.FC = () => {
             <div className="space-y-2">
               {([
                 ['1st', 50n, 'text-brand'],
-                ['2nd', 18n, 'text-white'],
-                ['3rd', 7n, 'text-white'],
+                ['2nd', 18n, 'text-brand'],
+                ['3rd', 7n, 'text-brand'],
               ] as const).map(([label, pct, cls]) => (
                 <div key={label} className="flex justify-between gap-3 text-sm">
                   <span className="font-mono text-gray-400">

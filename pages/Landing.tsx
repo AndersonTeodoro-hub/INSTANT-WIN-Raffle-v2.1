@@ -78,7 +78,7 @@ export const Landing: React.FC = () => {
                   className={clsx(
                     // 44px de alvo de toque: os px-2/py-1 anteriores davam ~28×24px.
                     'flex items-center justify-center min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-md transition-colors',
-                    lang === l ? 'bg-brand text-black' : 'text-gray-400 hover:text-white'
+                    lang === l ? 'bg-dark-input text-brand' : 'text-gray-400 hover:text-white'
                   )}
                 >
                   {LANG_LABEL[l]}
@@ -88,7 +88,7 @@ export const Landing: React.FC = () => {
 
             <Link
               to="/play"
-              className="inline-flex items-center gap-2 bg-brand/10 hover:bg-brand/20 text-brand font-bold text-sm px-3 sm:px-5 py-2.5 rounded-xl border border-brand/20 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 text-gray-300 hover:text-white font-bold text-sm px-3 sm:px-5 py-2.5 rounded-lg border border-gray-700 transition-colors whitespace-nowrap"
             >
               {t.header.enterApp} <ArrowRight className="w-4 h-4 hidden sm:block" />
             </Link>
@@ -100,7 +100,7 @@ export const Landing: React.FC = () => {
 
         {/* 1. HERO */}
         <section className="flex flex-col items-center text-center px-5 sm:px-6 pt-12 pb-16 md:pt-28 md:pb-32">
-          <div className="inline-flex items-center gap-2 bg-brand/10 border border-brand/20 text-brand text-[11px] sm:text-xs font-bold px-3 sm:px-4 py-1.5 rounded-full mb-6 sm:mb-8 max-w-full">
+          <div className="inline-flex items-center gap-2 border border-gray-700 text-gray-300 text-[11px] sm:text-xs font-bold px-3 sm:px-4 py-1.5 rounded-lg mb-6 sm:mb-8 max-w-full">
             <ShieldCheck className="w-4 h-4 shrink-0" /> <span className="truncate">{t.hero.badge}</span>
           </div>
           <h1 className="font-display font-bold text-[clamp(2.75rem,13vw,4.5rem)] md:text-7xl leading-[1.05] max-w-4xl mb-5 sm:mb-6">
@@ -110,7 +110,7 @@ export const Landing: React.FC = () => {
           <p className="text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mb-8 sm:mb-10">{t.hero.sub}</p>
           <Link
             to="/play"
-            className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl md:text-2xl px-12 h-16 rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] hover:scale-105 transition-all duration-300"
+            className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl md:text-2xl px-12 h-16 rounded-lg transition-colors"
           >
             {t.hero.cta} <ArrowRight className="w-6 h-6" />
           </Link>
@@ -124,11 +124,9 @@ export const Landing: React.FC = () => {
               {t.how.steps.map((step, i) => {
                 const Icon = STEP_ICONS[i] ?? Trophy;
                 return (
-                  <div key={i} className="bg-dark-card border border-dark-border rounded-3xl p-8 flex flex-col">
+                  <div key={i} className="bg-dark-card border border-dark-border rounded-xl p-8 flex flex-col">
                     <div className="flex items-center justify-between mb-6">
-                      <div className="bg-brand/10 text-brand p-3 rounded-xl border border-brand/20">
-                        <Icon className="w-6 h-6" />
-                      </div>
+                      <Icon className="w-5 h-5 text-gray-300" />
                       <span className="font-display font-bold text-4xl text-white/10">{`0${i + 1}`}</span>
                     </div>
                     <h3 className="font-display font-bold text-xl text-white mb-3">{step.title}</h3>
@@ -144,7 +142,7 @@ export const Landing: React.FC = () => {
         <section className="px-6 py-16 md:py-24 border-t border-dark-border/50">
           <div className="container mx-auto max-w-4xl">
             <SectionHeading eyebrow={t.why.eyebrow} title={t.why.title} />
-            <div className="overflow-x-auto rounded-3xl border border-dark-border">
+            <div className="overflow-x-auto rounded-xl border border-dark-border">
               <table className="w-full text-left border-collapse min-w-[520px]">
                 <thead>
                   <tr className="bg-dark-card">
@@ -187,7 +185,7 @@ export const Landing: React.FC = () => {
                   href={`${ARBISCAN}${c.address}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-dark-card border border-dark-border rounded-2xl p-5 hover:border-brand/40 transition-colors group"
+                  className="bg-dark-card border border-dark-border rounded-xl p-5 hover:border-brand/40 transition-colors group"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-white">{c.label}</span>
@@ -198,10 +196,8 @@ export const Landing: React.FC = () => {
               ))}
             </div>
 
-            <div className="bg-dark-card/50 border border-dark-border rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="bg-brand/10 text-brand p-3 rounded-xl border border-brand/20 w-fit">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
+            <div className="bg-dark-card/50 border border-dark-border rounded-xl p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+              <ShieldCheck className="w-5 h-5 text-gray-300 shrink-0" />
               <p className="text-gray-400 text-sm leading-relaxed flex-1">
                 {t.transparency.vrfPre}
                 <a href={CHAINLINK_VRF} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline font-medium">
@@ -221,7 +217,7 @@ export const Landing: React.FC = () => {
               {t.faq.items.map((item) => (
                 <details
                   key={item.q}
-                  className="group bg-dark-card/50 border border-dark-border rounded-2xl px-6 open:bg-dark-card transition-colors"
+                  className="group bg-dark-card/50 border border-dark-border rounded-xl px-6 open:bg-dark-card transition-colors"
                 >
                   <summary className="flex items-center justify-between gap-4 cursor-pointer list-none py-5 font-display font-bold text-white [&::-webkit-details-marker]:hidden">
                     {item.q}
@@ -241,7 +237,7 @@ export const Landing: React.FC = () => {
           </h2>
           <Link
             to="/play"
-            className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] hover:scale-105 transition-all duration-300"
+            className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-lg transition-colors"
           >
             {t.hero.cta} <ArrowRight className="w-6 h-6" />
           </Link>
