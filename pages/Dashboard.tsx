@@ -131,7 +131,7 @@ export const Dashboard: React.FC = () => {
         <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-brand/5 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2 z-0 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/2 z-0 pointer-events-none"></div>
 
-        <div className="relative z-10 flex flex-col items-center justify-center py-16 px-6 text-center">
+        <div className="relative z-10 flex flex-col items-center justify-center py-10 px-4 sm:py-16 sm:px-6 text-center">
           <div className="inline-flex items-center gap-2 bg-brand/10 border border-brand/20 px-4 py-1.5 rounded-full mb-8 animate-fade-in-up">
             <span className="relative flex h-3 w-3">
               <span
@@ -146,16 +146,17 @@ export const Dashboard: React.FC = () => {
             </span>
           </div>
 
-          <h1 className="text-7xl md:text-[10rem] font-bold text-white leading-none font-mono tracking-tighter mb-4 drop-shadow-2xl">
+          {/* clamp() em vez de text-7xl: 8 dígitos mono a 72px transbordam a 360px. */}
+          <h1 className="font-mono font-bold text-white leading-none tracking-tighter tabular-nums mb-4 drop-shadow-2xl text-[clamp(2.75rem,15vw,10rem)]">
             {isTransitioning ? (
-              <span className="text-5xl md:text-8xl animate-pulse text-gray-400">STARTING...</span>
+              <span className="animate-pulse text-gray-400 text-[clamp(1.75rem,9vw,6rem)]">CLOSING…</span>
             ) : (
               formatTime(timeLeft)
             )}
           </h1>
 
-          <p className="text-gray-500 font-medium text-lg uppercase tracking-widest mb-10">
-            {isTransitioning ? 'Automating New Round (30 min)' : 'Time Remaining'}
+          <p className="font-mono text-gray-500 text-xs sm:text-base uppercase tracking-widest mb-8 sm:mb-10">
+            {isTransitioning ? 'Round ended · awaiting close' : 'Time Remaining'}
           </p>
 
           <div className="flex flex-col md:flex-row items-center gap-6 md:gap-12 mb-12 bg-black/30 p-6 rounded-3xl border border-white/5 backdrop-blur-sm">

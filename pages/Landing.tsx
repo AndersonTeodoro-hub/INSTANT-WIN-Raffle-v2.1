@@ -59,7 +59,8 @@ export const Landing: React.FC = () => {
                   onClick={() => setLang(l)}
                   aria-pressed={lang === l}
                   className={clsx(
-                    'px-2 py-1 text-xs font-bold rounded-md transition-colors',
+                    // 44px de alvo de toque: os px-2/py-1 anteriores davam ~28×24px.
+                    'flex items-center justify-center min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-md transition-colors',
                     lang === l ? 'bg-brand text-black' : 'text-gray-400 hover:text-white'
                   )}
                 >
@@ -81,15 +82,15 @@ export const Landing: React.FC = () => {
       <main className="flex-1 relative z-10">
 
         {/* 1. HERO */}
-        <section className="flex flex-col items-center text-center px-6 pt-20 pb-24 md:pt-28 md:pb-32">
-          <div className="inline-flex items-center gap-2 bg-brand/10 border border-brand/20 text-brand text-xs font-bold px-4 py-1.5 rounded-full mb-8">
-            <ShieldCheck className="w-4 h-4" /> {t.hero.badge}
+        <section className="flex flex-col items-center text-center px-5 sm:px-6 pt-12 pb-16 md:pt-28 md:pb-32">
+          <div className="inline-flex items-center gap-2 bg-brand/10 border border-brand/20 text-brand text-[11px] sm:text-xs font-bold px-3 sm:px-4 py-1.5 rounded-full mb-6 sm:mb-8 max-w-full">
+            <ShieldCheck className="w-4 h-4 shrink-0" /> <span className="truncate">{t.hero.badge}</span>
           </div>
-          <h1 className="font-display font-bold text-5xl md:text-7xl leading-[1.05] max-w-4xl mb-6">
+          <h1 className="font-display font-bold text-[clamp(2.75rem,13vw,4.5rem)] md:text-7xl leading-[1.05] max-w-4xl mb-5 sm:mb-6">
             {t.hero.headlineTop}
             <span className="block text-brand">{t.hero.headlineBottom}</span>
           </h1>
-          <p className="text-gray-400 text-lg md:text-xl max-w-2xl mb-10">{t.hero.sub}</p>
+          <p className="text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mb-8 sm:mb-10">{t.hero.sub}</p>
           <Link
             to="/play"
             className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl md:text-2xl px-12 h-16 rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.3)] hover:shadow-[0_0_60px_rgba(245,158,11,0.5)] hover:scale-105 transition-all duration-300"

@@ -91,8 +91,8 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
   const busy = isPending || confirming;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-3xl p-8">
-      <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+    <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8">
+      <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
         <Gift className="w-5 h-5 text-brand" /> Your Winnings
       </h3>
 
@@ -222,8 +222,8 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
   if (!prevId || state === undefined || state === RoundState.NONE || state === RoundState.OPEN) return null;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-3xl p-8">
-      <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+    <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-8">
+      <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
         {state === RoundState.DRAWING && <Dices className="w-5 h-5 text-blue-500 animate-pulse" />}
         {state === RoundState.SETTLED && <Trophy className="w-5 h-5 text-brand" />}
         {state === RoundState.CANCELLED && <Ban className="w-5 h-5 text-gray-500" />}

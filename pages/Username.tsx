@@ -62,14 +62,14 @@ export const Username: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col items-center pt-16">
+    <div className="flex flex-col items-center pt-6 sm:pt-16">
       
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-white mb-3">Your Identity</h1>
-        <p className="text-gray-500">Register a unique username on Arbitrum One to identify yourself across the suite.</p>
+      <div className="text-center mb-8 sm:mb-12 px-1">
+        <h1 className="font-display font-bold text-4xl sm:text-5xl text-white mb-3 uppercase tracking-tight">Your Identity</h1>
+        <p className="text-gray-500 text-sm sm:text-base">Register a unique username on Arbitrum One to identify yourself across the suite.</p>
       </div>
 
-      <div className="bg-dark-card border border-dark-border rounded-3xl p-10 w-full max-w-xl">
+      <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-10 w-full max-w-xl">
         
         {/* Current Identity */}
         {hasRegisteredUsername && (

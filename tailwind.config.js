@@ -8,9 +8,11 @@ export default {
   ],
   theme: {
     extend: {
+      // "Proof, Not Promise": manchetes condensadas, dados sempre monoespaçados.
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
-        display: ['Space Grotesk', 'sans-serif'],
+        display: ['"Big Shoulders Display"', 'Inter', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
         brand: {

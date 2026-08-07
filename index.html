@@ -2,18 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- maximum-scale / user-scalable=no removidos: bloqueavam o zoom por pinça,
+         que é um requisito de acessibilidade em mobile. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Instant Win — Provably Fair Raffle on Arbitrum</title>
-    <meta name="description" content="A provably fair on-chain raffle on Arbitrum One. 3 winners every 30 minutes, tickets from 1 USDC, drawn by Chainlink VRF. Prizes paid automatically.">
+    <meta name="description" content="A provably fair on-chain raffle on Arbitrum One. 3 winners per 30-minute round, tickets from 1 USDC, drawn by Chainlink VRF. Winners claim their prize on-chain.">
 
     <!-- Open Graph (domain-agnostic: canonical location intentionally omitted) -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="Instant Win — Provably Fair Raffle on Arbitrum">
-    <meta property="og:description" content="3 winners every 30 minutes, tickets from 1 USDC, drawn by Chainlink VRF. Prizes paid automatically. Live on Arbitrum One.">
+    <meta property="og:description" content="3 winners per 30-minute round, tickets from 1 USDC, drawn by Chainlink VRF. Winners claim on-chain. Live on Arbitrum One.">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <!-- Identidade "Proof, Not Promise": Big Shoulders nas manchetes,
+         IBM Plex Mono em todos os dados, Inter no corpo de texto. -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Big+Shoulders+Display:wght@600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body class="bg-black text-white antialiased">
     <div id="root"></div>
