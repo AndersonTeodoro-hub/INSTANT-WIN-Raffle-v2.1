@@ -2,9 +2,6 @@ import React, { useState } from 'react';
 import { Share2, Check } from 'lucide-react';
 
 const SHARE_URL = 'https://instntwin.com';
-const SHARE_TITLE = 'Instant Win';
-const SHARE_TEXT =
-  'Provably fair on-chain raffle — 3 winners every round, verified by Chainlink VRF.';
 
 /**
  * Partilha do site. Secundário por desenho: neutro, nunca âmbar — o âmbar está
@@ -26,7 +23,10 @@ export const ShareButton: React.FC<{
   const handleShare = async () => {
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: SHARE_TITLE, text: SHARE_TEXT, url: SHARE_URL });
+        // Só `url`, deliberadamente. Testado em Android: com `text` acompanhado,
+        // o WhatsApp trata a partilha como mensagem de texto e não gera o cartão
+        // de pré-visualização; com o link sozinho, o og-image aparece.
+        await navigator.share({ url: SHARE_URL });
         return;
       }
       await navigator.clipboard.writeText(SHARE_URL);
