@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ConnectWallet } from './ConnectWallet';
+import { ShareButton } from './ShareButton';
 import { Menu, Zap, Ticket, User } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAccount } from 'wagmi';
@@ -78,6 +79,8 @@ export const Navbar: React.FC = () => {
                     </span>
                 </div>
             </div>
+
+            <ShareButton variant="icon" />
 
             <ConnectWallet />
             

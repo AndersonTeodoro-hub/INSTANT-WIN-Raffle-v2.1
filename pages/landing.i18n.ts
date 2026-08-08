@@ -27,7 +27,7 @@ export interface LandingCopy {
   };
   transparency: { eyebrow: string; title: string; vrfPre: string; vrfPost: string };
   faq: { eyebrow: string; title: string; items: { q: string; a: string }[] };
-  finalCta: { title: string };
+  finalCta: { title: string; share: string };
   footer: {
     contractsLabel: string;
     responsible: string;
@@ -88,7 +88,7 @@ const en: LandingCopy = {
       { q: 'Who runs this?', a: 'The game runs entirely on-chain through open-source smart contracts. This website is only an open interface to them.' },
     ],
   },
-  finalCta: { title: 'The next draw is already running.' },
+  finalCta: { title: 'The next draw is already running.', share: 'Share' },
   footer: {
     contractsLabel: 'Verified Contracts · Arbitrum One',
     responsible: "18+. Play responsibly. This is a game of chance — never play with funds you can't afford to lose.",
@@ -148,7 +148,7 @@ const pt: LandingCopy = {
       { q: 'Quem administra isto?', a: 'O jogo roda inteiramente on-chain por meio de smart contracts open-source. Este site é apenas uma interface aberta para eles.' },
     ],
   },
-  finalCta: { title: 'O próximo sorteio já está rolando.' },
+  finalCta: { title: 'O próximo sorteio já está rolando.', share: 'Compartilhar' },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
     responsible: 'É preciso ter 18+. Jogue com responsabilidade. Este é um jogo de azar — nunca jogue com dinheiro que você não pode perder.',
@@ -208,7 +208,7 @@ const es: LandingCopy = {
       { q: '¿Quién administra esto?', a: 'El juego funciona por completo on-chain mediante smart contracts open-source. Este sitio es solo una interfaz abierta hacia ellos.' },
     ],
   },
-  finalCta: { title: 'El próximo sorteo ya está en marcha.' },
+  finalCta: { title: 'El próximo sorteo ya está en marcha.', share: 'Compartir' },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
     responsible: 'Solo 18+. Juega con responsabilidad. Este es un juego de azar — nunca juegues con dinero que no puedas permitirte perder.',

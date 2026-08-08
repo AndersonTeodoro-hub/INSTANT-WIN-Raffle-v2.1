@@ -4,6 +4,7 @@ import { Trophy, ArrowRight, Wallet, Zap, Check, X, ExternalLink, ShieldCheck, C
 import { clsx } from 'clsx';
 import { CONTRACTS } from '../constants';
 import { useLang, translations, LANGS, LANG_LABEL } from './landing.i18n';
+import { ShareButton } from '../components/ShareButton';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
 const CHAINLINK_VRF = 'https://docs.chain.link/vrf';
@@ -235,12 +236,16 @@ export const Landing: React.FC = () => {
           <h2 className="font-display font-bold text-3xl md:text-5xl text-white mb-8 max-w-2xl mx-auto">
             {t.finalCta.title}
           </h2>
-          <Link
-            to="/play"
-            className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-lg transition-colors"
-          >
-            {t.hero.cta} <ArrowRight className="w-6 h-6" />
-          </Link>
+          {/* PLAY NOW continua a ser o único âmbar deste ecrã; o Share é secundário. */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              to="/play"
+              className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-lg transition-colors"
+            >
+              {t.hero.cta} <ArrowRight className="w-6 h-6" />
+            </Link>
+            <ShareButton variant="full" label={t.finalCta.share} className="h-16 text-lg" />
+          </div>
         </section>
       </main>
 
