@@ -34,6 +34,23 @@ export const wagmiConfig = createConfig({
   ],
 });
 
+/**
+ * Modo pré-lançamento. Enquanto `true`:
+ *   - a Landing troca "PLAY NOW" (herói e CTA final) por um bloco de lista de espera;
+ *   - /play mostra um banner discreto no topo com a mesma mensagem.
+ *
+ * O jogo NÃO é bloqueado em nenhum dos casos: as rotas continuam todas abertas e
+ * quem chegar vê tudo — só não é convidado a jogar. Pôr a `false` devolve o
+ * comportamento anterior sem deixar vestígios.
+ */
+export const PRELAUNCH = true;
+
+/**
+ * Destino do botão da lista de espera. Placeholder até o Anderson preencher o
+ * convite real — não é segredo nenhum, é um link público.
+ */
+export const TELEGRAM_URL = '#';
+
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',

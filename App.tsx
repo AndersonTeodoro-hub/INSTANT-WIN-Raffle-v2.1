@@ -2,7 +2,7 @@ import React from 'react';
 import { WagmiProvider } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { wagmiConfig } from './constants';
+import { wagmiConfig, PRELAUNCH, TELEGRAM_URL } from './constants';
 
 import { Navbar } from './components/Navbar';
 import { Landing } from './pages/Landing';
@@ -10,8 +10,37 @@ import { Dashboard } from './pages/Dashboard';
 import { Raffle } from './pages/Raffle';
 import { Username } from './pages/Username';
 import { useLang, translations } from './pages/landing.i18n';
+import { useAppCopy } from './pages/app.i18n';
 
 const queryClient = new QueryClient();
+
+/**
+ * Aviso de pré-lançamento no topo de /play.
+ *
+ * Deliberadamente neutro e discreto — sem âmbar, que aqui pertence ao prémio e
+ * ao CTA de compra. Não bloqueia nada: o jogo continua todo acessível por baixo.
+ * A mensagem vem do mesmo sítio que a da landing, para não haver duas versões.
+ */
+const PrelaunchBanner: React.FC = () => {
+  const [lang] = useLang();
+  const t = translations[lang];
+  const isExternal = /^https?:\/\//i.test(TELEGRAM_URL);
+
+  return (
+    <div className="relative z-10 border-b border-dark-border bg-dark-card/80 backdrop-blur-sm">
+      <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-center">
+        <p className="text-sm font-medium text-gray-300">{t.prelaunch.headline}</p>
+        <a
+          href={TELEGRAM_URL}
+          {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          className="inline-flex items-center justify-center min-h-[44px] px-5 rounded-lg border border-dark-border text-sm font-bold text-gray-200 hover:text-white hover:border-gray-600 transition-colors"
+        >
+          {t.prelaunch.cta}
+        </a>
+      </div>
+    </div>
+  );
+};
 
 // Shell for the game routes (/play/*): navbar, ambient glows, footer.
 const GameLayout: React.FC = () => (
@@ -22,6 +51,8 @@ const GameLayout: React.FC = () => (
     <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-brand/5 rounded-full blur-[120px] pointer-events-none z-0" />
 
     <Navbar />
+
+    {PRELAUNCH && <PrelaunchBanner />}
 
     <main className="flex-1 container mx-auto px-4 py-6 sm:py-12 relative z-10">
       <Outlet />
@@ -39,6 +70,7 @@ const GameLayout: React.FC = () => (
 const GameFooter: React.FC = () => {
   const [lang] = useLang();
   const t = translations[lang];
+  const c = useAppCopy();
 
   return (
     <footer className="border-t border-dark-border py-6 sm:py-8 mt-8 bg-black/80 backdrop-blur-sm relative z-10">
@@ -48,7 +80,7 @@ const GameFooter: React.FC = () => {
         </p>
         <div className="flex justify-center items-center gap-2 font-mono text-[11px] text-gray-600">
           <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-          Live on Arbitrum One
+          {c.footer.liveOn}
         </div>
         <p className="font-mono text-[10px] text-gray-700">© 2026 Instant Win Protocol</p>
       </div>

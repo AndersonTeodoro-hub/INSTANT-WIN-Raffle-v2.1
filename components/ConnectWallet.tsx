@@ -4,9 +4,11 @@ import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } fro
 import { arbitrum } from 'wagmi/chains';
 import { Button } from './Button';
 import { Wallet, LogOut, AlertTriangle, Smartphone, Monitor } from 'lucide-react';
+import { useAppCopy } from '../pages/app.i18n';
 
 export const ConnectWallet: React.FC = () => {
   const { address, isConnected } = useAccount();
+  const c = useAppCopy();
   const chainId = useChainId();
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
@@ -28,15 +30,16 @@ export const ConnectWallet: React.FC = () => {
         className="h-10 px-4"
       >
         <AlertTriangle className="w-4 h-4" />
-        Wrong Net
+        {c.wallet.wrongNet}
       </Button>
     );
   }
 
   if (isConnected && address) {
     return (
-      <button 
+      <button
         onClick={() => disconnect()}
+        aria-label={c.wallet.ariaDisconnect}
         className="h-10 w-10 flex items-center justify-center rounded-xl bg-dark-input border border-dark-border hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-500 transition-all text-gray-400"
       >
         <LogOut className="w-5 h-5" />
@@ -52,7 +55,7 @@ export const ConnectWallet: React.FC = () => {
         className="h-10 px-6 text-sm"
       >
         <Wallet className="w-4 h-4" />
-        CONNECT
+        {c.wallet.connect}
       </Button>
 
       {/*
@@ -67,7 +70,7 @@ export const ConnectWallet: React.FC = () => {
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Select Wallet"
+            aria-label={c.wallet.selectWallet}
             onClick={() => setShowModal(false)}
             className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-[100] p-4"
           >
@@ -75,7 +78,7 @@ export const ConnectWallet: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
               className="bg-dark-card border border-dark-border rounded-xl p-6 w-full max-w-sm shadow-2xl"
             >
-              <h3 className="text-xl font-bold mb-6 text-white text-center">Select Wallet</h3>
+              <h3 className="text-xl font-bold mb-6 text-white text-center">{c.wallet.selectWallet}</h3>
               <div className="flex flex-col gap-3">
                 {connectors.map((connector) => (
                   <button
@@ -96,7 +99,7 @@ export const ConnectWallet: React.FC = () => {
                 onClick={() => setShowModal(false)}
                 className="mt-6 min-h-[44px] text-sm text-gray-500 hover:text-white w-full text-center"
               >
-                Cancel
+                {c.wallet.cancel}
               </button>
             </div>
           </div>,

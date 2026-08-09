@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
-// Landing-only i18n. Scope is deliberately the marketing page; the game
-// (/play/*) stays English for now. No i18n library — a plain lookup object
-// keyed by language plus a tiny persistence hook is all this needs.
+// i18n da landing. As strings do jogo (/play/*) vivem em ./app.i18n.ts e
+// partilham o `Lang`, o `useLang` e o localStorage daqui — mudar o idioma num
+// lado muda no outro. No i18n library: um objecto de lookup por idioma mais um
+// hook minúsculo chegam para três idiomas.
 
 export type Lang = 'en' | 'pt' | 'es';
 export const LANGS: Lang[] = ['en', 'pt', 'es'];
@@ -11,7 +12,7 @@ const STORAGE_KEY = 'iw-lang';
 // Technical terms kept in English across all languages (industry convention):
 // Chainlink VRF, USDC, Arbitrum One, on-chain, wallet, smart contract, open-source.
 export interface LandingCopy {
-  header: { enterApp: string };
+  header: { enterApp: string; ariaLanguage: string };
   hero: { badge: string; headlineTop: string; headlineBottom: string; sub: string; cta: string };
   how: {
     eyebrow: string;
@@ -28,6 +29,12 @@ export interface LandingCopy {
   transparency: { eyebrow: string; title: string; vrfPre: string; vrfPost: string };
   faq: { eyebrow: string; title: string; items: { q: string; a: string }[] };
   finalCta: { title: string; share: string };
+  /**
+   * Modo pré-lançamento (constants.PRELAUNCH). Substitui o CTA "PLAY NOW" por
+   * uma chamada à lista de espera. Sem datas: não há data para prometer.
+   * Usado também no banner de /play, para haver uma só fonte desta mensagem.
+   */
+  prelaunch: { headline: string; cta: string };
   footer: {
     contractsLabel: string;
     responsible: string;
@@ -38,7 +45,7 @@ export interface LandingCopy {
 }
 
 const en: LandingCopy = {
-  header: { enterApp: 'Enter App' },
+  header: { enterApp: 'Enter App', ariaLanguage: 'Language' },
   hero: {
     badge: 'Powered by Chainlink VRF',
     headlineTop: 'Provably fair.',
@@ -89,6 +96,7 @@ const en: LandingCopy = {
     ],
   },
   finalCta: { title: 'The next draw is already running.', share: 'Share' },
+  prelaunch: { headline: 'Day 0 is coming.', cta: 'Join the waitlist' },
   footer: {
     contractsLabel: 'Verified Contracts · Arbitrum One',
     responsible: "18+. Play responsibly. This is a game of chance — never play with funds you can't afford to lose.",
@@ -98,7 +106,7 @@ const en: LandingCopy = {
 };
 
 const pt: LandingCopy = {
-  header: { enterApp: 'Abrir app' },
+  header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
     badge: 'Com tecnologia Chainlink VRF',
     headlineTop: 'Comprovadamente justo.',
@@ -149,6 +157,7 @@ const pt: LandingCopy = {
     ],
   },
   finalCta: { title: 'O próximo sorteio já está rolando.', share: 'Compartilhar' },
+  prelaunch: { headline: 'O Dia 0 está chegando.', cta: 'Entrar na lista' },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
     responsible: 'É preciso ter 18+. Jogue com responsabilidade. Este é um jogo de azar — nunca jogue com dinheiro que você não pode perder.',
@@ -158,7 +167,7 @@ const pt: LandingCopy = {
 };
 
 const es: LandingCopy = {
-  header: { enterApp: 'Abrir app' },
+  header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
     badge: 'Con tecnología Chainlink VRF',
     headlineTop: 'Demostrablemente justo.',
@@ -209,6 +218,7 @@ const es: LandingCopy = {
     ],
   },
   finalCta: { title: 'El próximo sorteo ya está en marcha.', share: 'Compartir' },
+  prelaunch: { headline: 'El Día 0 se acerca.', cta: 'Unirse a la lista' },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
     responsible: 'Solo 18+. Juega con responsabilidad. Este es un juego de azar — nunca juegues con dinero que no puedas permitirte perder.',
@@ -221,29 +231,61 @@ export const translations: Record<Lang, LandingCopy> = { en, pt, es };
 
 export const LANG_LABEL: Record<Lang, string> = { en: 'EN', pt: 'PT', es: 'ES' };
 
-function detectLang(): Lang {
+/**
+ * Idioma inicial. SEMPRE 'en' — produto global, inglês por defeito.
+ *
+ * Não há detecção por `navigator.language`: a única coisa que muda o idioma é a
+ * escolha explícita do utilizador, e é essa escolha (e só essa) que fica em
+ * localStorage. Um visitante com o browser em pt-BR vê inglês até carregar em PT.
+ */
+function readStoredLang(): Lang {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'en' || stored === 'pt' || stored === 'es') return stored;
   } catch {
-    /* localStorage unavailable (private mode) — fall through to navigator */
+    /* localStorage indisponível (modo privado) — fica o default */
   }
-  const nav = typeof navigator !== 'undefined' && navigator.language ? navigator.language.toLowerCase() : 'en';
-  if (nav.startsWith('pt')) return 'pt';
-  if (nav.startsWith('es')) return 'es';
   return 'en';
 }
 
-// useState + localStorage. Persists the choice and reflects it on <html lang>.
+/*
+ * Store partilhado por todos os `useLang()`.
+ *
+ * A Landing, a Navbar do jogo e o rodapé chamam o hook em sítios diferentes da
+ * árvore. Com um `useState` por chamada, mudar o idioma na Navbar deixava o
+ * rodapé na língua anterior até haver reload. `useSyncExternalStore` (React 18)
+ * mantém todas as instâncias no mesmo valor sem precisar de Context.
+ */
+let currentLang: Lang = readStoredLang();
+const langListeners = new Set<() => void>();
+
+function subscribeLang(onChange: () => void): () => void {
+  langListeners.add(onChange);
+  return () => {
+    langListeners.delete(onChange);
+  };
+}
+
+function getLangSnapshot(): Lang {
+  return currentLang;
+}
+
+/** Escolha explícita do utilizador: persiste e notifica todas as instâncias. */
+export function setLang(next: Lang): void {
+  if (next === currentLang) return;
+  currentLang = next;
+  try {
+    localStorage.setItem(STORAGE_KEY, next);
+  } catch {
+    /* ignora falha de persistência */
+  }
+  langListeners.forEach((notify) => notify());
+}
+
 export function useLang(): [Lang, (l: Lang) => void] {
-  const [lang, setLang] = useState<Lang>(detectLang);
+  const lang = useSyncExternalStore(subscribeLang, getLangSnapshot, getLangSnapshot);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, lang);
-    } catch {
-      /* ignore persistence failure */
-    }
     if (typeof document !== 'undefined') document.documentElement.lang = lang;
   }, [lang]);
 

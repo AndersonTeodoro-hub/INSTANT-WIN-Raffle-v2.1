@@ -3,9 +3,11 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { CONTRACTS, USERNAME_ABI } from '../constants';
 import { Button } from '../components/Button';
 import { Check, X, Loader2, Search, UserCircle } from 'lucide-react';
+import { useAppCopy } from './app.i18n';
 
 export const Username: React.FC = () => {
   const { isConnected, address } = useAccount();
+  const c = useAppCopy();
   const [inputName, setInputName] = useState('');
   const [debouncedName, setDebouncedName] = useState('');
 
@@ -56,8 +58,8 @@ export const Username: React.FC = () => {
 
   if (!isConnected) return (
     <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <h2 className="text-2xl font-bold text-white mb-4">Your Identity</h2>
-        <p className="text-gray-500">Connect wallet to register.</p>
+        <h2 className="text-2xl font-bold text-white mb-4">{c.username.title}</h2>
+        <p className="text-gray-500">{c.username.connectPrompt}</p>
     </div>
   );
 
@@ -65,8 +67,8 @@ export const Username: React.FC = () => {
     <div className="flex flex-col items-center pt-6 sm:pt-16">
       
       <div className="text-center mb-8 sm:mb-12 px-1">
-        <h1 className="font-display font-bold text-4xl sm:text-5xl text-white mb-3 uppercase tracking-tight">Your Identity</h1>
-        <p className="text-gray-500 text-sm sm:text-base">Register a unique username on Arbitrum One to identify yourself across the suite.</p>
+        <h1 className="font-display font-bold text-4xl sm:text-5xl text-white mb-3 uppercase tracking-tight">{c.username.title}</h1>
+        <p className="text-gray-500 text-sm sm:text-base">{c.username.subtitle}</p>
       </div>
 
       <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-10 w-full max-w-xl">
@@ -76,7 +78,7 @@ export const Username: React.FC = () => {
              <div className="mb-8 p-4 bg-dark-input rounded-xl border border-dark-border flex items-center gap-4">
                  <UserCircle className="w-10 h-10 text-brand" />
                  <div>
-                     <p className="text-xs text-gray-500 uppercase font-bold">Current Alias</p>
+                     <p className="text-xs text-gray-500 uppercase font-bold">{c.username.currentAlias}</p>
                      <p className="text-xl font-bold text-white">@{currentUsername}</p>
                  </div>
              </div>
@@ -85,12 +87,12 @@ export const Username: React.FC = () => {
         {/* Se já tem username, mostrar mensagem */}
         {hasRegisteredUsername ? (
           <div className="text-center py-8">
-            <p className="text-gray-400">Your username is already registered and cannot be changed.</p>
+            <p className="text-gray-400">{c.username.alreadyRegistered}</p>
           </div>
         ) : (
           <div className="space-y-6">
               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Choose Username</label>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{c.username.chooseLabel}</label>
                   <div className="relative group">
                       <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
                           <Search className="w-5 h-5 text-gray-600 group-focus-within:text-white transition-colors" />
@@ -104,7 +106,7 @@ export const Username: React.FC = () => {
                                   ? isAvailable ? 'border-green-500/50 focus:border-green-500' : 'border-red-500/50 focus:border-red-500'
                                   : 'border-dark-border focus:border-brand'
                           }`}
-                          placeholder="yourname"
+                          placeholder={c.username.placeholder}
                           maxLength={20}
                       />
                       
@@ -115,17 +117,17 @@ export const Username: React.FC = () => {
                                   <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
                               ) : isAvailable ? (
                                   <div className="flex items-center bg-green-500/20 px-2 py-1 rounded text-xs font-bold text-green-500 gap-1">
-                                      <Check className="w-3 h-3" /> Available
+                                      <Check className="w-3 h-3" /> {c.username.available}
                                   </div>
                               ) : (
                                   <div className="flex items-center bg-red-500/20 px-2 py-1 rounded text-xs font-bold text-red-500 gap-1">
-                                      <X className="w-3 h-3" /> Taken
+                                      <X className="w-3 h-3" /> {c.username.taken}
                                   </div>
                               )
                           )}
                       </div>
                   </div>
-                  <p className="mt-2 text-[10px] text-gray-600">Must be between 3 and 20 characters. Only letters, numbers and underscore.</p>
+                  <p className="mt-2 text-[10px] text-gray-600">{c.username.rules}</p>
               </div>
 
               <Button 
@@ -135,7 +137,7 @@ export const Username: React.FC = () => {
                   disabled={!isAvailable || inputName.length < 3 || isPending || isConfirming}
                   isLoading={isPending || isConfirming}
               >
-                  + Register Username
+                  {c.username.submit}
               </Button>
           </div>
         )}

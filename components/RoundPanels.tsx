@@ -13,6 +13,7 @@ import { CONTRACTS, RAFFLE_ABI, RAFFLE_DEPLOY_BLOCK, RoundState, PRIZE_AWARDED_E
 import { Button } from './Button';
 import { WinCard } from './WinCard';
 import { Gift, Undo2, Trophy, Dices, Ban } from 'lucide-react';
+import { useAppCopy } from '../pages/app.i18n';
 
 const TICKET_PRICE = 1_000_000n;
 
@@ -33,6 +34,7 @@ const usdc = (v: bigint) => formatUnits(v, 6);
 // ============================================================
 export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRoundId }) => {
   const { address, isConnected } = useAccount();
+  const c = useAppCopy();
 
   const { data: claimable, refetch: refetchClaimable } = useReadContract({
     address: CONTRACTS.RAFFLE_MANAGER,
@@ -94,14 +96,14 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
   return (
     <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
       <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
-        <Gift className="w-5 h-5 text-brand" /> Your Winnings
+        <Gift className="w-5 h-5 text-brand" /> {c.claim.title}
       </h3>
 
       {/* Recibo de vitória: há prémio por reclamar, ou um claim acabou de confirmar. */}
       {(prize > 0n || isSuccess) && <WinCard fallbackAmount={prize} claimTxHash={isSuccess ? hash : undefined} />}
 
       <div className="bg-dark-input rounded-xl p-6 border border-dark-border mb-4">
-        <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Claimable</p>
+        <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">{c.claim.claimable}</p>
         <p className="font-mono text-4xl font-bold text-brand tabular-nums">
           {usdc(prize)} <span className="text-lg text-gray-600 font-normal">USDC</span>
         </p>
@@ -120,13 +122,13 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
           })
         }
       >
-        {prize === 0n ? 'Nothing to Claim' : `Claim ${usdc(prize)} USDC`}
+        {prize === 0n ? c.claim.nothingToClaim : `${c.claim.claimPre} ${usdc(prize)} USDC`}
       </Button>
 
       {refundables.length > 0 && (
         <div className="mt-6 space-y-3">
           <p className="text-xs text-gray-500 font-bold uppercase tracking-wider flex items-center gap-2">
-            <Undo2 className="w-3 h-3" /> Refunds (cancelled rounds)
+            <Undo2 className="w-3 h-3" /> {c.claim.refundsTitle}
           </p>
           {refundables.map((r) => (
             <div
@@ -134,7 +136,7 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
               className="flex items-center justify-between gap-3 bg-dark-input rounded-xl p-3 border border-dark-border"
             >
               <div>
-                <p className="text-xs text-gray-500 font-bold uppercase">Round #{r.id.toString()}</p>
+                <p className="text-xs text-gray-500 font-bold uppercase">{c.claim.round}{r.id.toString()}</p>
                 <p className="font-mono font-bold text-brand tabular-nums">{usdc(r.amount)} USDC</p>
               </div>
               <Button
@@ -150,7 +152,7 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
                   })
                 }
               >
-                Refund
+                {c.claim.refund}
               </Button>
             </div>
           ))}
@@ -166,6 +168,7 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
 // estados não-OPEN vivem sempre em currentRoundId - 1.
 // ============================================================
 export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRoundId }) => {
+  const c = useAppCopy();
   const prevId = currentRoundId && currentRoundId > 1n ? currentRoundId - 1n : undefined;
 
   const { data: round } = useReadContract({
@@ -231,25 +234,23 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
         {state === RoundState.DRAWING && <Dices className="w-5 h-5 text-blue-500 animate-pulse" />}
         {state === RoundState.SETTLED && <Trophy className="w-5 h-5 text-brand" />}
         {state === RoundState.CANCELLED && <Ban className="w-5 h-5 text-gray-500" />}
-        Round #{prevId.toString()}
+        {c.previousRound.round}{prevId.toString()}
       </h3>
 
       {state === RoundState.DRAWING && (
         <p className="text-blue-400 font-bold uppercase tracking-wider text-sm animate-pulse">
-          Drawing winners… (Chainlink VRF)
+          {c.previousRound.drawing}
         </p>
       )}
 
       {state === RoundState.CANCELLED && (
-        <p className="text-sm text-gray-400">
-          Round cancelled — fewer than 3 participants or VRF timeout. Ticket holders can claim a full refund above.
-        </p>
+        <p className="text-sm text-gray-400">{c.previousRound.cancelled}</p>
       )}
 
       {state === RoundState.SETTLED && (
         <div className="space-y-3">
           <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
-            Settled · pool {usdc(pool)} USDC
+            {c.previousRound.settledPoolPre} {usdc(pool)} USDC
           </p>
           {winners && winners.length > 0 ? (
             winners.map((w) => (
@@ -261,7 +262,7 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
               </div>
             ))
           ) : (
-            <p className="text-sm text-gray-500">Winners settled on-chain. Claim above if you won.</p>
+            <p className="text-sm text-gray-500">{c.previousRound.winnersSettled}</p>
           )}
         </div>
       )}

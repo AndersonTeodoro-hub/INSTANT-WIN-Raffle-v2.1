@@ -9,6 +9,8 @@ import {
   PRIZE_AWARDED_EVENT,
 } from '../constants';
 import { Trophy, Check } from 'lucide-react';
+import { useAppCopy } from '../pages/app.i18n';
+import type { AppCopy } from '../pages/app.i18n';
 
 /** Blocos por pedido. Pequeno o bastante para o RPC público não recusar. */
 const LOG_CHUNK = 9_000n;
@@ -31,14 +33,14 @@ type Winner = {
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-/** "2h ago", "5m ago", "just now". Sem dependências de datas. */
-function relativeTime(ts?: number): string {
+/** "2h ago", "5m ago", "just now" — e os equivalentes em PT-BR e ES. Sem dependências de datas. */
+function relativeTime(ts: number | undefined, t: AppCopy['winners']): string {
   if (!ts) return '';
   const diff = Math.max(0, Math.floor(Date.now() / 1000) - ts);
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60) return t.justNow;
+  if (diff < 3600) return `${Math.floor(diff / 60)}${t.minutesAgo}`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}${t.hoursAgo}`;
+  return `${Math.floor(diff / 86400)}${t.daysAgo}`;
 }
 
 /**
@@ -53,6 +55,7 @@ function relativeTime(ts?: number): string {
  */
 export const RecentWinners: React.FC = () => {
   const client = usePublicClient();
+  const c = useAppCopy();
 
   const { data: winners, isLoading } = useQuery({
     queryKey: ['recentWinners'],
@@ -139,22 +142,19 @@ export const RecentWinners: React.FC = () => {
     <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
       <div className="flex items-center justify-between gap-3 mb-5">
         <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight flex items-center gap-2">
-          <Trophy className="w-5 h-5 text-brand shrink-0" /> Recent Winners
+          <Trophy className="w-5 h-5 text-brand shrink-0" /> {c.winners.title}
         </h3>
         <span className="font-mono text-[10px] text-gray-500 uppercase tracking-widest shrink-0">
-          On-chain
+          {c.winners.onChain}
         </span>
       </div>
 
       {isLoading && (
-        <p className="font-mono text-sm text-gray-500">Reading the chain…</p>
+        <p className="font-mono text-sm text-gray-500">{c.winners.reading}</p>
       )}
 
       {!isLoading && (!winners || winners.length === 0) && (
-        <p className="font-mono text-sm text-gray-500">
-          No settled rounds yet. The first three winners will appear here, with a link to the
-          transaction that paid them.
-        </p>
+        <p className="font-mono text-sm text-gray-500">{c.winners.empty}</p>
       )}
 
       {winners && winners.length > 0 && (
@@ -169,7 +169,7 @@ export const RecentWinners: React.FC = () => {
                 <div className="min-w-0">
                   <p className="font-mono text-sm text-white truncate">{nameOf(w.winner)}</p>
                   <p className="font-mono text-[11px] text-gray-500">
-                    Round {w.roundId.toString()} · {relativeTime(w.timestamp)}
+                    {c.winners.round} {w.roundId.toString()} · {relativeTime(w.timestamp, c.winners)}
                   </p>
                 </div>
               </div>
@@ -182,7 +182,7 @@ export const RecentWinners: React.FC = () => {
                   href={`${ARBISCAN_TX}${w.txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={`Verify round ${w.roundId} payout on Arbiscan`}
+                  aria-label={`${c.winners.ariaVerifyPre} ${w.roundId} ${c.winners.ariaVerifyPost}`}
                   className="flex items-center justify-center w-11 h-11 -mr-2 text-success hover:text-success-hover transition-colors"
                 >
                   <Check className="w-4 h-4" strokeWidth={3} />

@@ -7,9 +7,11 @@ import { Button } from '../components/Button';
 import { ClaimPanel, PreviousRound } from '../components/RoundPanels';
 import { RecentWinners } from '../components/RecentWinners';
 import { Clock, Ticket, Activity, Info, AlertTriangle, CheckCircle2, Percent, Sprout } from 'lucide-react';
+import { useAppCopy } from './app.i18n';
 
 export const Raffle: React.FC = () => {
   const { address, isConnected } = useAccount();
+  const c = useAppCopy();
   const [ticketAmount, setTicketAmount] = useState<string>('1');
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -44,13 +46,13 @@ export const Raffle: React.FC = () => {
   // A ronda corrente é sempre OPEN (uma nova abre no fecho da anterior); o
   // caso real a distinguir é OPEN-mas-expirada, à espera de closeRound().
   const statusLabel = useMemo(() => {
-    if (state === undefined) return 'Loading Round';
-    if (state === RoundState.OPEN) return isTransitioning ? 'Round Ended · Awaiting Close' : 'Live Pool Arbitrum';
-    if (state === RoundState.DRAWING) return 'Drawing Winners…';
-    if (state === RoundState.SETTLED) return 'Round Settled';
-    if (state === RoundState.CANCELLED) return 'Round Cancelled · Refunds Open';
-    return 'Idle';
-  }, [state, isTransitioning]);
+    if (state === undefined) return c.raffle.statusLoading;
+    if (state === RoundState.OPEN) return isTransitioning ? c.raffle.statusEnded : c.raffle.statusLive;
+    if (state === RoundState.DRAWING) return c.raffle.statusDrawing;
+    if (state === RoundState.SETTLED) return c.raffle.statusSettled;
+    if (state === RoundState.CANCELLED) return c.raffle.statusCancelled;
+    return c.raffle.statusIdle;
+  }, [state, isTransitioning, c]);
 
   const ticketPrice = 1_000_000n;
   const totalCost = useMemo(() => {
@@ -206,9 +208,9 @@ export const Raffle: React.FC = () => {
 
   const ctaLabel = (fallback: string) =>
     needsUsername
-      ? 'Register a Username First'
+      ? c.raffle.ctaRegisterFirst
       : alreadyEntered
-        ? 'Already Entered This Round'
+        ? c.raffle.ctaAlreadyEntered
         : fallback;
 
   return (
@@ -225,7 +227,7 @@ export const Raffle: React.FC = () => {
         </div>
 
         <p className="font-mono text-[10px] sm:text-xs text-gray-500 uppercase tracking-[0.2em] mb-1">
-          Current Prize Pool
+          {c.raffle.currentPrizePool}
         </p>
 
         {/* Herói absoluto. clamp() escala de 360px ao desktop sem overflow. */}
@@ -239,8 +241,9 @@ export const Raffle: React.FC = () => {
         {seed > 0n && (
           <div className="mt-4 inline-flex items-center gap-2 border border-success/30 bg-success/5 px-3 py-1.5 rounded-lg max-w-full">
             <Sprout className="w-3 h-3 text-success shrink-0" />
+            {/* "Seeded round" é selo de marca: fica em inglês nos três idiomas. */}
             <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-success truncate">
-              Seeded round · {formatUnits(seed, 6)} carried in
+              Seeded round · {formatUnits(seed, 6)} {c.raffle.seededCarriedIn}
             </span>
           </div>
         )}
@@ -250,22 +253,27 @@ export const Raffle: React.FC = () => {
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div className="bg-dark-card border border-dark-border rounded-xl px-3 py-3 flex flex-col items-center">
           <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase text-gray-500 mb-1">
-            <Clock className="w-3 h-3 shrink-0" /> Time left
+            <Clock className="w-3 h-3 shrink-0" /> {c.raffle.timeLeft}
           </span>
           <span className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
-            {isTransitioning ? <span className="text-brand text-sm animate-pulse">CLOSING…</span> : formatTime(timeLeft)}
+            {isTransitioning ? (
+              <span className="text-brand text-sm animate-pulse">{c.dashboard.closing}</span>
+            ) : (
+              formatTime(timeLeft)
+            )}
           </span>
         </div>
 
         <div className="bg-dark-card border border-dark-border rounded-xl px-3 py-3 flex flex-col items-center">
           <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase text-gray-500 mb-1">
-            <Ticket className="w-3 h-3 shrink-0" /> Tickets
+            <Ticket className="w-3 h-3 shrink-0" /> {c.raffle.tickets}
           </span>
           <span className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
             {ticketCount.toString()}
           </span>
           <span className="font-mono text-[10px] text-gray-500">
-            {participantCount.toString()} player{Number(participantCount) !== 1 ? 's' : ''}
+            {participantCount.toString()}{' '}
+            {Number(participantCount) === 1 ? c.raffle.playerOne : c.raffle.playerMany}
           </span>
         </div>
       </div>
@@ -276,11 +284,11 @@ export const Raffle: React.FC = () => {
           <div className="mb-4 flex items-start gap-3 bg-dark-input border border-brand/30 rounded-xl p-4">
             <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
             <div className="text-sm min-w-0">
-              <p className="text-white font-bold">You need a username to enter</p>
+              <p className="text-white font-bold">{c.raffle.needUsernameTitle}</p>
               <p className="text-gray-400">
-                Every ticket is tied to a registered identity.{' '}
+                {c.raffle.needUsernameBody}{' '}
                 <Link to="/play/identity" className="text-brand font-bold underline hover:text-amber-400">
-                  Register one here
+                  {c.raffle.needUsernameLink}
                 </Link>
                 .
               </p>
@@ -292,11 +300,11 @@ export const Raffle: React.FC = () => {
           <div className="mb-4 flex items-start gap-3 bg-dark-input border border-success/30 rounded-xl p-4">
             <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
             <div className="text-sm min-w-0">
-              <p className="text-white font-bold">You already entered this round</p>
+              <p className="text-white font-bold">{c.raffle.alreadyEnteredTitle}</p>
               <p className="text-gray-400">
-                {((myTickets ?? 0n) as bigint).toString()} ticket
-                {((myTickets ?? 0n) as bigint) !== 1n ? 's' : ''} in round {roundId?.toString()}. One entry
-                per wallet per round.
+                {((myTickets ?? 0n) as bigint).toString()}{' '}
+                {((myTickets ?? 0n) as bigint) === 1n ? c.raffle.ticketOne : c.raffle.ticketMany}{' '}
+                {c.raffle.inRound} {roundId?.toString()}. {c.raffle.onePerWallet}
               </p>
             </div>
           </div>
@@ -305,10 +313,10 @@ export const Raffle: React.FC = () => {
         <div className="bg-dark-input rounded-xl p-4 sm:p-6 border border-dark-border mb-4">
           <div className="flex justify-between items-center gap-2 mb-3">
             <span className="font-mono text-[10px] sm:text-xs font-bold text-gray-500 uppercase">
-              1 ticket = 1 USDC
+              {c.raffle.priceLine}
             </span>
             <span className="font-mono text-[10px] sm:text-xs font-bold text-gray-400 uppercase tabular-nums">
-              Cost: {formatUnits(totalCost, 6)}
+              {c.raffle.cost} {formatUnits(totalCost, 6)}
             </span>
           </div>
 
@@ -318,7 +326,7 @@ export const Raffle: React.FC = () => {
               inputMode="numeric"
               value={ticketAmount}
               onChange={(e) => setTicketAmount(e.target.value)}
-              aria-label="Number of tickets"
+              aria-label={c.raffle.ariaTicketCount}
               className="bg-transparent font-mono text-3xl sm:text-4xl font-bold text-white outline-none w-full min-w-0 tabular-nums placeholder:text-gray-800"
               placeholder="0"
               min="1"
@@ -326,7 +334,7 @@ export const Raffle: React.FC = () => {
               disabled={!canPurchase}
             />
             <span className="font-mono text-xs font-bold text-white bg-black/50 px-3 py-2 rounded border border-dark-border shrink-0">
-              TICKETS
+              {c.raffle.ticketsChip}
             </span>
           </div>
         </div>
@@ -339,7 +347,7 @@ export const Raffle: React.FC = () => {
             isLoading={isApproving || approvingTx}
             disabled={!isConnected || !canPurchase}
           >
-            {ctaLabel(`Approve ${formatUnits(totalCost, 6)} USDC`)}
+            {ctaLabel(`${c.raffle.ctaApprovePre} ${formatUnits(totalCost, 6)} USDC`)}
           </Button>
         ) : (
           <Button
@@ -351,8 +359,10 @@ export const Raffle: React.FC = () => {
           >
             {ctaLabel(
               !canBuy
-                ? 'Wait for Next Round'
-                : `Buy ${ticketAmount} Ticket${parseInt(ticketAmount) !== 1 ? 's' : ''}`,
+                ? c.raffle.ctaWaitNextRound
+                : `${c.raffle.ctaBuyPre} ${ticketAmount} ${
+                    parseInt(ticketAmount) === 1 ? c.raffle.ticketOne : c.raffle.ticketMany
+                  }`,
             )}
           </Button>
         )}
@@ -361,7 +371,7 @@ export const Raffle: React.FC = () => {
         {isConnected && !needsUsername && (
           <div className="mt-4 flex items-center justify-between gap-3 bg-dark-input border border-dark-border rounded-xl px-4 py-3 min-h-[44px]">
             <span className="flex items-center gap-2 font-mono text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">
-              <Percent className="w-3 h-3 shrink-0" /> Your odds
+              <Percent className="w-3 h-3 shrink-0" /> {c.raffle.yourOdds}
             </span>
             <span className="font-mono text-lg sm:text-xl font-bold text-brand tabular-nums">
               {(Number((oddsBps ?? 0n) as bigint) / 100).toFixed(1)}%
@@ -375,7 +385,7 @@ export const Raffle: React.FC = () => {
         <div className="mb-6 flex items-center gap-3 bg-dark-card border border-dark-border rounded-xl px-4 py-3">
           <Sprout className="w-4 h-4 text-success shrink-0" />
           <p className="font-mono text-xs sm:text-sm text-gray-300">
-            Next round already starts with{' '}
+            {c.raffle.nextRoundStartsWith}{' '}
             <span className="text-brand font-bold tabular-nums">
               {formatUnits((pendingCarry ?? 0n) as bigint, 6)} USDC
             </span>
@@ -393,14 +403,15 @@ export const Raffle: React.FC = () => {
 
         <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
           <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-success shrink-0" /> Round facts
+            <Activity className="w-5 h-5 text-success shrink-0" /> {c.raffle.roundFacts}
           </h3>
 
           <dl className="space-y-4">
+            {/* Valores de protocolo (Arbitrum One, Chainlink VRF) não se traduzem. */}
             {([
-              ['Network', 'Arbitrum One'],
-              ['Randomness', 'Chainlink VRF'],
-              ['Rounds', '30 min'],
+              [c.raffle.factNetwork, 'Arbitrum One'],
+              [c.raffle.factRandomness, 'Chainlink VRF'],
+              [c.raffle.factRounds, c.raffle.factRoundsValue],
             ] as const).map(([k, v]) => (
               <div key={k} className="flex justify-between items-center gap-3">
                 <dt className="font-mono text-xs sm:text-sm text-gray-500 uppercase tracking-wider">{k}</dt>
@@ -411,13 +422,13 @@ export const Raffle: React.FC = () => {
 
           <div className="mt-6 bg-dark-input rounded-xl p-4 border border-dark-border">
             <p className="font-mono text-[10px] text-gray-500 mb-3 font-bold uppercase tracking-widest">
-              Prize split
+              {c.raffle.prizeSplit}
             </p>
             <div className="space-y-2">
               {([
-                ['1st', 50n, 'text-brand'],
-                ['2nd', 18n, 'text-brand'],
-                ['3rd', 7n, 'text-brand'],
+                [c.raffle.first, 50n, 'text-brand'],
+                [c.raffle.second, 18n, 'text-brand'],
+                [c.raffle.third, 7n, 'text-brand'],
               ] as const).map(([label, pct, cls]) => (
                 <div key={label} className="flex justify-between gap-3 text-sm">
                   <span className="font-mono text-gray-400">
@@ -434,10 +445,7 @@ export const Raffle: React.FC = () => {
 
         <p className="flex items-start gap-2 font-mono text-[11px] leading-relaxed text-gray-600 px-1">
           <Info className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>
-            Prizes are credited on-chain the moment a round settles and stay yours until you claim
-            them. Draws are settled by Chainlink VRF on Arbitrum One. 100% on-chain.
-          </span>
+          <span>{c.raffle.disclaimer}</span>
         </p>
       </div>
     </div>

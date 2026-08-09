@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Trophy, ArrowRight, Wallet, Zap, Check, X, ExternalLink, ShieldCheck, ChevronDown } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS } from '../constants';
+import { CONTRACTS, PRELAUNCH, TELEGRAM_URL } from '../constants';
 import { useLang, translations, LANGS, LANG_LABEL } from './landing.i18n';
 import { ShareButton } from '../components/ShareButton';
 
@@ -21,6 +21,30 @@ const contractLinks = [
 const STEP_ICONS = [Wallet, Zap, Trophy];
 
 const short = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+
+/**
+ * Botão da lista de espera (modo PRELAUNCH). Herda o estilo do CTA primário:
+ * âmbar, o único do ecrã, sem glow, rounded-lg.
+ *
+ * `target="_blank"` só quando o destino já é um link a sério — com o placeholder
+ * "#" abriria um separador em branco a cada clique.
+ */
+const WaitlistButton: React.FC<{ label: string; className?: string }> = ({ label, className = '' }) => {
+  const isExternal = /^https?:\/\//i.test(TELEGRAM_URL);
+  return (
+    <a
+      href={TELEGRAM_URL}
+      {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      className={clsx(
+        'inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black',
+        'font-extrabold px-12 h-16 rounded-lg transition-colors',
+        className,
+      )}
+    >
+      {label} <ArrowRight className="w-6 h-6" />
+    </a>
+  );
+};
 
 const SectionHeading: React.FC<{ eyebrow: string; title: string }> = ({ eyebrow, title }) => (
   <div className="text-center mb-12 md:mb-16">
@@ -69,7 +93,7 @@ export const Landing: React.FC = () => {
 
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Language selector */}
-            <div role="group" aria-label="Language" className="inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5">
+            <div role="group" aria-label={t.header.ariaLanguage} className="inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5">
               {LANGS.map((l) => (
                 <button
                   key={l}
@@ -109,12 +133,22 @@ export const Landing: React.FC = () => {
             <span className="block text-brand">{t.hero.headlineBottom}</span>
           </h1>
           <p className="text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mb-8 sm:mb-10">{t.hero.sub}</p>
-          <Link
-            to="/play"
-            className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl md:text-2xl px-12 h-16 rounded-lg transition-colors"
-          >
-            {t.hero.cta} <ArrowRight className="w-6 h-6" />
-          </Link>
+
+          {PRELAUNCH ? (
+            <>
+              <p className="font-display font-bold text-2xl md:text-3xl text-white mb-6">
+                {t.prelaunch.headline}
+              </p>
+              <WaitlistButton label={t.prelaunch.cta} className="text-xl md:text-2xl" />
+            </>
+          ) : (
+            <Link
+              to="/play"
+              className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl md:text-2xl px-12 h-16 rounded-lg transition-colors"
+            >
+              {t.hero.cta} <ArrowRight className="w-6 h-6" />
+            </Link>
+          )}
         </section>
 
         {/* 2. HOW IT WORKS */}
@@ -233,17 +267,23 @@ export const Landing: React.FC = () => {
 
         {/* Final CTA */}
         <section className="px-6 py-20 md:py-28 border-t border-dark-border/50 text-center">
+          {/* Em pré-lançamento a manchete passa a ser a da lista de espera: anunciar
+              um sorteio "já a rolar" ao lado de um botão de espera seria contraditório. */}
           <h2 className="font-display font-bold text-3xl md:text-5xl text-white mb-8 max-w-2xl mx-auto">
-            {t.finalCta.title}
+            {PRELAUNCH ? t.prelaunch.headline : t.finalCta.title}
           </h2>
-          {/* PLAY NOW continua a ser o único âmbar deste ecrã; o Share é secundário. */}
+          {/* O CTA primário continua a ser o único âmbar deste ecrã; o Share é secundário. */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link
-              to="/play"
-              className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-lg transition-colors"
-            >
-              {t.hero.cta} <ArrowRight className="w-6 h-6" />
-            </Link>
+            {PRELAUNCH ? (
+              <WaitlistButton label={t.prelaunch.cta} className="text-xl" />
+            ) : (
+              <Link
+                to="/play"
+                className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-lg transition-colors"
+              >
+                {t.hero.cta} <ArrowRight className="w-6 h-6" />
+              </Link>
+            )}
             <ShareButton variant="full" label={t.finalCta.share} className="h-16 text-lg" />
           </div>
         </section>

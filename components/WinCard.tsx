@@ -10,6 +10,7 @@ import {
 } from '../constants';
 import { Button } from './Button';
 import { Share2, Check, ExternalLink } from 'lucide-react';
+import { useAppCopy } from '../pages/app.i18n';
 
 const LOG_CHUNK = 9_000n;
 const MAX_CHUNKS = 30;
@@ -17,7 +18,6 @@ const ARBISCAN_TX = 'https://arbiscan.io/tx/';
 const SITE = 'https://instntwin.com';
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
-const RANK_LABEL: Record<number, string> = { 1: '1st place', 2: '2nd place', 3: '3rd place' };
 
 /**
  * Recibo de vitória. Aparece quando há prémio por reclamar ou quando um claim
@@ -33,6 +33,12 @@ export const WinCard: React.FC<{
   const { address } = useAccount();
   const client = usePublicClient();
   const [copied, setCopied] = useState(false);
+  const c = useAppCopy();
+  const rankLabel: Record<number, string> = {
+    1: c.winCard.firstPlace,
+    2: c.winCard.secondPlace,
+    3: c.winCard.thirdPlace,
+  };
 
   const { data: username } = useReadContract({
     address: CONTRACTS.USERNAME_REGISTRY,
@@ -86,7 +92,7 @@ export const WinCard: React.FC<{
   const proofTx = claimTxHash ?? win?.txHash;
   const name = username && (username as string).length > 0 ? `@${username}` : address ? short(address) : '';
 
-  const shareText = `I just won ${formatUnits(amount, 6)} USDC on Instant Win — provably fair, verified on-chain. ${SITE}`;
+  const shareText = `${c.winCard.sharePre} ${formatUnits(amount, 6)} ${c.winCard.sharePost} ${SITE}`;
 
   const handleShare = async () => {
     try {
@@ -108,7 +114,7 @@ export const WinCard: React.FC<{
         <p className="font-mono text-sm text-white truncate">{name}</p>
         {win?.rank ? (
           <span className="font-mono text-[10px] uppercase tracking-widest text-gray-400 border border-gray-700 rounded px-2 py-0.5 shrink-0">
-            {RANK_LABEL[win.rank] ?? `#${win.rank}`}
+            {rankLabel[win.rank] ?? `#${win.rank}`}
           </span>
         ) : null}
       </div>
@@ -119,19 +125,19 @@ export const WinCard: React.FC<{
       </p>
 
       {win?.roundId !== undefined && (
-        <p className="font-mono text-[11px] text-gray-500 mt-2">Round {win.roundId.toString()}</p>
+        <p className="font-mono text-[11px] text-gray-500 mt-2">{c.winCard.round} {win.roundId.toString()}</p>
       )}
 
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-dark-border pt-3">
         <span className="flex items-center gap-2 font-mono text-[11px] text-success uppercase tracking-widest">
-          <Check className="w-4 h-4 shrink-0" strokeWidth={3} /> Verified on Arbitrum
+          <Check className="w-4 h-4 shrink-0" strokeWidth={3} /> {c.winCard.verified}
         </span>
         {proofTx && (
           <a
             href={`${ARBISCAN_TX}${proofTx}`}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="View transaction on Arbiscan"
+            aria-label={c.winCard.ariaViewTx}
             className="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 text-gray-400 hover:text-white transition-colors"
           >
             <ExternalLink className="w-4 h-4" />
@@ -146,11 +152,11 @@ export const WinCard: React.FC<{
       >
         {copied ? (
           <>
-            <Check className="w-4 h-4" /> Copied
+            <Check className="w-4 h-4" /> {c.winCard.copied}
           </>
         ) : (
           <>
-            <Share2 className="w-4 h-4" /> Share
+            <Share2 className="w-4 h-4" /> {c.winCard.share}
           </>
         )}
       </Button>

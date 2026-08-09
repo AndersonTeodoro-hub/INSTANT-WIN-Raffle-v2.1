@@ -5,9 +5,11 @@ import { formatUnits } from 'viem';
 import { User, Wallet, Coins, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
+import { useAppCopy } from './app.i18n';
 
 export const Dashboard: React.FC = () => {
   const { address } = useAccount();
+  const c = useAppCopy();
 
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -108,20 +110,25 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MiniCard label="Identity" value={username ? `@${username}` : 'Register'} icon={User} to="/play/identity" />
         <MiniCard
-          label="Wallet"
+          label={c.dashboard.identity}
+          value={username ? `@${username}` : c.dashboard.register}
+          icon={User}
+          to="/play/identity"
+        />
+        <MiniCard
+          label={c.dashboard.wallet}
           value={usdcBalance ? `${formatUnits(usdcBalance as bigint, 6)} USDC` : '0.00'}
           icon={Wallet}
           to="/play"
         />
         <MiniCard
-          label="Next Pool"
+          label={c.dashboard.nextPool}
           value={`${formatUnits((pendingCarry ?? 0n) as bigint, 6)} USDC`}
           icon={Coins}
           to="/play/raffle"
         />
-        <MiniCard label="Network" value="Arbitrum One" icon={Zap} to="/play" />
+        <MiniCard label={c.dashboard.network} value="Arbitrum One" icon={Zap} to="/play" />
       </div>
 
       <div className="relative rounded-xl overflow-hidden border border-brand/20">
@@ -140,33 +147,35 @@ export const Dashboard: React.FC = () => {
               <span className={`relative inline-flex rounded-full h-3 w-3 ${isTransitioning ? 'bg-gray-600' : 'bg-gray-400'}`}></span>
             </span>
             <span className={`font-mono text-xs font-bold tracking-[0.2em] uppercase ${isTransitioning ? 'text-gray-500' : 'text-gray-300'}`}>
-              {isTransitioning ? 'Finalizing Round...' : `Round #${roundId?.toString() ?? '...'} Live`}
+              {isTransitioning
+                ? c.dashboard.finalizing
+                : `${c.dashboard.roundPre}${roundId?.toString() ?? '...'}${c.dashboard.roundPost}`}
             </span>
           </div>
 
           {/* clamp() em vez de text-7xl: 8 dígitos mono a 72px transbordam a 360px. */}
           <h1 className="font-mono font-bold text-white leading-none tracking-tighter tabular-nums mb-4 drop-shadow-2xl text-[clamp(2.75rem,15vw,10rem)]">
             {isTransitioning ? (
-              <span className="animate-pulse text-gray-400 text-[clamp(1.75rem,9vw,6rem)]">CLOSING…</span>
+              <span className="animate-pulse text-gray-400 text-[clamp(1.75rem,9vw,6rem)]">{c.dashboard.closing}</span>
             ) : (
               formatTime(timeLeft)
             )}
           </h1>
 
           <p className="font-mono text-gray-500 text-xs sm:text-base uppercase tracking-widest mb-8 sm:mb-10">
-            {isTransitioning ? 'Round ended · awaiting close' : 'Time Remaining'}
+            {isTransitioning ? c.dashboard.endedAwaitingClose : c.dashboard.timeRemaining}
           </p>
 
           <div className="flex flex-col md:flex-row items-center gap-6 md:gap-12 mb-12 bg-black/30 p-6 rounded-xl border border-white/5 backdrop-blur-sm">
             <div className="text-center">
-              <p className="text-xs text-gray-500 font-bold uppercase mb-1">Total Prize Pool</p>
+              <p className="text-xs text-gray-500 font-bold uppercase mb-1">{c.dashboard.totalPrizePool}</p>
               <p className="font-mono text-4xl font-bold text-brand tabular-nums">
                 {formatUnits(totalPool as bigint, 6)} <span className="text-lg text-gray-600">USDC</span>
               </p>
             </div>
             <div className="w-px h-12 bg-white/10 hidden md:block"></div>
             <div className="text-center">
-              <p className="text-xs text-gray-500 font-bold uppercase mb-1">Tickets Sold</p>
+              <p className="text-xs text-gray-500 font-bold uppercase mb-1">{c.dashboard.ticketsSold}</p>
               <p className="text-4xl font-bold text-white flex items-center gap-2 justify-center">
                 <Ticket className="w-6 h-6 text-purple-500" />
                 {ticketCount.toString()}
@@ -184,11 +193,11 @@ export const Dashboard: React.FC = () => {
                 <span className="relative z-10 flex items-center gap-3">
                   {isTransitioning ? (
                     <>
-                      <Loader2 className="animate-spin w-6 h-6" /> Processing...
+                      <Loader2 className="animate-spin w-6 h-6" /> {c.dashboard.processing}
                     </>
                   ) : (
                     <>
-                      ENTER ROUND NOW <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+                      {c.dashboard.enterRound} <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
                     </>
                   )}
                 </span>
@@ -197,7 +206,7 @@ export const Dashboard: React.FC = () => {
                 )}
               </Button>
             </Link>
-            <p className="mt-4 text-xs text-gray-500">Smart Contract verifies winner automatically via Chainlink VRF.</p>
+            <p className="mt-4 text-xs text-gray-500">{c.dashboard.vrfNote}</p>
           </div>
         </div>
       </div>
