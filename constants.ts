@@ -46,10 +46,9 @@ export const wagmiConfig = createConfig({
 export const PRELAUNCH = true;
 
 /**
- * Destino do botão da lista de espera. Placeholder até o Anderson preencher o
- * convite real — não é segredo nenhum, é um link público.
+ * Destino do botão da lista de espera. Não é segredo nenhum, é um link público.
  */
-export const TELEGRAM_URL = '#';
+export const TELEGRAM_URL = 'https://t.me/instantwinprotocol';
 
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
