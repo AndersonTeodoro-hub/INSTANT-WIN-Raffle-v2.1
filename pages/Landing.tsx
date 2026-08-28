@@ -92,6 +92,17 @@ export const Landing: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* "Roadmap" fica em inglês nos três idiomas, como INSTANT WIN ou
+                Chainlink VRF. Escondido abaixo de sm: a barra já leva três
+                alvos de 44px e um quarto transbordava em ecrãs de 360px — em
+                telemóvel a entrada vive no rodapé. */}
+            <Link
+              to="/roadmap"
+              className="hidden sm:inline-flex items-center min-h-[44px] px-2 text-sm font-medium text-gray-400 hover:text-white transition-colors"
+            >
+              Roadmap
+            </Link>
+
             {/* Language selector */}
             <div role="group" aria-label={t.header.ariaLanguage} className="inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5">
               {LANGS.map((l) => (
@@ -310,6 +321,16 @@ export const Landing: React.FC = () => {
                 </a>
               ))}
             </div>
+          </div>
+
+          {/* Entrada do roadmap para telemóvel, onde a do header não cabe. */}
+          <div className="text-center">
+            <Link
+              to="/roadmap"
+              className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+            >
+              Roadmap
+            </Link>
           </div>
 
           {/* Responsible play */}
