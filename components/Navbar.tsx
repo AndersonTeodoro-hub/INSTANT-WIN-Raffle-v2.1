@@ -63,8 +63,10 @@ export const Navbar: React.FC = () => {
       <div className="container mx-auto px-4 h-16 sm:h-20 flex items-center justify-between gap-2">
 
         {/* Brand — wordmark em HTML puro, sem imagem. Abaixo de 400px fica só o
-            check verde como marca mínima, para o header não transbordar. */}
-        <Link to="/play" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2">
+            check verde como marca mínima, para o header não transbordar.
+            Liga a "/": é a saída do jogo para o Event Center, e a única em app
+            instalada, que corre sem barra de endereço. */}
+        <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2">
           <span className="hidden min-[400px]:inline font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
             INSTANT WIN
           </span>

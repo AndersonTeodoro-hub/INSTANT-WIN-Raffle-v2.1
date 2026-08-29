@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { wagmiConfig, PRELAUNCH, TELEGRAM_URL } from './constants';
 
 import { Navbar } from './components/Navbar';
+import { PublicFooterNav } from './components/PublicNav';
 import { Landing } from './pages/Landing';
 import { Roadmap } from './pages/Roadmap';
 import { Giveaways } from './pages/Giveaways';
@@ -77,6 +78,10 @@ const GameFooter: React.FC = () => {
   return (
     <footer className="border-t border-dark-border py-6 sm:py-8 mt-8 bg-black/80 backdrop-blur-sm relative z-10">
       <div className="container mx-auto px-4 text-center space-y-2">
+        {/* Saída do jogo para o resto do Event Center. Mesmo componente do
+            rodapé da landing, /roadmap e /giveaways — em app instalada, que
+            corre sem barra de endereço, é isto e a marca do Navbar. */}
+        <PublicFooterNav />
         <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">
           {t.footer.responsibleShort}
         </p>
