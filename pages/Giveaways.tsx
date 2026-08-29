@@ -62,8 +62,8 @@ export const Giveaways: React.FC = () => {
       <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
 
       <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-3">
-          <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2">
+        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3">
+          <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2 md:mr-auto">
             <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
               INSTANT WIN
             </span>
@@ -72,8 +72,11 @@ export const Giveaways: React.FC = () => {
             </svg>
           </Link>
 
+          {/* Filho directo da barra: é o que lhe permite descer para a segunda
+              linha abaixo de md. */}
+          <PublicNavLinks />
+
           <div className="flex items-center gap-2">
-            <PublicNavLinks />
             <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
           </div>
         </div>

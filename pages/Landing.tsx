@@ -88,10 +88,10 @@ export const Landing: React.FC = () => {
 
       {/* Minimal public header — language selector + Enter App. No wallet connect here. */}
       <header className="relative z-20 border-b border-dark-border/60 backdrop-blur-sm sticky top-0 bg-black/70">
-        <div className="container mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-2">
+        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-2">
           {/* Mesma marca da navbar: wordmark em HTML puro + check verde inline.
               Abaixo de 400px fica só o check. */}
-          <div className="flex items-baseline gap-2 min-w-0">
+          <div className="flex items-baseline gap-2 min-w-0 md:mr-auto">
             <span className="hidden min-[400px]:inline font-display font-bold text-xl text-white tracking-tight leading-none truncate">
               INSTANT WIN
             </span>
@@ -113,13 +113,11 @@ export const Landing: React.FC = () => {
             </svg>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Lottery · Giveaways · Roadmap. Escondidas abaixo de md: a barra
-                já leva o selector de idioma e o "Enter App", e mais três alvos
-                de 44px transbordavam num ecrã de 390px — em telemóvel a
-                navegação vive no rodapé, como a /roadmap estabeleceu. */}
-            <PublicNavLinks />
+          {/* Filho directo da barra: é o que lhe permite descer para a segunda
+              linha abaixo de md. No desktop volta a alinhar com o resto. */}
+          <PublicNavLinks />
 
+          <div className="flex items-center gap-2 sm:gap-3">
             {/* Language selector */}
             <div role="group" aria-label={t.header.ariaLanguage} className="inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5">
               {LANGS.map((l) => (

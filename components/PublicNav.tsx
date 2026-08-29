@@ -23,16 +23,25 @@ export const PUBLIC_NAV = [
 ] as const;
 
 /**
- * Entradas do header. Escondidas abaixo de md: a barra da Landing já leva o
- * selector de idioma e o "Enter App", e três alvos de 44px a mais transbordavam
- * num ecrã de 390px. Em telemóvel a navegação vive no rodapé — foi a solução
- * que a /roadmap estabeleceu e que aqui se generaliza.
+ * Entradas do header, visíveis em todos os tamanhos.
+ *
+ * Abaixo de md passam para uma segunda linha do próprio header, a toda a
+ * largura e centradas. Medido a 390px: a barra tem 343px úteis e a Landing já
+ * gasta 257px (marca 18 + selector de idioma 138 + "Enter App" 93), enquanto
+ * estas três entradas precisam de 264px. Não cabem na mesma linha sem descer os
+ * alvos abaixo dos 44px — por isso descem de linha em vez de encolher.
+ *
+ * O rodapé mantém as mesmas entradas: em páginas longas é mais perto do polegar
+ * do que voltar ao topo.
  */
 export const PublicNavLinks: React.FC = () => {
   const { pathname } = useLocation();
 
   return (
-    <nav aria-label="Sections" className="hidden md:flex items-center gap-1">
+    <nav
+      aria-label="Sections"
+      className="flex w-full order-last justify-center items-center gap-1 pb-2 md:w-auto md:order-none md:justify-start md:pb-0"
+    >
       {PUBLIC_NAV.map((item) => {
         const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
         return (
