@@ -14,6 +14,21 @@ const STORAGE_KEY = 'iw-lang';
 export interface LandingCopy {
   header: { enterApp: string; ariaLanguage: string };
   hero: { badge: string; headlineTop: string; headlineBottom: string; sub: string; cta: string };
+  /**
+   * Os três módulos do Event Center. A ordem casa com `MODULES` em Landing.tsx,
+   * que é onde vivem o nome do módulo, a rota e o estado — mesma convenção dos
+   * STEP_ICONS. Aqui fica só o que se traduz.
+   */
+  modules: {
+    eyebrow: string;
+    title: string;
+    sub: string;
+    /** Sufixo do badge da lottery enquanto `PRELAUNCH` for true. */
+    prelaunchTag: string;
+    items: { badge: string; body: string; cta: string }[];
+  };
+  /** Cabeçalho do bloco que reúne a prova da lottery (how/why/transparency/FAQ). */
+  lottery: { eyebrow: string; title: string; intro: string };
   how: {
     eyebrow: string;
     title: string;
@@ -48,10 +63,39 @@ const en: LandingCopy = {
   header: { enterApp: 'Enter App', ariaLanguage: 'Language' },
   hero: {
     badge: 'Powered by Chainlink VRF',
-    headlineTop: 'Provably fair.',
-    headlineBottom: 'Yours to claim.',
-    sub: '3 winners per 30-minute round. Tickets from 1 USDC. Live on Arbitrum One.',
+    headlineTop: 'Provably fair events.',
+    headlineBottom: 'Proof, not promise.',
+    sub: 'An on-chain Event Center on Arbitrum One: lotteries, giveaways and rewards where every winner is drawn by Chainlink VRF and every prize is claimed straight from the contract.',
     cta: 'PLAY NOW',
+  },
+  modules: {
+    eyebrow: 'The Event Center',
+    title: 'Three modules, one standard of proof.',
+    sub: 'Each module ships in order. None is announced as done before it is verifiable on-chain.',
+    prelaunchTag: 'PRE-LAUNCH',
+    items: [
+      {
+        badge: 'LIVE',
+        body: '3 winners every 30-minute round, tickets from 1 USDC. Immutable verified contract, Chainlink VRF, prizes claimed on-chain.',
+        cta: 'Open the lottery',
+      },
+      {
+        badge: 'DEPLOYED · OPENING SOON',
+        body: 'Free entry for participants, any ERC-20 as the prize, winners drawn by Chainlink VRF. For brands, communities and creators.',
+        cta: 'See the giveaway flow',
+      },
+      {
+        badge: 'ROADMAP',
+        body: 'Web2 onboarding for people who have never held a wallet, points for real engagement, and token economics under legal structuring.',
+        cta: 'Read the roadmap',
+      },
+    ],
+  },
+  lottery: {
+    eyebrow: 'Module 01 · Live now',
+    title: 'The lottery, running on Arbitrum One.',
+    intro:
+      'The first live event in the Event Center — and the proof the rest is built on. Everything below is deployed code you can read today.',
   },
   how: {
     eyebrow: 'How it works',
@@ -109,10 +153,39 @@ const pt: LandingCopy = {
   header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
     badge: 'Com tecnologia Chainlink VRF',
-    headlineTop: 'Comprovadamente justo.',
-    headlineBottom: 'Seu para resgatar.',
-    sub: '3 ganhadores por rodada de 30 minutos. Bilhetes a partir de 1 USDC. Na Arbitrum One.',
+    headlineTop: 'Eventos comprovadamente justos.',
+    headlineBottom: 'Prova, não promessa.',
+    sub: 'Um Event Center on-chain na Arbitrum One: loterias, giveaways e recompensas em que cada ganhador é sorteado pelo Chainlink VRF e cada prêmio é resgatado direto do contrato.',
     cta: 'JOGAR AGORA',
+  },
+  modules: {
+    eyebrow: 'O Event Center',
+    title: 'Três módulos, um só padrão de prova.',
+    sub: 'Cada módulo entra em ordem. Nenhum é anunciado como pronto antes de ser verificável on-chain.',
+    prelaunchTag: 'PRÉ-LANÇAMENTO',
+    items: [
+      {
+        badge: 'AO VIVO',
+        body: '3 ganhadores a cada rodada de 30 minutos, bilhetes a partir de 1 USDC. Contrato imutável e verificado, Chainlink VRF, prêmios resgatados on-chain.',
+        cta: 'Abrir a loteria',
+      },
+      {
+        badge: 'DEPLOYADO · ABRE EM BREVE',
+        body: 'Entrada gratuita para os participantes, qualquer ERC-20 como prêmio, ganhadores sorteados pelo Chainlink VRF. Para marcas, comunidades e criadores.',
+        cta: 'Ver o fluxo de criação',
+      },
+      {
+        badge: 'ROADMAP',
+        body: 'Onboarding web2 para quem nunca teve uma wallet, pontos por engajamento real e economia de token em estruturação jurídica.',
+        cta: 'Ler o roadmap',
+      },
+    ],
+  },
+  lottery: {
+    eyebrow: 'Módulo 01 · Ao vivo',
+    title: 'A loteria, rodando na Arbitrum One.',
+    intro:
+      'O primeiro evento ao vivo do Event Center — e a prova sobre a qual o resto é construído. Tudo abaixo é código deployado que você pode ler hoje.',
   },
   how: {
     eyebrow: 'Como funciona',
@@ -170,10 +243,39 @@ const es: LandingCopy = {
   header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
     badge: 'Con tecnología Chainlink VRF',
-    headlineTop: 'Demostrablemente justo.',
-    headlineBottom: 'Tuyo para reclamar.',
-    sub: '3 ganadores por ronda de 30 minutos. Boletos desde 1 USDC. En Arbitrum One.',
+    headlineTop: 'Eventos demostrablemente justos.',
+    headlineBottom: 'Prueba, no promesa.',
+    sub: 'Un Event Center on-chain en Arbitrum One: loterías, giveaways y recompensas donde cada ganador se sortea con Chainlink VRF y cada premio se reclama directamente del contrato.',
     cta: 'JUGAR AHORA',
+  },
+  modules: {
+    eyebrow: 'El Event Center',
+    title: 'Tres módulos, un mismo estándar de prueba.',
+    sub: 'Cada módulo llega en orden. Ninguno se anuncia como listo antes de ser verificable on-chain.',
+    prelaunchTag: 'PRELANZAMIENTO',
+    items: [
+      {
+        badge: 'EN VIVO',
+        body: '3 ganadores por ronda de 30 minutos, boletos desde 1 USDC. Contrato inmutable y verificado, Chainlink VRF, premios reclamados on-chain.',
+        cta: 'Abrir la lotería',
+      },
+      {
+        badge: 'DESPLEGADO · ABRE PRONTO',
+        body: 'Entrada gratuita para los participantes, cualquier ERC-20 como premio, ganadores sorteados con Chainlink VRF. Para marcas, comunidades y creadores.',
+        cta: 'Ver el flujo de creación',
+      },
+      {
+        badge: 'ROADMAP',
+        body: 'Onboarding web2 para quien nunca ha tenido una wallet, puntos por participación real y economía de token bajo estructuración legal.',
+        cta: 'Leer el roadmap',
+      },
+    ],
+  },
+  lottery: {
+    eyebrow: 'Módulo 01 · En vivo',
+    title: 'La lotería, funcionando en Arbitrum One.',
+    intro:
+      'El primer evento en vivo del Event Center — y la prueba sobre la que se construye el resto. Todo lo de abajo es código desplegado que puedes leer hoy.',
   },
   how: {
     eyebrow: 'Cómo funciona',

@@ -50,12 +50,47 @@ export const PRELAUNCH = true;
  */
 export const TELEGRAM_URL = 'https://t.me/instantwinprotocol';
 
+/**
+ * Formulário de early access para criadores de campanhas (/giveaways).
+ *
+ * PLACEHOLDER — substituir pelo link real do Google Form antes do deploy.
+ * Enquanto for este valor, o botão não abre separador novo (mesma regra do
+ * TELEGRAM_URL): a página detecta que ainda não é um destino a sério.
+ */
+export const EARLY_ACCESS_FORM_URL = 'https://forms.gle/PLACEHOLDER';
+
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',
   // RaffleManagerV3 — Arbitrum One, verificado (Sourcify + Arbiscan).
   // Não há SHARES_REGISTRY: o V3 eliminou a camada de investidores.
   RAFFLE_MANAGER: '0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a',
+  // GiveawayManager V1 — Arbitrum One, verificado (Exact Match).
+  // Deployado, ainda sem criação de campanhas aberta ao público: a página
+  // /giveaways é um preview do fluxo, não uma interface de escrita.
+  GIVEAWAY_MANAGER: '0x1F2aE94Fd04Ce15cb2A3a09B7b81eb9e16781cB0',
+} as const;
+
+/**
+ * Constantes REAIS do GiveawayManager V1, tal como estão no contrato deployado.
+ *
+ * São a fonte única dos limites que o wizard de /giveaways valida e dos números
+ * que o painel de prova mostra. Não inventar valores nem duplicá-los em copy:
+ * o i18n interpola a partir daqui, para não haver dois números divergentes.
+ *
+ * Ao alterar o contrato, alterar aqui — e só aqui.
+ */
+export const GIVEAWAY_LIMITS = {
+  /** FEE_BPS = 500 → 5% do prémio, cobrado ao criador na criação. */
+  FEE_BPS: 500n,
+  BPS_DENOMINATOR: 10_000n,
+  /** MIN_DURATION / MAX_DURATION, em horas: 1 hora a 30 dias. */
+  MIN_DURATION_HOURS: 1,
+  MAX_DURATION_HOURS: 720,
+  /** MAX_WINNERS — escala de airdrop grande, possível pelo settle em dois passos. */
+  MAX_WINNERS: 1_000,
+  /** MAX_PARTICIPANTS — escala de campanha de marca grande. */
+  MAX_PARTICIPANTS: 100_000,
 } as const;
 
 /** Bloco de deploy da RaffleManagerV3 — piso para queries de eventos. */

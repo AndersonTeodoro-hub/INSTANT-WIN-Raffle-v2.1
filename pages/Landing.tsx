@@ -1,10 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, ArrowRight, Wallet, Zap, Check, X, ExternalLink, ShieldCheck, ChevronDown } from 'lucide-react';
+import { Trophy, ArrowRight, Wallet, Zap, Check, X, ExternalLink, ShieldCheck, ChevronDown, Ticket, Gift, Award } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, PRELAUNCH, TELEGRAM_URL } from '../constants';
 import { useLang, translations, LANGS, LANG_LABEL } from './landing.i18n';
 import { ShareButton } from '../components/ShareButton';
+import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
 const CHAINLINK_VRF = 'https://docs.chain.link/vrf';
@@ -19,6 +20,21 @@ const contractLinks = [
 
 // Icons pair positionally with copy.how.steps (kept out of i18n).
 const STEP_ICONS = [Wallet, Zap, Trophy];
+
+/**
+ * Os três módulos do Event Center. Emparelham posicionalmente com
+ * `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade do
+ * módulo: nome, rota, ícone e estado.
+ *
+ * `live` é a única autorização de verde nesta secção. Os outros dois módulos
+ * têm badge cinzento porque ainda não há nada vivo para verificar neles, e a
+ * regra da casa é que verde significa "verificável agora", não "em breve".
+ */
+const MODULES = [
+  { name: 'LOTTERY', to: '/play', icon: Ticket, live: true },
+  { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: false },
+  { name: 'REWARDS & COMPETITIONS', to: '/roadmap', icon: Award, live: false },
+] as const;
 
 const short = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
@@ -46,10 +62,16 @@ const WaitlistButton: React.FC<{ label: string; className?: string }> = ({ label
   );
 };
 
-const SectionHeading: React.FC<{ eyebrow: string; title: string }> = ({ eyebrow, title }) => (
+/*
+ * Eyebrow em cinzento mono, não em âmbar: depois da reposição o âmbar ficou
+ * reservado a valores de prémio e ao único CTA primário do ecrã. Seis eyebrows
+ * âmbar espalhados pela página gastavam a cor que devia destacar o prémio.
+ */
+const SectionHeading: React.FC<{ eyebrow: string; title: string; sub?: string }> = ({ eyebrow, title, sub }) => (
   <div className="text-center mb-12 md:mb-16">
-    <p className="text-brand text-xs font-bold uppercase tracking-[0.2em] mb-3">{eyebrow}</p>
+    <p className="font-mono text-gray-500 text-[11px] font-bold uppercase tracking-[0.2em] mb-3">{eyebrow}</p>
     <h2 className="font-display font-bold text-3xl md:text-5xl text-white">{title}</h2>
+    {sub && <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto mt-4">{sub}</p>}
   </div>
 );
 
@@ -92,16 +114,11 @@ export const Landing: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* "Roadmap" fica em inglês nos três idiomas, como INSTANT WIN ou
-                Chainlink VRF. Escondido abaixo de sm: a barra já leva três
-                alvos de 44px e um quarto transbordava em ecrãs de 360px — em
-                telemóvel a entrada vive no rodapé. */}
-            <Link
-              to="/roadmap"
-              className="hidden sm:inline-flex items-center min-h-[44px] px-2 text-sm font-medium text-gray-400 hover:text-white transition-colors"
-            >
-              Roadmap
-            </Link>
+            {/* Lottery · Giveaways · Roadmap. Escondidas abaixo de md: a barra
+                já leva o selector de idioma e o "Enter App", e mais três alvos
+                de 44px transbordavam num ecrã de 390px — em telemóvel a
+                navegação vive no rodapé, como a /roadmap estabeleceu. */}
+            <PublicNavLinks />
 
             {/* Language selector */}
             <div role="group" aria-label={t.header.ariaLanguage} className="inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5">
@@ -114,7 +131,7 @@ export const Landing: React.FC = () => {
                   className={clsx(
                     // 44px de alvo de toque: os px-2/py-1 anteriores davam ~28×24px.
                     'flex items-center justify-center min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-md transition-colors',
-                    lang === l ? 'bg-dark-input text-brand' : 'text-gray-400 hover:text-white'
+                    lang === l ? 'bg-dark-input text-white' : 'text-gray-400 hover:text-white'
                   )}
                 >
                   {LANG_LABEL[l]}
@@ -124,7 +141,7 @@ export const Landing: React.FC = () => {
 
             <Link
               to="/play"
-              className="inline-flex items-center gap-2 text-gray-300 hover:text-white font-bold text-sm px-3 sm:px-5 py-2.5 rounded-lg border border-gray-700 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 min-h-[44px] text-gray-300 hover:text-white font-bold text-sm px-3 sm:px-5 rounded-lg border border-gray-700 transition-colors whitespace-nowrap"
             >
               {t.header.enterApp} <ArrowRight className="w-4 h-4 hidden sm:block" />
             </Link>
@@ -141,7 +158,9 @@ export const Landing: React.FC = () => {
           </div>
           <h1 className="font-display font-bold text-[clamp(2.75rem,13vw,4.5rem)] md:text-7xl leading-[1.05] max-w-4xl mb-5 sm:mb-6">
             {t.hero.headlineTop}
-            <span className="block text-brand">{t.hero.headlineBottom}</span>
+            {/* Segunda linha em cinzento, não em âmbar: é a assinatura da marca,
+                não um valor de prémio. O contraste de tom chega para a separar. */}
+            <span className="block text-gray-500">{t.hero.headlineBottom}</span>
           </h1>
           <p className="text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mb-8 sm:mb-10">{t.hero.sub}</p>
 
@@ -162,8 +181,93 @@ export const Landing: React.FC = () => {
           )}
         </section>
 
-        {/* 2. HOW IT WORKS */}
-        <section className="px-6 py-16 md:py-24 border-t border-dark-border/50">
+        {/* 2. THE EVENT CENTER — os três módulos */}
+        <section className="px-5 sm:px-6 py-16 md:py-24 border-t border-dark-border/50">
+          <div className="container mx-auto max-w-6xl">
+            <SectionHeading eyebrow={t.modules.eyebrow} title={t.modules.title} sub={t.modules.sub} />
+
+            {/*
+              Hierarquia sem cor: o módulo vivo distingue-se por borda mais clara,
+              fundo mais presente e título maior. O verde fica só no badge, que é
+              a única coisa aqui que se pode verificar on-chain hoje.
+            */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+              {MODULES.map((m, i) => {
+                const copy = t.modules.items[i];
+                const Icon = m.icon;
+                const badge = m.live && PRELAUNCH ? `${copy.badge} · ${t.modules.prelaunchTag}` : copy.badge;
+
+                return (
+                  <Link
+                    key={m.to}
+                    to={m.to}
+                    className={clsx(
+                      'group flex flex-col rounded-xl border p-6 sm:p-8 transition-colors',
+                      m.live
+                        ? 'border-gray-700 bg-dark-card hover:border-gray-500'
+                        : 'border-dark-border bg-dark-card/40 hover:border-gray-700',
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-6">
+                      <Icon className={clsx('w-5 h-5', m.live ? 'text-gray-200' : 'text-gray-500')} />
+                      <span className="font-display font-bold text-4xl text-white/10">{`0${i + 1}`}</span>
+                    </div>
+
+                    <span
+                      className={clsx(
+                        'inline-flex items-center gap-2 font-mono text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.15em] mb-3',
+                        m.live ? 'text-success' : 'text-gray-500',
+                      )}
+                    >
+                      {m.live && <span className="w-2 h-2 rounded-full bg-success animate-pulse shrink-0" />}
+                      {badge}
+                    </span>
+
+                    <h3
+                      className={clsx(
+                        'font-display font-bold mb-3',
+                        m.live ? 'text-2xl sm:text-3xl text-white' : 'text-xl sm:text-2xl text-gray-200',
+                      )}
+                    >
+                      {m.name}
+                    </h3>
+
+                    <p className="text-gray-400 leading-relaxed flex-1">{copy.body}</p>
+
+                    <span
+                      className={clsx(
+                        'inline-flex items-center gap-2 min-h-[44px] mt-5 font-bold text-sm',
+                        m.live ? 'text-white' : 'text-gray-400 group-hover:text-white',
+                      )}
+                    >
+                      {copy.cta}
+                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/*
+          3. MÓDULO 01 — a partir daqui é tudo prova da lottery: mecânica,
+          comparação, contratos e FAQ. Nada foi apagado na reposição; o bloco
+          passou a ter um cabeçalho que diz de que módulo está a falar.
+        */}
+        <section className="px-5 sm:px-6 pt-16 md:pt-24 border-t border-dark-border/50">
+          <div className="container mx-auto max-w-3xl text-center">
+            <p className="inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-success mb-4">
+              <span className="w-2 h-2 rounded-full bg-success animate-pulse shrink-0" />
+              {t.lottery.eyebrow}
+            </p>
+            <h2 className="font-display font-bold text-3xl md:text-5xl text-white mb-5">{t.lottery.title}</h2>
+            <p className="text-gray-400 leading-relaxed">{t.lottery.intro}</p>
+          </div>
+        </section>
+
+        {/* 3a. HOW IT WORKS */}
+        <section className="px-6 py-12 md:py-16">
           <div className="container mx-auto max-w-6xl">
             <SectionHeading eyebrow={t.how.eyebrow} title={t.how.title} />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -193,7 +297,7 @@ export const Landing: React.FC = () => {
                 <thead>
                   <tr className="bg-dark-card">
                     <th className="p-5 text-xs font-bold uppercase tracking-wider text-gray-500"></th>
-                    <th className="p-5 text-sm font-display font-bold text-brand">{t.why.colInstant}</th>
+                    <th className="p-5 text-sm font-display font-bold text-white">{t.why.colInstant}</th>
                     <th className="p-5 text-sm font-display font-bold text-gray-400">{t.why.colTraditional}</th>
                   </tr>
                 </thead>
@@ -231,13 +335,13 @@ export const Landing: React.FC = () => {
                   href={`${ARBISCAN}${c.address}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-dark-card border border-dark-border rounded-xl p-5 hover:border-brand/40 transition-colors group"
+                  className="bg-dark-card border border-dark-border rounded-xl p-5 min-h-[44px] hover:border-success/40 transition-colors group"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-white">{c.label}</span>
-                    <ExternalLink className="w-4 h-4 text-gray-500 group-hover:text-brand transition-colors" />
+                    <ExternalLink className="w-4 h-4 text-gray-500 group-hover:text-success transition-colors" />
                   </div>
-                  <span className="font-mono text-xs text-gray-500">{short(c.address)}</span>
+                  <span className="font-mono text-xs text-success">{short(c.address)}</span>
                 </a>
               ))}
             </div>
@@ -246,7 +350,7 @@ export const Landing: React.FC = () => {
               <ShieldCheck className="w-5 h-5 text-gray-300 shrink-0" />
               <p className="text-gray-400 text-sm leading-relaxed flex-1">
                 {t.transparency.vrfPre}
-                <a href={CHAINLINK_VRF} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline font-medium">
+                <a href={CHAINLINK_VRF} target="_blank" rel="noopener noreferrer" className="text-white underline decoration-gray-600 underline-offset-4 hover:decoration-white font-medium">
                   Chainlink VRF
                 </a>
                 {t.transparency.vrfPost}
@@ -267,7 +371,7 @@ export const Landing: React.FC = () => {
                 >
                   <summary className="flex items-center justify-between gap-4 cursor-pointer list-none py-5 font-display font-bold text-white [&::-webkit-details-marker]:hidden">
                     {item.q}
-                    <ChevronDown className="w-5 h-5 text-brand shrink-0 transition-transform duration-300 group-open:rotate-180" />
+                    <ChevronDown className="w-5 h-5 text-gray-500 shrink-0 transition-transform duration-300 group-open:rotate-180" />
                   </summary>
                   <p className="text-gray-400 leading-relaxed pb-6 pr-6">{item.a}</p>
                 </details>
@@ -315,7 +419,7 @@ export const Landing: React.FC = () => {
                   href={`${ARBISCAN}${c.address}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-brand transition-colors"
+                  className="inline-flex items-center min-h-[44px] hover:text-success transition-colors"
                 >
                   <span className="font-sans font-medium text-gray-400">{c.label}:</span> {short(c.address)}
                 </a>
@@ -323,15 +427,8 @@ export const Landing: React.FC = () => {
             </div>
           </div>
 
-          {/* Entrada do roadmap para telemóvel, onde a do header não cabe. */}
-          <div className="text-center">
-            <Link
-              to="/roadmap"
-              className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
-            >
-              Roadmap
-            </Link>
-          </div>
+          {/* Navegação para telemóvel, onde a do header não cabe. */}
+          <PublicFooterNav />
 
           {/* Responsible play */}
           <div className="border-t border-dark-border/60 pt-6 max-w-2xl mx-auto text-center space-y-2">

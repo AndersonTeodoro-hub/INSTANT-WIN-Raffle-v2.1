@@ -7,6 +7,7 @@ import { wagmiConfig, PRELAUNCH, TELEGRAM_URL } from './constants';
 import { Navbar } from './components/Navbar';
 import { Landing } from './pages/Landing';
 import { Roadmap } from './pages/Roadmap';
+import { Giveaways } from './pages/Giveaways';
 import { Dashboard } from './pages/Dashboard';
 import { Raffle } from './pages/Raffle';
 import { Username } from './pages/Username';
@@ -97,8 +98,9 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<Landing />} />
 
-            {/* Página pública, sem wallet e sem layout do jogo — como a landing. */}
+            {/* Páginas públicas, sem wallet e sem layout do jogo — como a landing. */}
             <Route path="/roadmap" element={<Roadmap />} />
+            <Route path="/giveaways" element={<Giveaways />} />
 
             <Route path="/play" element={<GameLayout />}>
               <Route index element={<Dashboard />} />

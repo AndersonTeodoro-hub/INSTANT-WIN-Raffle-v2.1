@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS, TELEGRAM_URL } from '../constants';
+import { CONTRACTS } from '../constants';
+import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
+import { WaitlistLink } from '../components/WaitlistLink';
 import { useRoadmapCopy } from './roadmap.i18n';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -17,38 +19,6 @@ const ARBISCAN = 'https://arbiscan.io/address/';
  * Âmbar não aparece em lado nenhum — nesta página não há valores de prémio.
  */
 const LIVE_STEP = 0;
-
-/**
- * Link da lista de espera. Neutro de propósito: herda o estilo do CTA de
- * pré-lançamento que já existe no banner de /play (App.tsx), não o âmbar da
- * Landing, que aqui pertenceria a um prémio que esta página não mostra.
- *
- * `target="_blank"` só quando o destino é mesmo um link externo — com um
- * placeholder abriria um separador em branco a cada clique.
- */
-const WaitlistLink: React.FC<{ label: string; className?: string; withArrow?: boolean }> = ({
-  label,
-  className = '',
-  withArrow = false,
-}) => {
-  const isExternal = /^https?:\/\//i.test(TELEGRAM_URL);
-  return (
-    <a
-      href={TELEGRAM_URL}
-      {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className={clsx(
-        // Sem `display` aqui de propósito: o header esconde-o abaixo de sm e um
-        // `inline-flex` na base ficava a competir com o `hidden` do call site.
-        'items-center justify-center gap-2 min-h-[44px] rounded-lg border border-dark-border',
-        'font-bold text-gray-200 hover:text-white hover:border-gray-600 transition-colors',
-        className,
-      )}
-    >
-      {label}
-      {withArrow && <ArrowRight className="w-5 h-5" />}
-    </a>
-  );
-};
 
 export const Roadmap: React.FC = () => {
   const c = useRoadmapCopy();
@@ -99,7 +69,10 @@ export const Roadmap: React.FC = () => {
             </svg>
           </Link>
 
-          <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
+          <div className="flex items-center gap-2">
+            <PublicNavLinks />
+            <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
+          </div>
         </div>
       </header>
 
@@ -208,7 +181,8 @@ export const Roadmap: React.FC = () => {
       </main>
 
       <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
-        <div className="container mx-auto px-4 text-center">
+        <div className="container mx-auto px-4 text-center space-y-2">
+          <PublicFooterNav />
           <Link
             to="/"
             className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
