@@ -6,6 +6,7 @@ import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { WaitlistLink } from '../components/WaitlistLink';
 import { GiveawayWizard } from '../components/GiveawayWizard';
 import { useGiveawaysCopy } from './giveaways.i18n';
+import type { GiveawaysCopy } from './giveaways.i18n';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
 
@@ -15,17 +16,23 @@ const ARBISCAN = 'https://arbiscan.io/address/';
  * Emparelham posicionalmente com `copy.proof.specs`, que só tem os rótulos —
  * mesma convenção dos STEP_ICONS da Landing. Assim um número só existe num
  * sítio: se o contrato mudar, muda em constants.ts e a página acompanha.
+ *
+ * As palavras à volta vêm do i18n (`specWords`) e os números não: os limites
+ * são o que o contrato faz e ficam idênticos nas três línguas; o "Up to" é que
+ * tem de dizer "Até" em português. Em inglês o resultado é byte a byte o mesmo
+ * de antes.
  */
-const SPECS = [
+const specValues = (w: GiveawaysCopy['proof']['specWords']) => [
   `${Number(GIVEAWAY_LIMITS.FEE_BPS) / 100}%`,
-  `Up to ${GIVEAWAY_LIMITS.MAX_WINNERS.toLocaleString('en-US')}`,
-  `Up to ${GIVEAWAY_LIMITS.MAX_PARTICIPANTS.toLocaleString('en-US')}`,
-  'Any ERC-20',
-  `${GIVEAWAY_LIMITS.MIN_DURATION_HOURS} hour – ${GIVEAWAY_LIMITS.MAX_DURATION_HOURS / 24} days`,
+  `${w.upTo} ${GIVEAWAY_LIMITS.MAX_WINNERS.toLocaleString('en-US')}`,
+  `${w.upTo} ${GIVEAWAY_LIMITS.MAX_PARTICIPANTS.toLocaleString('en-US')}`,
+  w.anyErc20,
+  `${GIVEAWAY_LIMITS.MIN_DURATION_HOURS} ${w.hour} – ${GIVEAWAY_LIMITS.MAX_DURATION_HOURS / 24} ${w.days}`,
 ];
 
 export const Giveaways: React.FC = () => {
   const c = useGiveawaysCopy();
+  const specs = specValues(c.proof.specWords);
 
   /*
    * SEO desta rota, mesmo mecanismo da /roadmap: o site é uma SPA com um só
@@ -129,7 +136,7 @@ export const Giveaways: React.FC = () => {
               {c.proof.specs.map((label, i) => (
                 <div key={label}>
                   <dt className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-1">{label}</dt>
-                  <dd className="font-mono text-lg sm:text-xl font-bold text-white">{SPECS[i]}</dd>
+                  <dd className="font-mono text-lg sm:text-xl font-bold text-white">{specs[i]}</dd>
                 </div>
               ))}
             </dl>

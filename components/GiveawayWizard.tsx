@@ -221,10 +221,11 @@ export const GiveawayWizard: React.FC = () => {
 
   const endsAt = useMemo(() => {
     if (!Number.isFinite(hours)) return '—';
-    return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(
+    // Locale vindo do i18n: em inglês continua a ser en-GB, como antes.
+    return new Intl.DateTimeFormat(w.dateLocale, { dateStyle: 'medium', timeStyle: 'short' }).format(
       new Date(mountedAt + hours * 3_600_000),
     );
-  }, [hours, mountedAt]);
+  }, [hours, mountedAt, w.dateLocale]);
 
   /*
    * Erros do passo actual. É o que trava o "Continue" — as mesmas condições que
