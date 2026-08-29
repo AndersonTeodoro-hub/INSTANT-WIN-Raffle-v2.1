@@ -57,7 +57,7 @@ export const TELEGRAM_URL = 'https://t.me/instantwinprotocol';
  * Enquanto for este valor, o botão não abre separador novo (mesma regra do
  * TELEGRAM_URL): a página detecta que ainda não é um destino a sério.
  */
-export const EARLY_ACCESS_FORM_URL = 'https://forms.gle/PLACEHOLDER';
+export const EARLY_ACCESS_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfsHV8pzol-rurUYw3IxwGjAyV4aP7M4QpquqSoyIvOK4f2uw/viewform';
 
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
