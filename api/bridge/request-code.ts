@@ -1,8 +1,3 @@
-// Extensão .ts explícita: ao contrário do código do browser, isto não passa
-// pelo Vite. Um especificador sem extensão só resolve dentro de um bundler, e
-// falha em Node puro — foi o que o smoke test apanhou.
-import { notImplemented } from './_stub.ts';
-
 /**
  * POST /api/bridge/request-code
  *
@@ -14,5 +9,9 @@ import { notImplemented } from './_stub.ts';
  * Parte 2.
  */
 export default function handler(_request: Request): Response {
-  return notImplemented();
+  // Stub inline de propósito — sem imports relativos até à Parte 2 (ref: incidente ERR_MODULE_NOT_FOUND 30/08).
+  return new Response(JSON.stringify({ error: 'not implemented' }), {
+    status: 501,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
