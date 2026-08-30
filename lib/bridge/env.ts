@@ -19,11 +19,18 @@ declare const process: { env: Record<string, string | undefined> };
 /** Nomes das variáveis exigidas pelo SPEC-BRIDGE §5. */
 export const BRIDGE_ENV_KEYS = [
   'BRIDGE_SEED',
-  'BRIDGE_FUNDER_PK',
   'SUPABASE_URL',
   'SUPABASE_SERVICE_KEY',
   'RESEND_API_KEY',
 ] as const;
+
+/**
+ * O funder NÃO está na lista acima porque tem dois nomes aceites:
+ * BRIDGE_FUNDER_PKS (lista, preferida) ou BRIDGE_FUNDER_PK (singular, o nome do
+ * SPEC §5, tratado como pool de um). Uma lista fixa não exprime "uma OU outra",
+ * por isso a validação vive em  (funders.ts), que lança com os
+ * dois nomes na mensagem quando falta.
+ */
 
 export type BridgeEnvKey = (typeof BRIDGE_ENV_KEYS)[number];
 export type BridgeEnv = Record<BridgeEnvKey, string>;
@@ -40,6 +47,18 @@ export function requireEnv(key: BridgeEnvKey): string {
     throw new Error(`[bridge] variável de ambiente em falta: ${key} — configurar no dashboard do Vercel`);
   }
   return value;
+}
+
+/**
+ * Lê uma variável OPCIONAL, fora da lista do SPEC §5.
+ *
+ * Existe para uma só coisa: permitir apontar o RPC da Arbitrum para um endpoint
+ * dedicado sem obrigar a configurá-lo. Sem valor, o `chain.ts` usa o mesmo RPC
+ * público que o frontend já usa. Nada obrigatório entra por aqui.
+ */
+export function optionalEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.length > 0 ? value : undefined;
 }
 
 /**
