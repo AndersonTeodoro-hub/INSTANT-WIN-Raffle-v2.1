@@ -329,5 +329,57 @@ await t('pool: try/finally liberta mesmo quando o funding rebenta', async () => 
   assert.equal(store.heldCount(), 0, 'lease ficou preso apos erro');
 });
 
+// ============================================================ header da chave Supabase
+// Regressao do 500 de 31/08: com uma chave sb_secret_, o cliente enviava
+// apikey E Authorization: Bearer com o MESMO valor, e o servidor rejeitava-o por
+// nao ser um JWT (https://supabase.com/docs/guides/api/api-keys).
+import { createServer } from 'node:http';
+
+const supa = await import('../lib/bridge/supabase.ts');
+
+/** Marcador FALSO, nao e uma chave. So precisa do prefixo do formato novo. */
+const FAKE_SECRET = 'sb_secret_MARCADOR_FALSO_DE_TESTE';
+
+await t('supabase: Bearer que duplica o apikey e removido', () => {
+  const h = new Headers({ apikey: FAKE_SECRET, Authorization: `Bearer ${FAKE_SECRET}` });
+  supa.stripSelfBearer(h);
+  assert.equal(h.get('apikey'), FAKE_SECRET, 'apikey nao pode ser tocado');
+  assert.equal(h.get('Authorization'), null, 'Authorization duplicado devia ter sido removido');
+});
+await t('supabase: Authorization DIFERENTE do apikey e preservado', () => {
+  const h = new Headers({ apikey: FAKE_SECRET, Authorization: 'Bearer token-de-utilizador-futuro' });
+  supa.stripSelfBearer(h);
+  assert.equal(h.get('Authorization'), 'Bearer token-de-utilizador-futuro');
+  assert.equal(h.get('apikey'), FAKE_SECRET);
+});
+await t('supabase: sem apikey nao remove nada', () => {
+  const h = new Headers({ Authorization: `Bearer ${FAKE_SECRET}` });
+  supa.stripSelfBearer(h);
+  assert.equal(h.get('Authorization'), `Bearer ${FAKE_SECRET}`);
+});
+
+await t('supabase: pedido real sai com apikey e SEM Authorization', async () => {
+  let seen = null;
+  const server = createServer((req, res) => {
+    seen = { apikey: req.headers.apikey, authorization: req.headers.authorization };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('[]');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    process.env.SUPABASE_URL = `http://127.0.0.1:${server.address().port}`;
+    process.env.SUPABASE_SERVICE_KEY = FAKE_SECRET;
+    await supa.getSupabase().from('bridge_participants').select('id').limit(1);
+
+    assert.ok(seen, 'o servidor local nao recebeu pedido nenhum');
+    assert.equal(seen.apikey, FAKE_SECRET, 'apikey tem de continuar a ser enviado');
+    assert.equal(seen.authorization, undefined, `Authorization ainda foi enviado: ${seen.authorization}`);
+  } finally {
+    server.close();
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_KEY;
+  }
+});
+
 console.log(`\n${pass} passaram, ${fail} falharam`);
 process.exit(fail === 0 ? 0 : 1);

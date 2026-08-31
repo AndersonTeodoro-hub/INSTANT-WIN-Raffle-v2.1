@@ -2,6 +2,40 @@ import { createClient } from '@supabase/supabase-js';
 import { requireEnv } from './env.js';
 
 /**
+ * Remove o `Authorization` quando ele é apenas o `apikey` repetido.
+ *
+ * As chaves do formato novo do Supabase (`sb_publishable_…` / `sb_secret_…`) não
+ * são JWTs e pertencem só ao header `apikey`. A documentação é explícita sobre o
+ * que acontece se forem também no Bearer com o mesmo valor:
+ *
+ *   "You cannot send a publishable or secret key in the `Authorization: Bearer …`
+ *    header, except if the value exactly equals the `apikey` header. In this case,
+ *    your request will be forwarded down to your project's database, but
+ *    WILL BE REJECTED AS THE VALUE IS NOT A JWT."
+ *   — https://supabase.com/docs/guides/api/api-keys
+ *
+ * Era exactamente isso que acontecia: o cliente enviava os dois headers com o
+ * mesmo `sb_secret_…`, o servidor tentava lê-lo como JWT e rejeitava, e a query
+ * devolvia erro — que subia como 500 nas rotas.
+ *
+ * A opção `omitApiKeyAsBearer` do SDK NÃO resolve: medido contra um servidor
+ * local com @supabase/supabase-js@2.112.4, o header continua a sair, porque o
+ * cliente PostgREST define-o a montante do wrapper de fetch que essa opção
+ * controla.
+ *
+ * A condição é deliberadamente estreita — só remove quando o Bearer DUPLICA o
+ * apikey. Um `Authorization` diferente (um token de utilizador, se algum dia
+ * existir) passa intacto.
+ */
+export function stripSelfBearer(headers: Headers): Headers {
+  const apikey = headers.get('apikey');
+  if (apikey && headers.get('Authorization') === `Bearer ${apikey}`) {
+    headers.delete('Authorization');
+  }
+  return headers;
+}
+
+/**
  * Cliente Supabase da ponte — SEMPRE service role.
  *
  * As três tabelas têm RLS ligado e ZERO policies (migração 0001). Isso significa
@@ -20,6 +54,10 @@ import { requireEnv } from './env.js';
 export function getSupabase() {
   return createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_KEY'), {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, headers: stripSelfBearer(new Headers(init?.headers)) }),
+    },
   });
 }
 
