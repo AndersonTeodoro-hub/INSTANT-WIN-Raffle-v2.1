@@ -175,6 +175,18 @@ LANGUAGE plpgsql
 SET search_path = public
 AS $fn$
 BEGIN
+  -- bridge_v2_link_codes_live_chat_unique allows one live link per chat. A
+  -- participant who starts a second campaign from the same chat would otherwise
+  -- make this statement raise, PostgREST answer 409, and the webhook answer 500
+  -- to Telegram, which Telegram then retries for ever. The newest /start wins
+  -- instead: the earlier link is detached from the chat and left unconsumed, so
+  -- it can still be reopened from the page.
+  UPDATE bridge_v2_link_codes c
+     SET telegram_chat_id = NULL
+   WHERE c.telegram_chat_id = p_chat_id
+     AND c.consumed_at IS NULL
+     AND c.code_hash <> p_code_hash;
+
   RETURN QUERY
   UPDATE bridge_v2_link_codes c
      SET telegram_chat_id = p_chat_id
@@ -182,6 +194,12 @@ BEGIN
      AND c.consumed_at IS NULL
      AND c.expires_at > now()
   RETURNING c.id, c.participant_id, c.giveaway_id;
+EXCEPTION
+  -- Belt and braces for the same reason: a collision that survives the detach
+  -- above leaves as "no live link", never as an exception the webhook has to
+  -- turn into a status code.
+  WHEN unique_violation THEN
+    RETURN;
 END;
 $fn$;
 
@@ -210,22 +228,35 @@ $fn$;
 
 
 -- -----------------------------------------------------------------------------
--- phone binding — C5 and C6
+-- phone binding and entry verification — C5, C6, and findings 8.7 and 8.8
 -- -----------------------------------------------------------------------------
--- Binds a phone hash to a participant, or reports why it cannot.
+-- One function, one transaction, for what used to be two round trips: bind the
+-- verified number to the participant, and move that participant's entry in this
+-- campaign to VERIFIED. Split across two calls there was a window in which a
+-- number was bound to an account whose entry never advanced: the number spent,
+-- the participation lost, and no way back because the number is now in use.
+--
+-- 8.8: nothing here raises. Every uniqueness collision -- the live-number index,
+-- the one-live-number-per-participant index, the (campaign, number) index --
+-- leaves as a named outcome. The caller is the Telegram webhook, and an
+-- exception there becomes a 500, which Telegram retries indefinitely.
 --
 -- Outcomes:
---   BOUND        the hash is now live for this participant
---   ALREADY_MINE the hash is already live for this same participant
---   TAKEN        the hash is live for a different participant (C5 global unique)
---   COOLDOWN     the hash was released recently and is still cooling (C6)
---
--- The unique partial index is the real guard; this function turns the race it
--- would lose into a named outcome instead of an exception the caller must parse.
-CREATE OR REPLACE FUNCTION bridge_v2_bind_phone(
+--   VERIFIED        the number is bound and the entry is verified
+--   TAKEN           the number is live for a different participant (C5)
+--   COOLDOWN        the number was released recently and is still cooling (C6)
+--   NUMBER_CHANGED  a different number was live for this participant; it has
+--                   been released into its cooldown and the account is blocked
+--                   in every campaign it was active in at this moment (C6)
+--   DUPLICATE       this number already holds an entry in this campaign
+--   NOT_AWAITING    the entry is no longer waiting for a contact
+--   NO_ENTRY        there is no entry for this participant and campaign
+CREATE OR REPLACE FUNCTION bridge_v2_bind_phone_and_verify(
   p_phone_hmac       text,
   p_participant_id   uuid,
-  p_telegram_id_hmac text
+  p_giveaway_id      numeric,
+  p_telegram_id_hmac text,
+  p_cooldown_days    integer
 ) RETURNS text
 LANGUAGE plpgsql
 SET search_path = public
@@ -233,35 +264,102 @@ AS $fn$
 DECLARE
   v_owner    uuid;
   v_cooldown timestamptz;
+  v_previous text;
+  v_entry    uuid;
+  v_rows     integer;
 BEGIN
+  -- C5: the live binding for this number decides before anything else. The row
+  -- is locked so a concurrent delivery of the same contact cannot pass here too.
   SELECT participant_id INTO v_owner
     FROM bridge_v2_phones
    WHERE phone_hmac = p_phone_hmac AND released_at IS NULL
    FOR UPDATE;
 
-  IF v_owner IS NOT NULL THEN
-    RETURN CASE WHEN v_owner = p_participant_id THEN 'ALREADY_MINE' ELSE 'TAKEN' END;
-  END IF;
-
-  SELECT max(cooldown_until) INTO v_cooldown
-    FROM bridge_v2_phones
-   WHERE phone_hmac = p_phone_hmac AND released_at IS NOT NULL;
-
-  IF v_cooldown IS NOT NULL AND v_cooldown > now() THEN
-    RETURN 'COOLDOWN';
-  END IF;
-
-  INSERT INTO bridge_v2_phones (phone_hmac, participant_id, telegram_user_id_hmac)
-  VALUES (p_phone_hmac, p_participant_id, p_telegram_id_hmac);
-
-  RETURN 'BOUND';
-EXCEPTION
-  -- The partial unique index is the authority. If a concurrent transaction won
-  -- the insert between the check and here, report TAKEN rather than raising.
-  WHEN unique_violation THEN
+  IF v_owner IS NOT NULL AND v_owner <> p_participant_id THEN
     RETURN 'TAKEN';
+  END IF;
+
+  IF v_owner IS NULL THEN
+    SELECT max(cooldown_until) INTO v_cooldown
+      FROM bridge_v2_phones
+     WHERE phone_hmac = p_phone_hmac AND released_at IS NOT NULL;
+
+    IF v_cooldown IS NOT NULL AND v_cooldown > now() THEN
+      RETURN 'COOLDOWN';
+    END IF;
+
+    -- C6, the change of number. A participant holds one live number, so a
+    -- different one arriving is a change: the old hash is released with its
+    -- history kept, it enters the cooling period before anyone may rebind it,
+    -- and the account is blocked in every campaign it was active in at this
+    -- moment. The entry being confirmed right now is one of those, which is the
+    -- point: a number cannot be swapped mid-confirmation and have the
+    -- confirmation stand.
+    SELECT phone_hmac INTO v_previous
+      FROM bridge_v2_phones
+     WHERE participant_id = p_participant_id AND released_at IS NULL
+     FOR UPDATE;
+
+    IF v_previous IS NOT NULL THEN
+      UPDATE bridge_v2_phones
+         SET released_at    = now(),
+             cooldown_until = now() + make_interval(days => p_cooldown_days)
+       WHERE participant_id = p_participant_id AND released_at IS NULL;
+
+      UPDATE bridge_v2_entries
+         SET status = 'FAILED', updated_at = now()
+       WHERE participant_id = p_participant_id
+         AND status IN ('AWAITING_CONTACT', 'VERIFIED', 'ELIGIBLE');
+
+      RETURN 'NUMBER_CHANGED';
+    END IF;
+
+    BEGIN
+      INSERT INTO bridge_v2_phones (phone_hmac, participant_id, telegram_user_id_hmac)
+      VALUES (p_phone_hmac, p_participant_id, p_telegram_id_hmac);
+    EXCEPTION
+      -- The partial unique indexes are the authority. Losing the race to another
+      -- transaction is reported, never raised.
+      WHEN unique_violation THEN
+        RETURN 'TAKEN';
+    END;
+  END IF;
+
+  SELECT id INTO v_entry
+    FROM bridge_v2_entries
+   WHERE participant_id = p_participant_id AND giveaway_id = p_giveaway_id
+   FOR UPDATE;
+
+  IF v_entry IS NULL THEN
+    RETURN 'NO_ENTRY';
+  END IF;
+
+  BEGIN
+    UPDATE bridge_v2_entries
+       SET phone_hmac = p_phone_hmac,
+           status     = 'VERIFIED',
+           updated_at = now()
+     WHERE id = v_entry AND status = 'AWAITING_CONTACT';
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+  EXCEPTION
+    -- bridge_v2_entries_phone_giveaway_unique: this number already holds an
+    -- entry in this campaign, which is the uniqueness rule of the 05/09/2026
+    -- decision doing its job.
+    WHEN unique_violation THEN
+      RETURN 'DUPLICATE';
+  END;
+
+  -- The status predicate makes the transition idempotent: a Telegram retry
+  -- delivering the same contact twice moves the row once.
+  RETURN CASE WHEN v_rows = 1 THEN 'VERIFIED' ELSE 'NOT_AWAITING' END;
 END;
 $fn$;
+
+COMMENT ON FUNCTION bridge_v2_bind_phone_and_verify IS '8.7: binding and verification in one transaction. 8.8: no collision escapes as an exception.';
+
+-- The two-call version this replaces. Dropped rather than left in place: a
+-- function nothing calls is a privilege nothing needs.
+DROP FUNCTION IF EXISTS bridge_v2_bind_phone(text, uuid, text);
 
 -- C6: release a number, opening the cooldown before it can be rebound.
 CREATE OR REPLACE FUNCTION bridge_v2_release_phone(

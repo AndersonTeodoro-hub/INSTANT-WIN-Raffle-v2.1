@@ -14,8 +14,7 @@
  * driver message can contain row values.
  */
 
-import { getWriter, type BridgeRole } from './db.js';
-import { OPS_RETENTION_DAYS } from './config.js';
+import { getWriter } from './db.js';
 
 /** Event kinds. A closed set, so a grep for a kind finds every site that emits it. */
 export type OpsKind =
@@ -101,9 +100,3 @@ export function createLogger(route: string, correlationId: string): Logger {
       persist(kind, { ...detail, error_class: errorName(error) }),
   };
 }
-
-/** Retention, so a reader of this module sees the bound without opening the migration (K7). */
-export const LOG_RETENTION_DAYS = OPS_RETENTION_DAYS;
-
-/** Re-exported so route modules import one thing when they need both. */
-export type { BridgeRole };

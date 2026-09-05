@@ -17,11 +17,6 @@ export const CHAIN_ID = 42161 as const;
 /** GiveawayManagerV2, Arbitrum One. Verified on Sourcify (exact match). */
 export const GIVEAWAY_MANAGER_V2 = '0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739' as const;
 
-/** Prize modules, from the same deployment. Used to classify a prize (E2). */
-export const ERC20_PRIZE_MODULE = '0x2247aeF54C66bD5149989f9c66522d3b439a4A7b' as const;
-export const ERC721_PRIZE_MODULE = '0xafe9E198816DEa24e7f74e9D666c0F250aD688BC' as const;
-export const ERC1155_PRIZE_MODULE = '0xeb54e328F9F38222FA91e29D6c0367342B8EFD50' as const;
-
 /** USDC on Arbitrum One, 6 decimals. */
 export const USDC = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' as const;
 export const USDC_DECIMALS = 6 as const;
@@ -59,6 +54,10 @@ export const RATE_LIMITS = {
   EMAIL: { windowSeconds: 3600, max: 5, penaltySeconds: 300 },
   UNKNOWN_EMAIL: { windowSeconds: 86400, max: 2, penaltySeconds: 3600 },
   PHONE: { windowSeconds: 86400, max: 3, penaltySeconds: 3600 },
+  // C7: the device fingerprint. Weak by design (signals.ts), so the ceiling is
+  // loose enough that a shared office NAT is not a false positive and tight
+  // enough that one machine cannot register a hundred accounts in an hour.
+  CLIENT: { windowSeconds: 3600, max: 20, penaltySeconds: 300 },
   GIVEAWAY: { windowSeconds: 60, max: 300, penaltySeconds: 30 },
   ROUTE_GLOBAL: { windowSeconds: 60, max: 3000, penaltySeconds: 10 },
 } as const;
@@ -122,7 +121,6 @@ export const RECEIPT_TIMEOUT_MS = 60_000;
 export const HTTP_TIMEOUT_MS = 8_000;
 /** G3: lease length, and the point at which a live operation renews it. */
 export const FUNDER_LEASE_SECONDS = 90 as const;
-export const FUNDER_RENEW_AFTER_MS = 45_000;
 
 /**
  * H3: absolute ceiling on what one entry may cost in gas, in wei. A compromised
@@ -142,6 +140,25 @@ export const GAS_MARGIN_DENOMINATOR = 100n;
 
 /** H7: leftover below this is not worth a sweep transaction. */
 export const SWEEP_MIN_WEI = 5n * 10n ** 13n;
+
+// -----------------------------------------------------------------------------
+// H8 — the alert thresholds
+// -----------------------------------------------------------------------------
+// H8 asks for an alert BEFORE exhaustion, so every threshold here is a level at
+// which there is still time to act, not the level at which something has already
+// stopped working.
+/** A funder below this can still pay, but not for long. */
+export const FUNDER_LOW_BALANCE_WEI = 10n ** 15n;
+/**
+ * LINK in the VRF 2.5 subscription, 18 decimals. Below this a draw may fail to
+ * be fulfilled, which is the one failure in the system that cannot be retried
+ * from this side.
+ */
+export const VRF_LOW_LINK_JUELS = 3n * 10n ** 18n;
+/** Fraction of a provider's daily ceiling at which the consumption is worth an alert. */
+export const SPEND_ALERT_FRACTION = 0.8;
+/** Route errors in the last hour above which the error rate is worth an alert. */
+export const ROUTE_ERROR_ALERT_COUNT = 25 as const;
 
 // -----------------------------------------------------------------------------
 // I, K — limits and retention

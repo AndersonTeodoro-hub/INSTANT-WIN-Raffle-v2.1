@@ -3,8 +3,7 @@ import { enforce } from '../../../../lib/bridge-v2/ratelimit.js';
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { parseLinkCode, parsePhone, parseTelegramId } from '../../../../lib/bridge-v2/validate.js';
 import { claimLinkForChat, consumeLinkForChat } from '../../../../lib/bridge-v2/linkcodes.js';
-import { bindPhone, hashPhone, hashTelegramId } from '../../../../lib/bridge-v2/phone.js';
-import { findEntry, markVerified } from '../../../../lib/bridge-v2/entries.js';
+import { bindPhoneAndVerify, hashPhone, hashTelegramId } from '../../../../lib/bridge-v2/phone.js';
 import { BOT_MESSAGES, askForContact, isFromTelegram, sendAndClearKeyboard, sendText } from '../../../../lib/bridge-v2/telegram.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
 
@@ -21,11 +20,11 @@ import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
  * R2: nothing sent from here mentions a token, a chain, a wallet, a prize or an
  * amount, and no message carries a link to any of them.
  *
- * The route always answers 200. Telegram retries anything else, and a retry of a
- * contact message is a retry of a binding — which is safe because the binding is
- * idempotent, but a retry storm is not. Failures are recorded and acknowledged.
+ * The route always answers 200. Telegram retries anything else, so a 500 here is
+ * not a failed delivery but an infinite one. Every collision that could produce
+ * one is a named outcome of bridge_v2_bind_phone_and_verify instead (8.8).
  */
-export const POST = handle('telegram/webhook', async ({ request, log }) => {
+const route = handle('telegram/webhook', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
   if (guard !== null) return guard;
 
@@ -68,13 +67,18 @@ export const POST = handle('telegram/webhook', async ({ request, log }) => {
       return ok();
     }
 
+    // B8, and the order it implies: the budget is claimed before the link is
+    // touched, not after. Claiming afterwards attached the link to this chat and
+    // then refused to send the request for a contact, leaving the participant
+    // with a code that had been spent on nothing.
+    if (!(await claimSpend('telegram', 1, log))) return ok();
+
     const link = await claimLinkForChat(code, chatId);
     if (link === null) {
       await sendText(chatId, BOT_MESSAGES.linkInvalid);
       return ok();
     }
 
-    if (!(await claimSpend('telegram', 1, log))) return ok();
     await askForContact(chatId);
     return ok();
   }
@@ -103,6 +107,18 @@ export const POST = handle('telegram/webhook', async ({ request, log }) => {
     return ok();
   }
 
+  const phoneHash = await hashPhone(phone);
+
+  // B2, at the only point in the system where a number exists. The key is the
+  // HMAC, never the number (K4), and the check runs before the link is consumed
+  // so a denial does not also burn the code.
+  const phoneVerdict = await enforce([{ axis: 'PHONE', value: phoneHash }]);
+  if (!phoneVerdict.allowed) {
+    await log.event('ratelimit.denied', { axis: 'PHONE' });
+    await sendAndClearKeyboard(chatId, BOT_MESSAGES.tooMany);
+    return ok();
+  }
+
   const link = await consumeLinkForChat(chatId);
   if (link === null) {
     // No live link for this chat: either it was already used, or the contact
@@ -111,38 +127,49 @@ export const POST = handle('telegram/webhook', async ({ request, log }) => {
     return ok();
   }
 
-  const phoneHash = await hashPhone(phone);
-  const outcome = await bindPhone(phoneHash, link.participantId, await hashTelegramId(senderId));
+  // 8.7: one call. The number is bound and the entry is verified in the same
+  // transaction, so there is no window in which a number is spent on an entry
+  // that never advanced — the number gone, the participation lost, and no way
+  // back because the number is now in use.
+  const outcome = await bindPhoneAndVerify(
+    phoneHash,
+    link.participantId,
+    link.giveawayId,
+    await hashTelegramId(senderId),
+  );
 
-  if (outcome === 'TAKEN') {
-    await sendAndClearKeyboard(chatId, BOT_MESSAGES.numberTaken);
-    await log.event('phone.rejected', { reason: 'taken' });
-    return ok();
-  }
-  if (outcome === 'COOLDOWN') {
-    await sendAndClearKeyboard(chatId, BOT_MESSAGES.numberCooling);
-    await log.event('phone.rejected', { reason: 'cooldown' });
-    return ok();
-  }
-
-  const entry = await findEntry(link.participantId, link.giveawayId);
-  if (entry === null) {
-    await sendAndClearKeyboard(chatId, BOT_MESSAGES.failed);
-    return ok();
-  }
-
-  // The unique index on (giveaway_id, phone_hmac) is the guard. A false here
-  // means this number already holds an entry in this campaign, which is the
-  // uniqueness rule of the decision doing its job.
-  const verified = await markVerified(entry.id, phoneHash);
-  if (!verified) {
-    await sendAndClearKeyboard(chatId, BOT_MESSAGES.alreadyUsed);
-    await log.event('phone.rejected', { reason: 'entry_not_awaiting' });
+  if (outcome === 'VERIFIED') {
+    await log.event('phone.bound');
+    await log.event('entry.verified', { giveaway_id: link.giveawayId.toString() });
+    await sendAndClearKeyboard(chatId, BOT_MESSAGES.confirmed);
     return ok();
   }
 
-  await log.event('phone.bound');
-  await log.event('entry.verified', { giveaway_id: link.giveawayId.toString() });
-  await sendAndClearKeyboard(chatId, BOT_MESSAGES.confirmed);
+  // Every remaining outcome is a refusal the database decided, never an
+  // exception this route has to turn into a status code (8.8).
+  const refusals = {
+    TAKEN: BOT_MESSAGES.numberTaken,
+    COOLDOWN: BOT_MESSAGES.numberCooling,
+    NUMBER_CHANGED: BOT_MESSAGES.numberChanged,
+    DUPLICATE: BOT_MESSAGES.numberAlreadyInEvent,
+    NOT_AWAITING: BOT_MESSAGES.alreadyUsed,
+    NO_ENTRY: BOT_MESSAGES.failed,
+  } as const;
+
+  await log.event('phone.rejected', { reason: outcome });
+  await sendAndClearKeyboard(chatId, refusals[outcome]);
   return ok();
 });
+
+/**
+ * 8.10: exported as a named async function declaration.
+ *
+ * The V1 routes reached this shape by incident — commit cea0c09 renamed a
+ * default export to POST because the runtime would not otherwise answer — and
+ * the form the three surviving V1 routes use is the declaration. The V2 routes
+ * differed from it for no reason, and a route file that does not look like the
+ * one known to work is a difference nobody wants to be debugging in production.
+ */
+export async function POST(request: Request): Promise<Response> {
+  return route(request);
+}

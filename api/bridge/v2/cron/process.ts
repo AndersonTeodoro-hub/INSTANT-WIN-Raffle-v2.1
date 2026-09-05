@@ -23,7 +23,7 @@ import {
  * outright rather than running unauthenticated, because the alternative is an
  * endpoint that anyone can use to make the bridge spend gas.
  */
-export const POST = handle('cron/process', async ({ request, log }) => {
+const route = handle('cron/process', async ({ request, log }) => {
   const secret = optionalEnv('BRIDGE_V2_CRON_SECRET');
   if (secret === undefined) return refuse(503, 'Not available.');
   if (request.headers.get('authorization') !== `Bearer ${secret}`) {
@@ -40,3 +40,16 @@ export const POST = handle('cron/process', async ({ request, log }) => {
   await log.event('route.ok', { reconciled, roots, processed });
   return ok({ reconciled, roots, processed });
 });
+
+/**
+ * 8.10: exported as a named async function declaration.
+ *
+ * The V1 routes reached this shape by incident — commit cea0c09 renamed a
+ * default export to POST because the runtime would not otherwise answer — and
+ * the form the three surviving V1 routes use is the declaration. The V2 routes
+ * differed from it for no reason, and a route file that does not look like the
+ * one known to work is a difference nobody wants to be debugging in production.
+ */
+export async function POST(request: Request): Promise<Response> {
+  return route(request);
+}

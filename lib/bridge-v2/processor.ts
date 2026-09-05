@@ -180,16 +180,21 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
 
     if (!(await advance(entry.id, 'ELIGIBLE', 'FUNDING'))) return;
 
-    const funding = await fundDerivedWallet(
+    const fundingHash = await fundDerivedWallet(
       lease,
       entry.walletAddress,
       quote.plan.worstCaseWei,
       signAsFunder,
+      // G6: recorded when the signed transaction is sent, not when the RPC
+      // answers. If the send throws, control goes to the catch and then to the
+      // finally below, which releases the funder with the nonce already spent.
+      (spent) => {
+        nextNonce = spent;
+      },
     );
-    nextNonce = funding.nextNonce;
 
     // The funding must be mined before the wallet can pay for its own entry.
-    const fundingReceipt = await waitForReceipt(funding.hash);
+    const fundingReceipt = await waitForReceipt(fundingHash);
     if (fundingReceipt === null || fundingReceipt.status !== 'success') {
       await advance(entry.id, 'FUNDING', 'ELIGIBLE');
       await log.event('entry.failed', { reason: 'funding_not_mined' });

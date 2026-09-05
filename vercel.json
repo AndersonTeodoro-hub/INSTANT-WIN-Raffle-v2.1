@@ -1,5 +1,9 @@
 {
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/bridge/v2/cron/process", "schedule": "* * * * *" },
+    { "path": "/api/bridge/v2/cron/maintenance", "schedule": "0 * * * *" }
   ]
 }

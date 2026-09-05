@@ -44,6 +44,16 @@ export const BOT_MESSAGES = {
     'This number is already confirmed for another account.',
   numberCooling:
     'This number was released recently and cannot be reused yet.',
+  // C6: the account presented a number other than the one it already holds.
+  // R2 and R3 hold here too: no token, no chain, no prize, no lottery word.
+  numberChanged:
+    'This account already confirmed a different number. That number has now been released, and the participations it was confirming were stopped. You can start again from the event page.',
+  // The (event, number) uniqueness rule of the 05/09/2026 decision.
+  numberAlreadyInEvent:
+    'This number has already confirmed a participation in this event.',
+  // B2: the per-number limit. Deliberately says nothing about the ceiling (D5).
+  tooMany:
+    'Too many attempts from this number. Please try again later.',
   confirmed:
     'Confirmed. You can close this chat and return to the page.',
   failed:

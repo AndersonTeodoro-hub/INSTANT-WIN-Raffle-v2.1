@@ -8,7 +8,10 @@
  * H1 keeps this list short on purpose. The bridge signs exactly two things — a
  * gas transfer and enter() — so the surface loaded into the process that holds
  * the funder keys is only what those two need plus the views that decide whether
- * they are allowed to happen.
+ * they are allowed to happen. vrfCoordinator and subscriptionId are views as
+ * well: H8 asks for the VRF subscription balance to be monitored, and the two
+ * public immutables are how the bridge learns where to look without a second
+ * configured address to keep in step with the deployment.
  *
  * The errors are here so a revert can be decoded by name. Without them a refusal
  * from the contract is an opaque byte string and the bridge cannot tell "entries
@@ -403,6 +406,20 @@ export const GIVEAWAY_MANAGER_V2_ABI = [
     "type": "error",
     "name": "SlotsExhausted",
     "inputs": []
+  },
+  {
+    "type": "function",
+    "name": "vrfCoordinator",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "address", "internalType": "contract IVRFCoordinatorV2Plus" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "subscriptionId",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
   }
 ] as const;
 
@@ -428,3 +445,30 @@ export const PrizeKind = {
   TOKEN: 0,
   NFT: 1,
 } as const;
+
+/**
+ * The one function of the Chainlink VRF 2.5 coordinator the bridge reads (H8).
+ *
+ * A separate ABI rather than an addition to the one above, because it belongs to
+ * a different contract: the coordinator address comes from GiveawayManagerV2's
+ * own immutable, so nothing here is configurable and there is no second place a
+ * read could be pointed at.
+ *
+ * Read only. The bridge holds no LINK, funds no subscription and signs nothing
+ * for this contract.
+ */
+export const VRF_COORDINATOR_V2_PLUS_ABI = [
+  {
+    "type": "function",
+    "name": "getSubscription",
+    "inputs": [{ "name": "subId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      { "name": "balance", "type": "uint96", "internalType": "uint96" },
+      { "name": "nativeBalance", "type": "uint96", "internalType": "uint96" },
+      { "name": "reqCount", "type": "uint64", "internalType": "uint64" },
+      { "name": "subOwner", "type": "address", "internalType": "address" },
+      { "name": "consumers", "type": "address[]", "internalType": "address[]" }
+    ],
+    "stateMutability": "view"
+  }
+] as const;

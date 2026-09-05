@@ -19,7 +19,7 @@ import { checked, checkedMaybe, getReader } from '../../../../lib/bridge-v2/db.j
  * stored — only an HMAC of it, which is not reversible and is not the
  * participant's data in any useful sense.
  */
-export const POST = handle('privacy/export', async ({ request, log }) => {
+const route = handle('privacy/export', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
   if (guard !== null) return guard;
 
@@ -73,3 +73,16 @@ export const POST = handle('privacy/export', async ({ request, log }) => {
     },
   });
 });
+
+/**
+ * 8.10: exported as a named async function declaration.
+ *
+ * The V1 routes reached this shape by incident — commit cea0c09 renamed a
+ * default export to POST because the runtime would not otherwise answer — and
+ * the form the three surviving V1 routes use is the declaration. The V2 routes
+ * differed from it for no reason, and a route file that does not look like the
+ * one known to work is a difference nobody wants to be debugging in production.
+ */
+export async function POST(request: Request): Promise<Response> {
+  return route(request);
+}

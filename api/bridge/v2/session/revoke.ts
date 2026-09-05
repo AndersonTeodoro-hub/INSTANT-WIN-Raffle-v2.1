@@ -13,7 +13,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
  * Takes no body. The identity comes from the cookie (A6), so there is no
  * parameter through which one account could revoke another.
  */
-export const POST = handle('session/revoke', async ({ request, log }) => {
+const route = handle('session/revoke', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
   if (guard !== null) return guard;
 
@@ -37,3 +37,16 @@ export const POST = handle('session/revoke', async ({ request, log }) => {
   await log.event('route.ok', { revoked });
   return ok({}, { 'Set-Cookie': clearedCookie() });
 });
+
+/**
+ * 8.10: exported as a named async function declaration.
+ *
+ * The V1 routes reached this shape by incident — commit cea0c09 renamed a
+ * default export to POST because the runtime would not otherwise answer — and
+ * the form the three surviving V1 routes use is the declaration. The V2 routes
+ * differed from it for no reason, and a route file that does not look like the
+ * one known to work is a difference nobody wants to be debugging in production.
+ */
+export async function POST(request: Request): Promise<Response> {
+  return route(request);
+}

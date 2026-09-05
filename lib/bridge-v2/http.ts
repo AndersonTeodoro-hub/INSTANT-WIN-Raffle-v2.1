@@ -13,6 +13,9 @@
  *
  * D3: paths that could reveal whether an email exists are padded to a floor, so
  * what the body refuses to distinguish the latency does not give away either.
+ * The padding belongs to the route, not to the individual exits: a route that
+ * padded its answers but returned a thrown error immediately would distinguish
+ * by latency exactly the case it refuses to distinguish by body.
  */
 
 import { MAX_BODY_BYTES, REQUIRED_CONTENT_TYPE, UNIFORM_RESPONSE_MS } from './config.js';
@@ -82,15 +85,25 @@ export async function readJsonBody(request: Request): Promise<Record<string, unk
 }
 
 /** D3: pads a response so an existence check cannot be timed. */
-export async function padTo(startedAt: number, floorMs: number = UNIFORM_RESPONSE_MS): Promise<void> {
+async function padTo(startedAt: number): Promise<void> {
   const elapsed = Date.now() - startedAt;
-  if (elapsed < floorMs) await new Promise((resolve) => setTimeout(resolve, floorMs - elapsed));
+  if (elapsed < UNIFORM_RESPONSE_MS) {
+    await new Promise((resolve) => setTimeout(resolve, UNIFORM_RESPONSE_MS - elapsed));
+  }
 }
 
 export interface RouteContext {
   readonly request: Request;
   readonly log: Logger;
-  readonly startedAt: number;
+}
+
+export interface RouteOptions {
+  /**
+   * D3. Set on any route whose behaviour differs between "this address exists"
+   * and "it does not" — session/request-code and session/verify. Every exit is
+   * then held to the same floor, the 500 from the catch below included.
+   */
+  readonly uniformTiming?: boolean;
 }
 
 /**
@@ -103,12 +116,13 @@ export interface RouteContext {
 export function handle(
   route: string,
   body: (context: RouteContext) => Promise<Response>,
+  options: RouteOptions = {},
 ): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
     const startedAt = Date.now();
     const log = createLogger(route, correlationId());
     try {
-      return await body({ request, log, startedAt });
+      return await body({ request, log });
     } catch (error) {
       if (error instanceof MissingEnvError) {
         await log.failure('route.error', error, { missing: error.names.join(',') });
@@ -116,6 +130,11 @@ export function handle(
         await log.failure('route.error', error);
       }
       return refuse(500, GENERIC_ERROR);
+    } finally {
+      // Runs before the returned promise settles, so the floor applies to the
+      // value returned above as well as to the error path. A route that reached
+      // the catch is exactly the one an attacker would time.
+      if (options.uniformTiming === true) await padTo(startedAt);
     }
   };
 }

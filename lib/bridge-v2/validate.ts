@@ -39,11 +39,17 @@ export function parseGiveawayId(value: unknown): bigint | null {
   return id;
 }
 
-/** An email verification code: exactly the configured number of digits. */
+/**
+ * An email verification code: exactly the configured number of digits.
+ *
+ * A character class, not `\d`. This is a template literal rather than a regex
+ * literal, so a single backslash is consumed by the string and the pattern
+ * compiled to /^d{6}$/ — which rejected every real code and accepted "dddddd".
+ */
 export function parseCode(value: unknown, digits: number): string | null {
   if (typeof value !== 'string') return null;
   const code = value.trim();
-  return new RegExp(`^\d{${digits}}$`).test(code) ? code : null;
+  return new RegExp(`^[0-9]{${digits}}$`).test(code) ? code : null;
 }
 
 /** A deep-link code as produced by crypto.toBase64Url over LINK_CODE_BYTES. */

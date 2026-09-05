@@ -25,7 +25,7 @@ import { requireEnv } from '../../../../lib/bridge-v2/env.js';
  * cannot be honoured, and the participant has already given a phone number by
  * then.
  */
-export const POST = handle('entry/start', async ({ request, log }) => {
+const route = handle('entry/start', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
   if (guard !== null) return guard;
 
@@ -42,6 +42,11 @@ export const POST = handle('entry/start', async ({ request, log }) => {
   const verdict = await enforce([
     { axis: 'SESSION', value: session.id },
     { axis: 'IP', value: signals.ipHash },
+    // C7: the burst signals are applied here because this is the last route
+    // before an address can reach an eligibility root, and C8 is absolute — once
+    // an address is inside a published root nobody can take it out again.
+    { axis: 'CLIENT', value: signals.clientHash },
+    { axis: 'SUBNET', value: signals.subnetHash },
     { axis: 'GIVEAWAY', value: giveawayId.toString() },
     { axis: 'ROUTE_GLOBAL', value: 'entry/start' },
   ]);
@@ -83,3 +88,16 @@ export const POST = handle('entry/start', async ({ request, log }) => {
     url: `https://t.me/${requireEnv('TELEGRAM_BOT_USERNAME')}?start=${code}`,
   });
 });
+
+/**
+ * 8.10: exported as a named async function declaration.
+ *
+ * The V1 routes reached this shape by incident — commit cea0c09 renamed a
+ * default export to POST because the runtime would not otherwise answer — and
+ * the form the three surviving V1 routes use is the declaration. The V2 routes
+ * differed from it for no reason, and a route file that does not look like the
+ * one known to work is a difference nobody wants to be debugging in production.
+ */
+export async function POST(request: Request): Promise<Response> {
+  return route(request);
+}

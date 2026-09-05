@@ -18,13 +18,12 @@ import {
   createPublicClient,
   encodeFunctionData,
   http,
-  serializeTransaction,
   type Hex,
   type TransactionSerializable,
 } from 'viem';
 import { arbitrum } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
-import { GIVEAWAY_MANAGER_V2_ABI, GiveawayStatus } from './abi.js';
+import { GIVEAWAY_MANAGER_V2_ABI, GiveawayStatus, VRF_COORDINATOR_V2_PLUS_ABI } from './abi.js';
 import {
   CHAIN_ID,
   DEFAULT_RPC_URL,
@@ -150,6 +149,52 @@ export async function registeredBridge(): Promise<`0x${string}`> {
     functionName: 'bridge',
     args: [],
   })) as `0x${string}`;
+}
+
+/**
+ * H8: the LINK left in the VRF 2.5 subscription the contract draws from.
+ *
+ * The coordinator address and the subscription id are public immutables on
+ * GiveawayManagerV2, so neither is configured here and neither can drift from
+ * the deployment. Read only — the bridge holds no LINK and funds no subscription.
+ *
+ * A subscription with no LINK is the one failure this side cannot retry: the
+ * draw is requested, the fulfilment never arrives, and the campaign sits in
+ * DRAW_REQUESTED. That is why it is monitored rather than discovered.
+ */
+export async function vrfSubscriptionLink(): Promise<bigint> {
+  const client = publicClient();
+  const [coordinator, subscriptionId] = await Promise.all([
+    client.readContract({
+      address: GIVEAWAY_MANAGER_V2,
+      abi: GIVEAWAY_MANAGER_V2_ABI,
+      functionName: 'vrfCoordinator',
+      args: [],
+    }) as Promise<`0x${string}`>,
+    client.readContract({
+      address: GIVEAWAY_MANAGER_V2,
+      abi: GIVEAWAY_MANAGER_V2_ABI,
+      functionName: 'subscriptionId',
+      args: [],
+    }) as Promise<bigint>,
+  ]);
+
+  const subscription = (await client.readContract({
+    address: coordinator,
+    abi: VRF_COORDINATOR_V2_PLUS_ABI,
+    functionName: 'getSubscription',
+    args: [subscriptionId],
+  })) as readonly [bigint, bigint, bigint, `0x${string}`, readonly `0x${string}`[]];
+
+  // The first element is the LINK balance in juels; nativeBalance is the
+  // second and is not what this subscription pays with (nativePayment: false).
+  return subscription[0];
+}
+
+/** The address the bridge role key holds, so H8 can compare it with the contract. */
+export function roleAddress(): `0x${string}` {
+  // F6: the account is created, its address taken, and it is dropped here.
+  return privateKeyToAccount(requireEnv('BRIDGE_V2_ROLE_KEY') as Hex).address;
 }
 
 /** Whether the contract is paused. The bridge never calls pause or unpause. */
@@ -289,13 +334,16 @@ export async function publishEligibilityRoot(giveawayId: bigint, root: Hex): Pro
  *
  * G6: the nonce comes from the lease, not from the RPC. Reading a pending nonce
  * concurrently is what let two invocations build the same transaction in the V1.
+ * It is reported as spent through onNonceSpent as soon as the signed bytes are
+ * handed to the RPC, so the caller records the advance whatever comes back.
  */
 export async function fundDerivedWallet(
   lease: { index: number; address: `0x${string}`; nextNonce: number },
   destination: `0x${string}`,
   amountWei: bigint,
   signAsFunder: (index: number, tx: TransactionSerializable) => Promise<Hex>,
-): Promise<{ hash: Hex; nextNonce: number }> {
+  onNonceSpent: (nextNonce: number) => void,
+): Promise<Hex> {
   if (amountWei <= 0n || amountWei > MAX_GAS_COST_WEI) {
     throw new ChainError('funding_amount_out_of_band');
   }
@@ -320,8 +368,23 @@ export async function fundDerivedWallet(
     maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
   };
 
-  const hash = await broadcast(await signAsFunder(lease.index, transaction));
-  return { hash, nextNonce: lease.nextNonce + 1 };
+  const signed = await signAsFunder(lease.index, transaction);
+
+  // G6: the nonce is spent the moment the signed transaction leaves this
+  // process, and what the RPC answers decides nothing. A network error, a
+  // timeout, or a duplicate-transaction rejection all describe a transaction
+  // that may already be in the mempool; returning the nonce to the pool in any
+  // of those cases hands the next caller a nonce that will collide, and one of
+  // the two transactions will be silently replaced.
+  //
+  // The callback rather than the return value because the return value only
+  // exists on the path where the RPC answered.
+  onNonceSpent(lease.nextNonce + 1);
+
+  // Only the hash comes back. The nonce left through the callback above and
+  // returning it here as well would be a second source of truth for it, which
+  // is how a caller ends up reading the one that was not updated.
+  return broadcast(signed);
 }
 
 /**
@@ -331,6 +394,17 @@ export async function fundDerivedWallet(
  * gas plan applies, so the wallet is funded for the plan that will actually be
  * signed rather than for a cheaper one that no longer applies by the time it
  * runs.
+ */
+/**
+ * Estimated from the derived wallet, which holds nothing at this point.
+ *
+ * Verified against Arbitrum One on 2026-09-06 rather than assumed. eth_estimateGas
+ * with `from` set to an address of zero balance and no value field is accepted
+ * and returns an estimate; the balance check only fires once `value` is greater
+ * than zero, and viem sends no value and no gas price for this call. Estimating
+ * from a funder instead would measure the wrong sender: enter() reverts unless
+ * msg.sender is the eligible address, so a funder-side estimate would be an
+ * estimate of a revert.
  */
 export async function quoteEntryCost(
   giveawayId: bigint,
@@ -427,6 +501,3 @@ export async function sweepRemainder(
 
   return broadcast(await signAsDerived(walletIndex, transaction));
 }
-
-/** Kept so a caller can serialise a transaction for inspection without signing it. */
-export const serialize = serializeTransaction;

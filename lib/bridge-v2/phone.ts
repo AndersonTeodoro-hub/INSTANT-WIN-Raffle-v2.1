@@ -34,32 +34,54 @@ export function hashTelegramId(telegramId: string): Promise<string> {
   return keyedHash('BRIDGE_V2_PHONE_HMAC_KEY', 'telegram-user-v1', telegramId);
 }
 
-export type BindOutcome = 'BOUND' | 'ALREADY_MINE' | 'TAKEN' | 'COOLDOWN';
+/**
+ * Every way the binding and the verification can end.
+ *
+ * One list rather than two because they are one operation now: the database
+ * function that binds is the database function that verifies, so there is no
+ * outcome in which a number is spent on an entry that did not move.
+ */
+export type BindOutcome =
+  | 'VERIFIED'
+  | 'TAKEN'
+  | 'COOLDOWN'
+  | 'NUMBER_CHANGED'
+  | 'DUPLICATE'
+  | 'NOT_AWAITING'
+  | 'NO_ENTRY';
 
 /**
- * Binds a number to a participant.
+ * Binds a number to a participant and verifies that participant's entry, in one
+ * transaction (8.7).
  *
- * The decision is made by the database function, not here, because the guard is
- * a unique index and the check has to be on the same side as the write. A check
- * in TypeScript followed by an insert is the read-compare-write G1 forbids, and
- * it is how the same number ends up bound twice under concurrency.
+ * The decision is made by the database function, not here, because the guards
+ * are unique indexes and a check has to be on the same side as the write. A
+ * check in TypeScript followed by an insert is the read-compare-write G1
+ * forbids, and it is how the same number ends up bound twice under concurrency.
+ *
+ * 8.8: the function returns a named outcome for every collision and raises for
+ * none of them, so the Telegram webhook can never answer 500 to a uniqueness
+ * violation and be retried for ever.
  */
-export async function bindPhone(
+export async function bindPhoneAndVerify(
   phoneHash: string,
   participantId: string,
+  giveawayId: bigint,
   telegramIdHash: string,
 ): Promise<BindOutcome> {
   const db = await getWriter();
   const outcome = checked(
-    'phone.bind',
-    await db.rpc('bridge_v2_bind_phone', {
+    'phone.bind_and_verify',
+    await db.rpc('bridge_v2_bind_phone_and_verify', {
       p_phone_hmac: phoneHash,
       p_participant_id: participantId,
+      p_giveaway_id: giveawayId.toString(),
       p_telegram_id_hmac: telegramIdHash,
+      p_cooldown_days: PHONE_COOLDOWN_DAYS,
     }),
   ) as BindOutcome | null;
-  // A null result is not a success. Treated as TAKEN so the caller refuses.
-  return outcome ?? 'TAKEN';
+  // A null result is not a success. Treated as a duplicate so the caller refuses.
+  return outcome ?? 'DUPLICATE';
 }
 
 /**

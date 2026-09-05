@@ -147,6 +147,12 @@ CREATE TABLE IF NOT EXISTS bridge_v2_phones (
 -- its history; at most one row per number may be live at a time.
 CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_phones_live_unique
   ON bridge_v2_phones (phone_hmac) WHERE released_at IS NULL;
+-- C6, the other half: a participant holds at most one live number. Presenting a
+-- second one is a change of number, not an addition, and the change has
+-- consequences (release, cooldown, and a block on campaigns active at that
+-- moment) that only make sense if one number is the account's number.
+CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_phones_participant_live_unique
+  ON bridge_v2_phones (participant_id) WHERE released_at IS NULL;
 CREATE INDEX IF NOT EXISTS bridge_v2_phones_participant_idx ON bridge_v2_phones (participant_id);
 CREATE INDEX IF NOT EXISTS bridge_v2_phones_cooldown_idx ON bridge_v2_phones (phone_hmac, cooldown_until);
 

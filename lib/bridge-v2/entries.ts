@@ -119,35 +119,6 @@ export async function openEntry(participant: Participant, giveawayId: bigint): P
 }
 
 /**
- * Records the verified number against the entry.
- *
- * The unique index on (giveaway_id, phone_hmac) is what enforces one entry per
- * number per campaign. The constraint is the guard, not this function: checking
- * first and writing second is the pattern G1 forbids, and under concurrency it
- * is how one number buys two entries.
- *
- * The status predicate makes the transition itself idempotent — a Telegram
- * retry delivering the same contact twice moves the row once.
- */
-export async function markVerified(entryId: string, phoneHash: string): Promise<boolean> {
-  const db = await getWriter();
-  const updated = await db
-    .from('bridge_v2_entries')
-    .update({
-      phone_hmac: phoneHash,
-      status: 'VERIFIED',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', entryId)
-    .eq('status', 'AWAITING_CONTACT')
-    .select('id')
-    .maybeSingle();
-
-  if (updated.error) return false;
-  return updated.data !== null;
-}
-
-/**
  * Advances an entry, refusing when it is no longer in the state expected.
  *
  * G2: the result decides. A transition that matched no row means another
