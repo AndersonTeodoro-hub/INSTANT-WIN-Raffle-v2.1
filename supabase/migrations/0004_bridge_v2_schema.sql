@@ -228,6 +228,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_entries_phone_giveaway_unique
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_giveaway_idx ON bridge_v2_entries (giveaway_id, status);
 ALTER TABLE bridge_v2_entries ADD COLUMN IF NOT EXISTS swept_at timestamptz;
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_pending_idx ON bridge_v2_entries (status, updated_at);
+-- C8/G4: what bridge_v2_campaigns_with_verified groups and orders by. Partial on
+-- the one status it asks about, so it stays small however many entries the
+-- platform has finished with, and ordered by created_at so the "oldest entry per
+-- campaign" the queue is fair on is read rather than computed.
+CREATE INDEX IF NOT EXISTS bridge_v2_entries_verified_queue_idx
+  ON bridge_v2_entries (giveaway_id, created_at) WHERE status = 'VERIFIED';
 
 COMMENT ON COLUMN bridge_v2_entries.idempotency_key IS 'G5: one external effect per key. A repeat never funds or enters twice.';
 COMMENT ON COLUMN bridge_v2_entries.wallet_address IS 'I9: written at creation from the derivation, never a sentinel.';
@@ -420,6 +426,22 @@ CREATE TABLE IF NOT EXISTS bridge_v2_custody (
   -- every minute for thirty days, which is an alerting channel that trains its
   -- reader to ignore it.
   custody_expired_alert_at timestamptz,
+  -- Section 7 and G4. The settled campaign owes this wallet nothing and never
+  -- will: it did not win, or the claim window closed with nothing claimed. Both
+  -- are decided by the contract and neither is reversible.
+  --
+  -- It exists because "not delivered" was doing the work of "still owed", and
+  -- they are not the same set. Every entry that confirms gets a custody row,
+  -- winner or not, because at entry time nobody knows which it is. After the draw
+  -- most of those rows belong to people who did not win, and delivered_at is
+  -- never written for them because there is nothing to deliver — so they stayed
+  -- in the queue for ever, ordered ahead of real prizes by updated_at, costing
+  -- two chain reads apiece on every run and accumulating with every campaign the
+  -- platform ever ran.
+  --
+  -- Deliberately not delivered_at: that column says a prize left the wallet, and
+  -- an operator reading this table has to be able to tell the two apart.
+  no_prize_at              timestamptz,
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
@@ -429,10 +451,17 @@ ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claim_tx_hash            
 ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivered_at             timestamptz;
 ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivery_tx_hash         text;
 ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS custody_expired_alert_at timestamptz;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS no_prize_at              timestamptz;
 
--- The prize queue: undelivered custody rows, oldest touched first.
+-- The prize queue: custody rows that can still receive a prize, oldest touched
+-- first. Both exclusions matter — one for a prize that has arrived where it was
+-- going, one for an entry that was never owed anything — and the index carries
+-- them so the queue read stays a scan of what is actually pending. Dropped first
+-- because CREATE INDEX IF NOT EXISTS keeps whatever predicate the index already
+-- has, so a database holding the previous definition would keep it silently.
+DROP INDEX IF EXISTS bridge_v2_custody_pending_idx;
 CREATE INDEX IF NOT EXISTS bridge_v2_custody_pending_idx
-  ON bridge_v2_custody (updated_at) WHERE delivered_at IS NULL;
+  ON bridge_v2_custody (updated_at) WHERE delivered_at IS NULL AND no_prize_at IS NULL;
 
 -- -----------------------------------------------------------------------------
 -- ops_events — K5 and K8

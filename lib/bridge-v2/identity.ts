@@ -33,8 +33,20 @@ const DOMAIN_ALIASES = new Map<string, string>([['googlemail.com', 'gmail.com']]
  * Lowercase, sub-addressing removed, dots removed only where the provider says
  * they are irrelevant, and known domain aliases folded together.
  *
- * The result stays deliverable, which is the property that lets the bridge store
- * only this form and never the literal the participant typed (D7).
+ * C1: THIS IS A KEY AND IT IS NOT AN ADDRESS TO SEND ANYTHING TO. The comment
+ * here used to say the result stays deliverable, which is true of Gmail and is
+ * not true in general — stripping +tag strips part of the mailbox at any provider
+ * that does not implement sub-addressing, and there are many. The claim was
+ * load-bearing: session/request-code sent the verification code to this value, so
+ * a participant who wrote alice+shop@example.com had their code delivered to
+ * alice@example.com, which may be somebody else and may not exist. Nothing
+ * reported it, because a mail provider accepts any deliverable address it is
+ * handed.
+ *
+ * What this form is for is uniqueness and counting: one account, one set of rate
+ * limits, and one code per address however many aliases of it are tried. What it
+ * is not for is delivery, and D7 is satisfied by storing only this form, not by
+ * pretending it is the participant's mailbox.
  */
 export function canonicalizeEmail(email: string): string {
   const lowered = email.trim().toLowerCase();

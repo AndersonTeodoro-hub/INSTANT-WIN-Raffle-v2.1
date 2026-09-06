@@ -33,6 +33,7 @@ import {
 import {
   ENTRY_WORST_CASE_MS,
   FUNDING_STALE_MS,
+  PRIZE_WORST_CASE_MS,
   RECEIPT_TIMEOUT_MS,
   RPC_TIMEOUT_MS,
 } from './config.js';
@@ -53,12 +54,14 @@ import {
   slotsRemaining,
   submitAsDerived,
   sweepRemainder,
+  transactionKnown,
   waitForReceipt,
   type GasPlan,
 } from './chain.js';
 import {
   beginCustody,
   claimCustodyExpiredAlert,
+  closeNoPrize,
   custodyExpiryFrom,
   largestWinnerShare,
   listPendingPrizes,
@@ -97,6 +100,15 @@ const ENTRY_BATCH = 25;
  * closeGiveaway. Publishing a root in that gap costs the role key a transaction
  * for an admission nobody can use, and then promotes the entries to ELIGIBLE so
  * the funding stage pays for a revert on each of them.
+ *
+ * G4: ONE CAMPAIGN IS ONE UNIT OF WORK AND ITS FAILURE ENDS ONLY ITSELF. Every
+ * await in the body below is a bare RPC or database call, and one of them
+ * throwing took the whole loop with it and then the whole run — the funding
+ * stage, both reconciliations and the prize stage all skipped because a single
+ * campaign's readGiveaway timed out. Every other stage of this pipeline already
+ * isolates per item; this one did not, and it is the first stage that touches
+ * the chain, so it was the likeliest place for a bad RPC minute to stop
+ * everything behind it.
  */
 export async function publishPendingRoots(log: Logger, deadline: RunDeadline): Promise<number> {
   let published = 0;
@@ -107,53 +119,86 @@ export async function publishPendingRoots(log: Logger, deadline: RunDeadline): P
     // will interrupt.
     if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS)) break;
 
-    const pending = await listVerified(giveawayId, ROOT_BATCH);
-    if (pending.length === 0) continue;
-
-    const campaign = await readGiveaway(giveawayId);
-    if (!campaign.acceptsEntries) {
-      for (const entry of pending) {
-        await advance(entry.id, 'VERIFIED', 'FAILED');
-      }
-      await log.event('entry.failed', {
-        giveaway_id: giveawayId.toString(),
-        // The two are distinguished because they mean different things to an
-        // operator: one is a campaign that ended, the other is one that was
-        // cancelled or never opened.
-        reason: campaign.isOpen ? 'entries_closed' : 'campaign_not_open',
-        count: pending.length,
-      });
-      continue;
+    try {
+      if (await publishForCampaign(giveawayId, log)) published += 1;
+    } catch (error) {
+      // Nothing to put back: this stage takes no claim on a row, so an entry it
+      // failed to publish for is still VERIFIED and is reached again by the next
+      // run. What must not happen is the throw leaving this loop.
+      await log.failure('root.published', error);
     }
-
-    const slots = await slotsRemaining(giveawayId);
-    const admit = pending.slice(0, Number(slots > BigInt(pending.length) ? pending.length : slots));
-    if (admit.length === 0) {
-      await log.event('entry.failed', {
-        giveaway_id: giveawayId.toString(),
-        reason: 'slots_exhausted',
-        count: pending.length,
-      });
-      continue;
-    }
-
-    const root = await publishBatch(giveawayId, admit.map((entry) => entry.walletAddress), log);
-    // Not confirmed on chain: nothing was recorded, so nothing is promoted. The
-    // entries stay VERIFIED and the next run publishes again against a freshly
-    // read index (eligibility.ts).
-    if (root === null) continue;
-
-    for (const entry of admit) {
-      await advance(entry.id, 'VERIFIED', 'ELIGIBLE', { root_index: root.rootIndex.toString() });
-      await log.event('entry.eligible', {
-        giveaway_id: giveawayId.toString(),
-        root_index: root.rootIndex.toString(),
-      });
-    }
-    published += 1;
   }
 
   return published;
+}
+
+/**
+ * One campaign's publication. True when a root was actually published.
+ *
+ * Split out of the loop above so the per-campaign catch wraps a body rather than
+ * the loop's own control flow.
+ */
+async function publishForCampaign(giveawayId: bigint, log: Logger): Promise<boolean> {
+  const pending = await listVerified(giveawayId, ROOT_BATCH);
+  if (pending.length === 0) return false;
+
+  const campaign = await readGiveaway(giveawayId);
+  if (!campaign.acceptsEntries) {
+    for (const entry of pending) {
+      await advance(entry.id, 'VERIFIED', 'FAILED');
+    }
+    await log.event('entry.failed', {
+      giveaway_id: giveawayId.toString(),
+      // The two are distinguished because they mean different things to an
+      // operator: one is a campaign that ended, the other is one that was
+      // cancelled or never opened.
+      reason: campaign.isOpen ? 'entries_closed' : 'campaign_not_open',
+      count: pending.length,
+    });
+    return false;
+  }
+
+  const slots = await slotsRemaining(giveawayId);
+  const admit = pending.slice(0, Number(slots > BigInt(pending.length) ? pending.length : slots));
+  if (admit.length === 0) {
+    // C8/G4: FAILED, not left VERIFIED. The campaign is full, so enter() reverts
+    // with SlotsExhausted for every one of these addresses and no root may admit
+    // them — which was already true and already logged, but the rows were left in
+    // exactly the state the campaign queue is built from. campaignsWithVerified
+    // then returned this campaign on every run for as long as its entry window
+    // lasted, spending a place in a batch of twenty and three chain reads on a
+    // campaign with nothing left to give, while these entries had no exit of
+    // their own until that window closed.
+    //
+    // The one case this forecloses is a creator calling reloadSlots afterwards,
+    // which the contract allows only inside the first part of the entry window
+    // (GiveawayManagerV2.reloadSlots). A participant refused here has spent no
+    // gas and holds no slot, and the honest record is that they did not get one.
+    for (const entry of pending) {
+      await advance(entry.id, 'VERIFIED', 'FAILED');
+    }
+    await log.event('entry.failed', {
+      giveaway_id: giveawayId.toString(),
+      reason: 'slots_exhausted',
+      count: pending.length,
+    });
+    return false;
+  }
+
+  const root = await publishBatch(giveawayId, admit.map((entry) => entry.walletAddress), log);
+  // Not confirmed on chain: nothing was recorded, so nothing is promoted. The
+  // entries stay VERIFIED and the next run publishes again against a freshly
+  // read index (eligibility.ts).
+  if (root === null) return false;
+
+  for (const entry of admit) {
+    await advance(entry.id, 'VERIFIED', 'ELIGIBLE', { root_index: root.rootIndex.toString() });
+    await log.event('entry.eligible', {
+      giveaway_id: giveawayId.toString(),
+      root_index: root.rootIndex.toString(),
+    });
+  }
+  return true;
 }
 
 /**
@@ -461,41 +506,98 @@ export async function reconcileFunding(log: Logger, deadline: RunDeadline): Prom
  * when the chain has moved on. The chain is asked directly rather than the
  * receipt being awaited again, because hasEntered is the fact that actually
  * matters and it is true whether or not this process ever saw the receipt.
+ *
+ * I8: AND THE THIRD ANSWER IS THE ONE THAT WAS MISSING. Mined-and-successful and
+ * mined-and-reverted both had exits. The third — not mined, and no longer in the
+ * mempool — had none: the row was touched, moved to the back of the queue, and
+ * read again on the next run, for ever. A transaction is dropped for ordinary
+ * reasons, a fee that stopped clearing or a node that evicted it, and once it is
+ * gone nothing will ever mine it, so waiting is waiting on an event that cannot
+ * happen. That is a terminal state reached by accident, which is exactly what I8
+ * forbids, and the participant it belonged to had verified a number and been
+ * given a slot.
+ *
+ * transactionKnown is what separates the third case from the second. A node that
+ * has never heard of the hash is a node where the transaction is neither mined
+ * nor pending; the entry goes back to ELIGIBLE and the next attempt reads
+ * hasEntered first, so a transaction that turns out to have landed after all
+ * costs a read and not a second entry.
+ *
+ * G4: each entry is isolated, like every other stage. Four bare awaits against
+ * the chain and the database ran here with nothing around them, and one RPC
+ * timeout ended the whole reconciliation — which is the first stage of the run,
+ * so it ended the run.
  */
 export async function reconcileSubmitted(log: Logger, deadline: RunDeadline): Promise<number> {
   const entries = await listSubmitted(ENTRY_BATCH);
   let seen = 0;
 
   for (const entry of entries) {
-    // G4: one of these can wait a full receipt timeout.
-    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + RPC_TIMEOUT_MS)) break;
+    // G4: one of these can wait a full receipt timeout, and asks the node about
+    // the hash afterwards.
+    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS)) break;
     seen += 1;
 
-    if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
-      await advance(entry.id, 'SUBMITTED', 'CONFIRMED');
-      await log.event('entry.confirmed', { reason: 'reconciled' });
-      continue;
+    try {
+      await reconcileOneSubmitted(entry, log);
+    } catch (error) {
+      await log.failure('entry.failed', error);
+      try {
+        // The entry is untouched by a throw here — nothing above takes a claim on
+        // it — so the only thing left to do is stop it holding the head of the
+        // queue.
+        await touch(entry.id);
+      } catch {
+        // The database that failed the write above is the one this would use.
+      }
     }
-
-    const receipt = entry.txHash === null ? null : await waitForReceipt(entry.txHash as `0x${string}`);
-    if (receipt?.status === 'reverted') {
-      // The transaction was mined and failed. Back to ELIGIBLE so it is retried
-      // with a fresh quote; the wallet keeps whatever gas is left, which the
-      // sweep will recover if the entry never succeeds.
-      await advance(entry.id, 'SUBMITTED', 'ELIGIBLE');
-      await log.event('entry.failed', { reason: 'reverted' });
-      continue;
-    }
-
-    // Still in the mempool. Nothing about the entry changes, but its place in
-    // the queue must: the list is the oldest SUBMITTED entries by updated_at,
-    // and leaving the row untouched keeps it at the head of every subsequent
-    // run. One transaction that never confirms would then stop every entry
-    // behind it from ever being reconciled.
-    await touch(entry.id);
   }
 
   return seen;
+}
+
+/** One SUBMITTED entry, taken to whichever of its three answers the chain gives. */
+async function reconcileOneSubmitted(entry: Entry, log: Logger): Promise<void> {
+  if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
+    await advance(entry.id, 'SUBMITTED', 'CONFIRMED');
+    await log.event('entry.confirmed', { reason: 'reconciled' });
+    return;
+  }
+
+  // No hash recorded and the contract does not have the entry: there is nothing
+  // to wait for and nothing to ask the node about. Back to ELIGIBLE, which is
+  // where an entry whose broadcast was never recorded belongs.
+  if (entry.txHash === null) {
+    await advance(entry.id, 'SUBMITTED', 'ELIGIBLE');
+    await log.event('entry.failed', { reason: 'no_transaction_recorded' });
+    return;
+  }
+
+  const hash = entry.txHash as `0x${string}`;
+  const receipt = await waitForReceipt(hash);
+  if (receipt?.status === 'reverted') {
+    // The transaction was mined and failed. Back to ELIGIBLE so it is retried
+    // with a fresh quote; the wallet keeps whatever gas is left, which the
+    // sweep will recover if the entry never succeeds.
+    await advance(entry.id, 'SUBMITTED', 'ELIGIBLE');
+    await log.event('entry.failed', { reason: 'reverted' });
+    return;
+  }
+
+  // I8: not mined, and the node has never heard of it. Dropped, and no later run
+  // changes that answer.
+  if (!(await transactionKnown(hash))) {
+    await advance(entry.id, 'SUBMITTED', 'ELIGIBLE');
+    await log.event('entry.failed', { reason: 'transaction_dropped' });
+    return;
+  }
+
+  // Still in the mempool. Nothing about the entry changes, but its place in
+  // the queue must: the list is the oldest SUBMITTED entries by updated_at,
+  // and leaving the row untouched keeps it at the head of every subsequent
+  // run. One transaction that never confirms would then stop every entry
+  // behind it from ever being reconciled.
+  await touch(entry.id);
 }
 
 /**
@@ -735,8 +837,12 @@ async function processPrize(
     });
   } else if (custody.claimedAt === null) {
     if (claimClosed) {
+      // §7/G4: out of the queue, not back to the end of it. Past CLAIM_DEADLINE
+      // claimPrize reverts with ClaimExpired and the creator may reclaim, so no
+      // later run reaches a different answer, and a row nothing can move is a row
+      // ahead of every prize that can still be delivered.
       await log.event('prize.expired', { giveaway_id: giveawayId.toString() });
-      await touchCustody(custody.entryId);
+      await closeNoPrize(custody.entryId);
       return false;
     }
 
@@ -750,11 +856,23 @@ async function processPrize(
     }
 
     if (claimableNow <= 0n) {
-      // Not a winner, or the prize is already collected. Neither is an error,
-      // and neither becomes one by being looked at again. Read once, above,
-      // because it is the same number the policy was decided from and a second
-      // read would only be a second chance for the RPC to answer differently.
-      await touchCustody(custody.entryId);
+      // §7/G4: this entrant did not win, and there is no later state in which
+      // they might. The campaign has settled — checked at the top of this
+      // function — so the draw has happened and claimable() is zero for the
+      // rest of time; claimed_at is null, so this is not a prize that was
+      // already collected. Both halves have to hold, and closeNoPrize insists
+      // on the second one itself.
+      //
+      // It used to be touched instead, which put it at the back of a queue it
+      // could never leave. Every entry that confirms gets a custody row, so a
+      // campaign with a thousand entrants and three winners left nine hundred
+      // and ninety-seven of these, for ever, ordered ahead of every real prize
+      // behind them and costing two chain reads apiece on every single run.
+      await closeNoPrize(custody.entryId);
+      await log.event('prize.expired', {
+        giveaway_id: giveawayId.toString(),
+        reason: 'not_a_winner',
+      });
       return false;
     }
 
@@ -892,7 +1010,15 @@ export async function processPrizes(log: Logger, deadline: RunDeadline): Promise
   for (const prize of pending) {
     // G4: a prize can be a claim and a delivery, each with its own funding and
     // its own receipt wait, so it is the most expensive unit the pipeline runs.
-    if (!deadline.hasTimeFor(2 * ENTRY_WORST_CASE_MS)) break;
+    //
+    // The size of that unit is PRIZE_WORST_CASE_MS and is defined in config.ts
+    // beside the budget it has to fit inside, which is the whole of the fix: the
+    // reservation written here was 2 * ENTRY_WORST_CASE_MS = 300_000 ms against a
+    // budget of 280_000 ms, so it was false on the first millisecond of every run
+    // and this loop never ran its body once. No prize was ever claimed and none
+    // was ever delivered, and nothing said so — the stage returned 0 and looked
+    // like a stage with no work to do.
+    if (!deadline.hasTimeFor(PRIZE_WORST_CASE_MS)) break;
 
     try {
       if (await processPrize(prize, log, deadlineSeconds)) delivered += 1;

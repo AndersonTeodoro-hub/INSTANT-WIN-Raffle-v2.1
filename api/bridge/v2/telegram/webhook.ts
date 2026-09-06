@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/bridge-v2/phone.js';
 import { BOT_MESSAGES, askForContact, isFromTelegram, sendAndClearKeyboard, sendText } from '../../../../lib/bridge-v2/telegram.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
+import type { Logger } from '../../../../lib/bridge-v2/log.js';
 
 /**
  * POST /api/bridge/v2/telegram/webhook
@@ -24,9 +25,29 @@ import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
  * R2: nothing sent from here mentions a token, a chain, a wallet, a prize or an
  * amount, and no message carries a link to any of them.
  *
- * The route always answers 200. Telegram retries anything else, so a 500 here is
- * not a failed delivery but an infinite one. Every collision that could produce
- * one is a named outcome of bridge_v2_bind_phone_and_verify instead (8.8).
+ * §5-bis: THE ROUTE ALWAYS ANSWERS 200 ONCE THE CALLER IS TELEGRAM, AND THAT WAS
+ * A CLAIM THIS FILE MADE WITHOUT ENFORCING IT.
+ *
+ * Every branch below returned ok(), so the sentence was true of every outcome the
+ * route had thought of. It was not true of the ones it had not: a database that
+ * refuses a connection, a rate-limit call that times out, an update whose shape
+ * gets past the checks and breaks something further in. Those throw, the envelope
+ * in http.ts turns a throw into a 500, and Telegram reads a 500 as an undelivered
+ * update and sends it again — for hours, with backoff, with the same body. Every
+ * redelivery re-enters the same code, takes the same rate-limit budget on the
+ * same axes and reaches the same failing dependency, so an outage of one
+ * dependency becomes a self-inflicted flood on top of it, and the participant
+ * sees nothing either way because the reply is the part that failed.
+ *
+ * The try below is therefore not tidiness. 200 means "this update is accounted
+ * for, do not send it again", which is the truth whatever happened on this side,
+ * and the failure goes to the log where an operator reads it rather than to
+ * Telegram, which can only answer by repeating itself.
+ *
+ * BEFORE the authentication there is no such promise, and there must not be: an
+ * unauthenticated caller gets 401 and learns nothing. Every collision that could
+ * otherwise produce a 500 is still a named outcome of
+ * bridge_v2_bind_phone_and_verify (8.8) rather than an exception.
  */
 const route = handle('telegram/webhook', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
@@ -39,6 +60,19 @@ const route = handle('telegram/webhook', async ({ request, log }) => {
     return refuse(401, 'Unauthorized.');
   }
 
+  try {
+    return await handleUpdate(request, log);
+  } catch (error) {
+    // Recorded by class and by a stable code, never by message (K4, K5), and then
+    // acknowledged. An update the bridge could not process is an update it will
+    // not process any better on the fifth redelivery.
+    await log.failure('route.error', error);
+    return ok();
+  }
+});
+
+/** Everything the webhook does once the caller is known to be Telegram. */
+async function handleUpdate(request: Request, log: Logger): Promise<Response> {
   // The route ceiling, and nothing per source address.
   //
   // There is no IP axis here, and there must not be one. Every update on this
@@ -184,7 +218,7 @@ const route = handle('telegram/webhook', async ({ request, log }) => {
   await log.event('phone.rejected', { reason: outcome });
   await sendAndClearKeyboard(chatId, refusals[outcome]);
   return ok();
-});
+}
 
 /**
  * 8.10: exported as a named async function declaration.

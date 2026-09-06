@@ -20,7 +20,7 @@ import type { Hex } from 'viem';
 import { checked, getDb } from './db.js';
 import { DB_TIMEOUT_MS } from './config.js';
 import { buildTree, proofFor, verifyProof } from './merkle.js';
-import { publishEligibilityRoot, rootsCount, waitForReceipt } from './chain.js';
+import { publishEligibilityRoot, rootIndexFromLogs, waitForReceipt } from './chain.js';
 import type { Logger } from './log.js';
 
 export interface PublishedRoot {
@@ -54,11 +54,26 @@ export interface PublishedRoot {
  * this root admits may be submitted hours afterwards, and without the original
  * leaves the proof cannot be reconstructed.
  *
- * The root index is read from the contract rather than counted locally. The
- * contract is the authority on how many roots a campaign has, and a local count
- * that drifted would produce proofs against the wrong index.
+ * THE ROOT INDEX COMES OUT OF THE RECEIPT, AND THIS IS THE SECOND HALF OF THE
+ * ORDER ABOVE. It used to be read with getEligibilityRootsCount at `latest`
+ * before the transaction was even signed, which answers "how many roots have
+ * been mined", not "which index will this one be given". Those differ exactly
+ * when a publication for the same campaign is still in the mempool — the
+ * ordinary case, because this runs in a loop over campaigns and the receipt wait
+ * is bounded, so a publication that timed out is still pending when the next run
+ * reads the count. Both publications then claimed the same index, one of them
+ * wrongly. Every proof built against the wrong one fails to verify and enter()
+ * reverts with NotEligible, for every entry in that batch, for ever: nothing on
+ * this side ever re-reads the index, and the row is what the funding stage
+ * believes.
  *
- * Returns null when the publication is not confirmed on chain.
+ * addEligibilityRoot emits the index it assigned, so once the receipt is in hand
+ * the contract has already answered the question. An event that is not there is
+ * not a number to fall back on — the batch is left exactly as a timeout leaves
+ * it, and a later run publishes again.
+ *
+ * Returns null when the publication is not confirmed on chain, or when the
+ * confirmed transaction did not say which index it took.
  */
 export async function publishBatch(
   giveawayId: bigint,
@@ -66,7 +81,6 @@ export async function publishBatch(
   log: Logger,
 ): Promise<PublishedRoot | null> {
   const tree = buildTree(addresses);
-  const rootIndex = await rootsCount(giveawayId);
 
   const txHash = await publishEligibilityRoot(giveawayId, tree.root);
 
@@ -74,10 +88,24 @@ export async function publishBatch(
   if (receipt === null || receipt.status !== 'success') {
     await log.event('root.published', {
       giveaway_id: giveawayId.toString(),
-      root_index: rootIndex.toString(),
       leaves: tree.addresses.length,
       mined: receipt?.status ?? 'pending',
       recorded: false,
+    });
+    return null;
+  }
+
+  const rootIndex = rootIndexFromLogs(receipt.logs, giveawayId);
+  if (rootIndex === null) {
+    // Mined, successful, and carrying no EligibilityRootAdded for this campaign.
+    // Those cannot all be true, so nothing is written: an index this side
+    // invented is the exact failure this function was changed to stop.
+    await log.event('root.published', {
+      giveaway_id: giveawayId.toString(),
+      leaves: tree.addresses.length,
+      mined: 'success',
+      recorded: false,
+      reason: 'no_root_index_event',
     });
     return null;
   }

@@ -1,5 +1,6 @@
 import { handle, ok, refuse } from '../../../../lib/bridge-v2/http.js';
-import { optionalEnv } from '../../../../lib/bridge-v2/env.js';
+import { requireEnv } from '../../../../lib/bridge-v2/env.js';
+import { assertConfigured } from '../../../../lib/bridge-v2/alert.js';
 import { timingSafeEqualHex } from '../../../../lib/bridge-v2/crypto.js';
 import {
   processEligibleEntries,
@@ -23,13 +24,29 @@ import { acquireRunLock, releaseRunLock, runDeadline } from '../../../../lib/bri
  * does the slow part, and can be run again safely because every step is
  * conditional on the state it expects (G5).
  *
- * Not publicly callable. Without the shared secret configured the route refuses
- * outright rather than running unauthenticated, because the alternative is an
- * endpoint that anyone can use to make the bridge spend gas.
+ * Not publicly callable. The shared secret is required configuration (env.ts),
+ * so a project without one does not have a quiet endpoint that refuses: it has a
+ * loud one that alerts. Running unauthenticated is not on the list of options —
+ * the alternative to the secret is an endpoint anyone can use to make the bridge
+ * spend gas.
  */
 const route = handle('cron/process', async ({ request, log }) => {
-  const secret = optionalEnv('CRON_SECRET');
-  if (secret === undefined) return refuse(503, 'Not available.');
+  // K8: EVERY VARIABLE THE PIPELINE DEPENDS ON, CHECKED HERE, ON THE RUN THAT
+  // WOULD OTHERWISE FAIL ONE DEEP CHAIN CALL AT A TIME.
+  //
+  // The check existed only in the hourly maintenance route, so a variable that
+  // went missing was found by whichever route ran first — up to sixty minutes
+  // during which this one published nothing and funded nothing while every
+  // failure was caught per item and logged as if an RPC were having a bad minute.
+  // The pipeline runs every minute and is the thing that spends money and moves
+  // participants forward, so it is where the answer is needed first.
+  //
+  // Before the authorisation, deliberately. The bridge being unable to work is
+  // not a fact about the caller, and a run that cannot check its own credential
+  // because that credential is one of the missing names has to say so.
+  await assertConfigured(log);
+
+  const secret = requireEnv('CRON_SECRET');
   // J5 applies here as much as it does to a verification code: a shared secret
   // compared with === returns at the first differing byte, and the difference is
   // measurable across enough samples by anyone who can call this route as often

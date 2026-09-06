@@ -1,5 +1,5 @@
 import { handle, ok, refuse } from '../../../../lib/bridge-v2/http.js';
-import { optionalEnv, assertEnv } from '../../../../lib/bridge-v2/env.js';
+import { requireEnv } from '../../../../lib/bridge-v2/env.js';
 import { timingSafeEqualHex } from '../../../../lib/bridge-v2/crypto.js';
 import {
   FUNDER_LOW_BALANCE_WEI,
@@ -23,7 +23,7 @@ import {
   roleAddress,
   vrfSubscriptionLink,
 } from '../../../../lib/bridge-v2/chain.js';
-import { alert } from '../../../../lib/bridge-v2/alert.js';
+import { alert, assertConfigured } from '../../../../lib/bridge-v2/alert.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/maintenance
@@ -78,8 +78,14 @@ async function safely<T>(
 }
 
 const route = handle('cron/maintenance', async ({ request, log }) => {
-  const secret = optionalEnv('CRON_SECRET');
-  if (secret === undefined) return refuse(503, 'Not available.');
+  // K8: the same check the pipeline route now makes, in the same place and for
+  // the same reason. It used to sit inside `safely` below, which was right while
+  // this was the only place it happened — a missing variable must not stop the
+  // retention pass — and is wrong now that it is not: a route that cannot read
+  // its own credential has nothing to authorise and no reason to pretend it does.
+  await assertConfigured(log);
+
+  const secret = requireEnv('CRON_SECRET');
   // J5 applies here as much as it does to a verification code: a shared secret
   // compared with === returns at the first differing byte, and the difference is
   // measurable across enough samples by anyone who can call this route as often
@@ -108,15 +114,6 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
   const deadline = runDeadline();
 
   try {
-    // Configuration is checked on a schedule so a missing variable is found by a
-    // cron run rather than by a participant hitting a 500. Inside safely,
-    // because a missing variable must not stop the retention pass either — it is
-    // reported, like every other check.
-    const configOk = await safely(log, 'config', async () => {
-      assertEnv();
-      return true;
-    });
-
     const db = getDb();
     const removed = await safely(log, 'cleanup', async () => {
       const cleaned = checked(
@@ -279,7 +276,10 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // null` knows to look; reading `false` for the same thing would send them
     // after a role that may be perfectly fine.
     const result = {
-      configOk,
+      // True by construction: assertConfigured above throws before this point if
+      // anything is missing, so a response that exists at all is a response from
+      // a fully configured deployment.
+      configOk: true,
       removed,
       swept,
       sweepSkipped,

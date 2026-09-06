@@ -31,8 +31,9 @@
 -- The V1 grants in 0003 are untouched. This file adds; it removes nothing V1
 -- depends on.
 --
--- Idempotent: the cleanup is guarded, and GRANT on an already-granted privilege
--- is a silent no-op in Postgres.
+-- Idempotent: GRANT on an already-granted privilege is a silent no-op in
+-- Postgres, and the REVOKE sweep below is written over whatever exists at the
+-- moment it runs.
 --
 -- The search_path is set for the same reason as in 0004 and 0005: the two grants
 -- below name a citext parameter, and the type has to resolve to whichever schema
@@ -40,46 +41,19 @@
 -- =============================================================================
 SET search_path = public, extensions;
 
--- -----------------------------------------------------------------------------
--- Remove what the previous revision created
--- -----------------------------------------------------------------------------
--- Every policy on a bridge_v2_* table, whoever it was for. The requirement is
--- RLS on with no policies, so this is written as a sweep rather than a list:
--- a named list would silently miss a policy added between revisions.
-DO $drop_policies$
-DECLARE
-  r record;
-BEGIN
-  FOR r IN
-    SELECT schemaname, tablename, policyname
-      FROM pg_policies
-     WHERE schemaname = 'public'
-       AND tablename LIKE 'bridge\_v2\_%'
-  LOOP
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', r.policyname, r.schemaname, r.tablename);
-  END LOOP;
-END
-$drop_policies$;
-
--- The three roles, with their privileges withdrawn first. DROP ROLE refuses while
--- a role still holds a grant anywhere, so the revokes are not optional tidiness.
-DO $drop_roles$
-DECLARE
-  role_name text;
-BEGIN
-  FOREACH role_name IN ARRAY ARRAY['bridge_v2_reader', 'bridge_v2_writer', 'bridge_v2_seeder']
-  LOOP
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-      EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM %I', role_name);
-      EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM %I', role_name);
-      EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM %I', role_name);
-      EXECUTE format('REVOKE ALL ON SCHEMA public FROM %I', role_name);
-      EXECUTE format('REVOKE %I FROM authenticator', role_name);
-      EXECUTE format('DROP ROLE IF EXISTS %I', role_name);
-    END IF;
-  END LOOP;
-END
-$drop_roles$;
+-- I5, ON WHAT IS NOT HERE. This file used to open with a sweep that dropped every
+-- policy on a bridge_v2_* table, and a block that revoked and then dropped
+-- bridge_v2_reader, bridge_v2_writer and bridge_v2_seeder. Both are gone: those
+-- policies and those roles exist in no database. They were created by an earlier
+-- revision of this same file, which was rewritten before it had ever been
+-- applied, so the cleanup was cleaning up after a state that never existed.
+--
+-- Migration code that cannot do anything is worse than no code. It reads as
+-- evidence that some deployment is carrying those roles, so a reader auditing
+-- privileges goes looking for them; and a DROP ROLE is exactly the statement
+-- nobody wants to find in a file they are about to apply to production. The
+-- requirement it claimed to serve — RLS enabled with zero policies — is held by
+-- 0004, which enables RLS on every table and writes no policy at all.
 
 -- -----------------------------------------------------------------------------
 -- service_role — exactly the verbs the code uses, per table
@@ -114,9 +88,14 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_phones TO service_role;
 -- entries — the whole lifecycle. No DELETE: an entry is the participation record.
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_entries TO service_role;
 
--- eligibility — append-only, mirroring the contract (4.1). UPDATE on roots exists
--- only to record the transaction hash once the publication is mined.
-GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_eligibility_roots  TO service_role;
+-- eligibility — append-only, mirroring the contract (4.1). No UPDATE on either
+-- table: the comment here used to justify one "to record the transaction hash
+-- once the publication is mined", and no code has ever done that. The row is
+-- written after the receipt, hash included, in a single INSERT (eligibility.ts),
+-- because a root row that exists before its transaction is confirmed is a row
+-- claiming an index the chain may not have. A privilege with no call site is a
+-- privilege granted on a story.
+GRANT SELECT, INSERT ON TABLE public.bridge_v2_eligibility_roots  TO service_role;
 GRANT SELECT, INSERT ON TABLE public.bridge_v2_eligibility_leaves TO service_role;
 
 -- rate limits — moved entirely by bridge_v2_rate_limit_hit; DELETE from
@@ -166,7 +145,7 @@ GRANT USAGE ON SEQUENCE public.bridge_v2_wallet_index_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.bridge_v2_ops_events_id_seq TO service_role;
 
 -- -----------------------------------------------------------------------------
--- functions — all seventeen of 0005
+-- functions — all nineteen of 0005
 -- -----------------------------------------------------------------------------
 -- REVOKE FIRST, AND THIS IS THE POINT OF THE BLOCK. Postgres grants EXECUTE on a
 -- new function to PUBLIC by default, and PUBLIC includes anon and authenticated —
@@ -213,7 +192,14 @@ GRANT EXECUTE ON FUNCTION public.bridge_v2_release_phone(uuid, integer)         
 GRANT EXECUTE ON FUNCTION public.bridge_v2_acquire_funder(integer)                                    TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_renew_funder_lease(integer, uuid, integer)                 TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_release_funder(integer, uuid, bigint)                      TO service_role;
+-- G6: the lease holder's correction of next_nonce against the account. Separate
+-- from release because it is the one write that may lower the number, which is
+-- what unsticks a funder whose transaction was dropped from the mempool.
+GRANT EXECUTE ON FUNCTION public.bridge_v2_reconcile_funder_nonce(integer, uuid, bigint)              TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_disable_funder(integer)                                    TO service_role;
+-- C8/G4: one row per campaign with VERIFIED entries, longest-waiting first, so a
+-- full campaign cannot hold the publication batch against every other one.
+GRANT EXECUTE ON FUNCTION public.bridge_v2_campaigns_with_verified(integer)                            TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_claim_spend(text, integer, integer, integer)               TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_cleanup(integer, integer, integer)                         TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_next_wallet_index()                                        TO service_role;

@@ -14,7 +14,7 @@
  * an address, or a code.
  */
 
-import { optionalEnv } from './env.js';
+import { assertEnv, MissingEnvError, optionalEnv } from './env.js';
 import { HTTP_TIMEOUT_MS } from './config.js';
 import type { Detail, Logger } from './log.js';
 
@@ -43,5 +43,31 @@ export async function alert(log: Logger, summary: string, detail: Detail = {}): 
     // must not propagate into the request that raised the alert.
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * K8: configuration is checked, and a gap in it is announced rather than acted on
+ * quietly.
+ *
+ * Both scheduled routes call this before they do anything else. The throw is
+ * deliberate and is re-raised after the alert: an incomplete configuration is not
+ * a condition to work around, and the envelope in http.ts turns it into a logged
+ * route.error carrying the missing NAMES and a generic 500 to the caller. What it
+ * must never be is a quiet answer — a 503 that says "not available" to a
+ * scheduler that does not read answers is the same as no bridge at all, and that
+ * is exactly what an unset CRON_SECRET used to produce.
+ *
+ * F3: names only. The alert carries which variables are missing and nothing about
+ * what any of them contains.
+ */
+export async function assertConfigured(log: Logger): Promise<void> {
+  try {
+    assertEnv();
+  } catch (error) {
+    if (error instanceof MissingEnvError) {
+      await alert(log, 'configuration incomplete', { missing: error.names.join(',') });
+    }
+    throw error;
   }
 }

@@ -144,6 +144,8 @@ export interface CustodyRecord {
   readonly deliveryTxHash: string | null;
   /** D2: set the first and only time an expired custody was alerted on. */
   readonly custodyExpiredAlertAt: string | null;
+  /** Section 7: set when the settled campaign owes this wallet nothing, ever. */
+  readonly noPrizeAt: string | null;
 }
 
 interface CustodyRow {
@@ -158,12 +160,13 @@ interface CustodyRow {
   delivered_at: string | null;
   delivery_tx_hash: string | null;
   custody_expired_alert_at: string | null;
+  no_prize_at: string | null;
 }
 
 const CUSTODY_COLUMNS =
   'entry_id, prize_kind, requires_own_wallet, destination_address, ' +
   'destination_confirmed_at, custody_expires_at, claimed_at, claim_tx_hash, ' +
-  'delivered_at, delivery_tx_hash, custody_expired_alert_at';
+  'delivered_at, delivery_tx_hash, custody_expired_alert_at, no_prize_at';
 
 function toCustody(row: CustodyRow): CustodyRecord {
   return {
@@ -178,6 +181,7 @@ function toCustody(row: CustodyRow): CustodyRecord {
     deliveredAt: row.delivered_at,
     deliveryTxHash: row.delivery_tx_hash,
     custodyExpiredAlertAt: row.custody_expired_alert_at,
+    noPrizeAt: row.no_prize_at,
   };
 }
 
@@ -317,6 +321,20 @@ interface PendingRow extends CustodyRow {
  * cannot progress yet, because the winner has not named a destination, sits at
  * the head of the queue for ever and the rows behind it are never looked at.
  *
+ * AND "NOT DELIVERED" WAS NOT THE RIGHT CONDITION ON ITS OWN. Every entry that
+ * confirms gets a custody row, winner or not, because at entry time nobody knows
+ * which it will be. Once the campaign settles, most of those rows belong to
+ * people who did not win: claimable() reads zero for them and will read zero for
+ * the rest of time, and delivered_at is never set because there is nothing to
+ * deliver. They stayed in this queue for ever. A campaign of a thousand entrants
+ * and three winners left nine hundred and ninety-seven permanent rows, ordered by
+ * updated_at and therefore ahead of every genuine prize behind them, each one
+ * costing a campaign read and a claimable read on every run — a batch of ten that
+ * moved nothing and grew with every campaign the platform ever ran.
+ *
+ * no_prize_at is the exit. §7/G4: what stays in the queue is what can still
+ * receive a prize.
+ *
  * giveaway_id is cast to text in the query. It is numeric(78,0) and PostgREST
  * renders a numeric as a JSON number, which is an IEEE double: a uint256 id
  * would arrive already rounded, and BigInt() of a rounded double is a different
@@ -332,6 +350,7 @@ export async function listPendingPrizes(limit: number): Promise<PendingPrize[]> 
         `${CUSTODY_COLUMNS}, entry:bridge_v2_entries!inner(participant_id, giveaway_id::text, wallet_address, status)`,
       )
       .is('delivered_at', null)
+      .is('no_prize_at', null)
       .eq('entry.status', 'CONFIRMED')
       .order('updated_at', { ascending: true })
       .limit(limit)
@@ -455,4 +474,44 @@ export async function touchCustody(entryId: string): Promise<void> {
     .update({ updated_at: new Date().toISOString() })
     .eq('entry_id', entryId)
     .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
+}
+
+/**
+ * Section 7, G4: takes a row out of the prize queue because there is no prize.
+ *
+ * Written only where the answer is final, and finality here has exactly two
+ * shapes, both of them decided by the contract and neither of them reversible:
+ *
+ *   the campaign has SETTLED, nothing was ever claimed for this wallet, and
+ *   claimable() is zero — this entrant did not win, and a campaign settles once;
+ *
+ *   the claim window has closed with nothing claimed — past CLAIM_DEADLINE
+ *   claimPrize reverts with ClaimExpired and the creator may reclaim, so there is
+ *   nothing left for this side to attempt at any later date.
+ *
+ * Deliberately NOT delivered_at, which would say a prize left the wallet. These
+ * two facts are different and an operator reading the table has to be able to
+ * tell them apart. Nothing here touches an unclaimed prize that still exists:
+ * a row with claimed_at set and no destination is the D2 case and stays in the
+ * queue where the expiry alert can find it.
+ *
+ * Idempotent, and conditional on the column being null so a second pass writes
+ * nothing.
+ */
+export async function closeNoPrize(entryId: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = checkedMaybe(
+    'custody.close_no_prize',
+    await db
+      .from('bridge_v2_custody')
+      .update({ no_prize_at: now, updated_at: now })
+      .eq('entry_id', entryId)
+      .is('no_prize_at', null)
+      .is('claimed_at', null)
+      .select('entry_id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
 }

@@ -116,8 +116,29 @@ const route = handle('session/request-code', async ({ request, log }) => {
   // B8: the email budget is claimed before the provider is called.
   if (!(await claimSpend('email', 1, log))) return accepted();
 
+  // J6/C1: THE CODE IS ISSUED AGAINST THE CANONICAL FORM AND SENT TO THE ADDRESS
+  // THE PARTICIPANT WROTE. Those are two different jobs and the canonical form
+  // can only do one of them. C1 says the unique key is the canonical email and
+  // not the literal — a key, and the thing the rate limits count against, which
+  // is exactly what issueEmailCode below takes. It says nothing about delivery,
+  // and delivery was using it too.
+  //
+  // Canonicalisation strips sub-addressing from every address and dots from
+  // Gmail's. Gmail delivers to the stripped form, so nobody noticed; a provider
+  // that treats +tag as part of the mailbox does not, and there are plenty of
+  // them — anything running a plain mail server, and any domain where alice+shop@
+  // and alice@ are two accounts or where one of the two simply does not exist.
+  // For those participants the code went to an address they had not given,
+  // sometimes to a stranger, and this side never learned it: sendCodeEmail
+  // reports whether the provider accepted the request, and a provider accepts a
+  // deliverable address it was handed. The participant saw a screen saying a code
+  // had been sent, and waited.
+  //
+  // Nothing about storage changes. `email` is a local that reaches the mail call
+  // and nothing else — D7 keeps the literal out of every row, and the code, the
+  // account and both limit axes stay keyed on `canonical`.
   const code = await issueEmailCode(canonical);
-  const result = await sendCodeEmail(canonical, code, EMAIL_CODE_TTL_MINUTES);
+  const result = await sendCodeEmail(email, code, EMAIL_CODE_TTL_MINUTES);
   await log.event(result.sent ? 'code.issued' : 'code.failed');
 
   return accepted();

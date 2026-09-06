@@ -79,7 +79,15 @@ async function rest(path, init = {}) {
  * its nonce are live state and overwriting either would hand a running operation
  * a nonce somebody else is using. An index whose stored address no longer
  * matches the configured key is reported and NOT changed: that is a key
- * rotation, which also needs the nonce reset, and it is an operator decision.
+ * rotation, and it is an operator decision.
+ *
+ * G6: THE NONCE IS NOT THIS SCRIPT'S BUSINESS AND NEVER WAS. A row inserted here
+ * takes the schema default of 0, which used to mean a key with any prior history
+ * arrived permanently broken — every transaction it signed refused as stale,
+ * nothing mined, and so nothing to advance the stored number with. The bridge now
+ * reconciles the stored nonce against the account when it takes the lease
+ * (funders.ts), in both directions, so a funder with a history works from its
+ * first use and a rotation needs no nonce reset here.
  */
 async function seedFunders() {
   const keys = requireEnv('BRIDGE_V2_FUNDER_KEYS')

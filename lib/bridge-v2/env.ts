@@ -75,6 +75,24 @@ export const REQUIRED_ENV = [
   // Read from configuration because the owner chooses the name (R3 constrains what
   // it may contain); no name is written into this repository.
   'TELEGRAM_BOT_USERNAME',
+
+  // H8/K8. The shared secret the cron routes authenticate on, so scheduled work
+  // is not publicly callable.
+  //
+  // REQUIRED, AND IT USED TO BE OPTIONAL, WHICH MEANT THE PIPELINE COULD BE
+  // ABSENT RATHER THAN BROKEN. Without it both cron routes answered 503 and
+  // returned: no root published, no entry funded, no prize claimed, nothing
+  // swept, and no monitoring check run — including the check that reports missing
+  // configuration, which lives in the route that had stopped. The failure was
+  // silent by construction, because the one thing that would have reported it was
+  // the thing not running. Every other variable the pipeline depends on fails
+  // loudly at first use; this one alone failed by doing nothing.
+  //
+  // Unprefixed on purpose, unlike every other name here: Vercel attaches
+  // Authorization: Bearer to a scheduled invocation only when the project holds a
+  // variable named exactly CRON_SECRET. A prefixed name would leave the crons
+  // arriving with no credential at all.
+  'CRON_SECRET',
 ] as const;
 
 export type RequiredEnvName = (typeof REQUIRED_ENV)[number];
@@ -89,12 +107,6 @@ export const OPTIONAL_ENV = [
   'ARBITRUM_RPC_URL',
   // Where K8 alerts are posted. Without it alerts degrade to ops events only.
   'BRIDGE_V2_ALERT_WEBHOOK_URL',
-  // Shared secret for the cron routes, so scheduled work is not publicly
-  // callable. Unprefixed on purpose, unlike every other variable here: Vercel
-  // attaches Authorization: Bearer to a scheduled invocation only when the
-  // project holds a variable named exactly CRON_SECRET. A prefixed name would
-  // leave the crons arriving with no credential at all.
-  'CRON_SECRET',
 ] as const;
 
 export type OptionalEnvName = (typeof OPTIONAL_ENV)[number];
@@ -134,8 +146,15 @@ export function optionalEnv(name: OptionalEnvName): string | undefined {
  * Checks every required variable at once.
  *
  * One message listing everything missing, rather than one deploy per forgotten
- * variable. Used by the health path of the cron routes so misconfiguration is
- * found by a schedule rather than by a participant.
+ * variable, and never a value, a length or a prefix (F3).
+ *
+ * K8: CALLED AT THE START OF EVERY PIPELINE RUN, NOT ONLY BY THE HOURLY
+ * MAINTENANCE PASS. It was only in the hourly one, so a variable that went
+ * missing was found by whichever ran first — up to sixty minutes of pipeline runs
+ * failing one deep chain call at a time, each one a caught per-item error that
+ * looked like a bad RPC minute rather than like configuration. The pipeline runs
+ * every minute; a check it performs first costs nothing and is the earliest
+ * moment the bridge can possibly know.
  */
 export function assertEnv(): void {
   const missing = REQUIRED_ENV.filter((name) => {

@@ -141,8 +141,25 @@ export const CUSTODY_TEMPORARY_DAYS = 30 as const;
 // -----------------------------------------------------------------------------
 /** G4: no external wait is unbounded. Applied to every RPC call. */
 export const RPC_TIMEOUT_MS = 10_000;
-/** G4: the receipt wait is the one that killed V1 leases. Bounded here. */
-export const RECEIPT_TIMEOUT_MS = 60_000;
+/**
+ * G4: the receipt wait is the one that killed V1 leases. Bounded here.
+ *
+ * HALVED FROM SIXTY SECONDS, AND THE REASON IS ARITHMETIC RATHER THAN TASTE.
+ * This number is the dominant term of every worst case below, and those worst
+ * cases have to fit inside RUN_BUDGET_MS or the guard that reserves them can
+ * never be true — which is exactly what had happened to the prize stage: it
+ * reserved 300_000 ms out of a 280_000 ms budget, so no run ever started a
+ * prize and no prize was ever claimed or delivered. The ceiling on the budget is
+ * the platform's 300-second maxDuration and cannot be raised, so the term that
+ * had to come down is this one.
+ *
+ * Thirty seconds is still enormous for the chain this bridge signs on. Arbitrum
+ * One produces a block roughly every 250 ms and the sequencer acknowledges an
+ * accepted transaction in about one; thirty seconds is on the order of a hundred
+ * blocks. A wait that does give up is not a lost transaction either — it stays
+ * in the mempool, its hash is recorded, and reconcileSubmitted finishes it.
+ */
+export const RECEIPT_TIMEOUT_MS = 30_000;
 /** G4: email and Telegram calls. */
 export const HTTP_TIMEOUT_MS = 8_000;
 /**
@@ -187,8 +204,88 @@ export const CRON_MAX_DURATION_SECONDS = 300 as const;
  * funding wait plus one submission wait, both bounded by RECEIPT_TIMEOUT_MS.
  */
 export const RUN_BUDGET_MS = (CRON_MAX_DURATION_SECONDS - 20) * 1000;
-/** The worst case for one entry: fund, wait, submit, wait, plus the reads around them. */
-export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 3 * RPC_TIMEOUT_MS;
+
+/**
+ * What one entry may cost: fund, wait for the receipt, submit, wait again, plus
+ * the reads around them.
+ *
+ * WHAT THE TWO TERMS ARE, BECAUSE THEY ARE NOT THE SAME KIND OF NUMBER, and a
+ * reservation that pretends they are is either useless or paralysing.
+ *
+ * The receipt waits are reserved in full. A slow transaction really does sit
+ * there until the timeout expires; that is the ordinary shape of the slow case
+ * and not a pathology, so 2 × RECEIPT_TIMEOUT_MS is a duration this path takes.
+ *
+ * The RPC term is an ALLOWANCE, and is named as one. processEligible makes nine
+ * sequential round trips outside those two waits — hasEntered, readGiveaway,
+ * slotsRemaining, the funder nonce reconciliation, the entry quote, the funding
+ * estimate, the funding broadcast, the derived nonce, the entry broadcast — and
+ * reserving nine RPC_TIMEOUT_MS would be reserving ninety seconds for calls that
+ * answer in tens of milliseconds, because RPC_TIMEOUT_MS is the point at which a
+ * call is abandoned and not a time anything is expected to take. Four of them is
+ * forty seconds of slack over reads whose realistic total is under a second.
+ *
+ * And if the allowance is ever wrong, the failure is bounded and already handled:
+ * the platform kills the run, the entry is left in FUNDING or SUBMITTED, and
+ * reconcileFunding and reconcileSubmitted bring it back. Reserving the
+ * pathological total instead would trade a rare recoverable interruption for a
+ * pipeline that refuses to start work it could almost always finish.
+ */
+export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
+
+/**
+ * What one prize may cost, which is the largest unit the pipeline runs.
+ *
+ * A prize is two entry-shaped units back to back — claim, then delivery, each a
+ * funding transaction with its receipt and a call with its receipt — plus the
+ * reads that decide between them: the campaign, what the wallet is owed, whether
+ * it has already been paid, and what is left in it to hand on. Eighteen
+ * sequential round trips and four receipt waits, under the same split as above:
+ * the four waits in full, the reads on an allowance.
+ *
+ * It used to be written at the call site as 2 * ENTRY_WORST_CASE_MS, which was
+ * the right shape and the wrong number, because the number it produced was larger
+ * than the budget it was checked against. It lives here now for the same reason
+ * every other ceiling does: a budget written at its call site is a budget nobody
+ * ever checks against the run it has to fit inside.
+ */
+export const PRIZE_WORST_CASE_MS = 2 * ENTRY_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS;
+
+/**
+ * G4, checked rather than declared.
+ *
+ * Every stage of the pipeline reserves the size of one unit of its own work
+ * before starting one, and a reservation larger than the whole budget is a stage
+ * that can never start anything. That is not hypothetical: with a 60-second
+ * receipt timeout the prize stage reserved 300_000 ms against a 280_000 ms
+ * budget, the comparison was false on the first millisecond of every run, and the
+ * stage that claims and delivers prizes never ran once. Nothing reported it,
+ * because a stage that starts no work returns zero and looks exactly like a stage
+ * with no work to do.
+ *
+ * A comment asserting that the numbers fit would have been just as wrong as the
+ * numbers were. This is the same claim made executable: change any constant above
+ * so that the largest unit no longer fits, and the first import of this module
+ * throws instead of the pipeline quietly doing nothing.
+ *
+ * The values, since the point is that they are checked and not asserted:
+ *
+ *   RUN_BUDGET_MS        (300 - 20) * 1000        = 280_000
+ *   ENTRY_WORST_CASE_MS  2 * 30_000 + 4 * 10_000  = 100_000
+ *   PRIZE_WORST_CASE_MS  2 * 100_000 + 4 * 10_000 = 240_000
+ *
+ * and the reservation each stage actually makes, every one strictly under the
+ * budget: 50_000 for a root publication and for one SUBMITTED reconciliation,
+ * 20_000 for a FUNDING reconciliation, 50_000 for a sweep, 100_000 for an entry,
+ * 240_000 for a prize. The largest of them leaves 40_000 ms of margin.
+ */
+export const LARGEST_UNIT_MS = PRIZE_WORST_CASE_MS;
+if (LARGEST_UNIT_MS >= RUN_BUDGET_MS) {
+  throw new Error(
+    `[bridge-v2] run budget ${RUN_BUDGET_MS}ms cannot start the largest unit of ` +
+      `work (${LARGEST_UNIT_MS}ms); no run would ever reach the prize stage`,
+  );
+}
 
 /**
  * G6: how long a scheduled run may hold the pipeline lock.

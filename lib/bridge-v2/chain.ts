@@ -40,7 +40,10 @@ import {
   createPublicClient,
   encodeFunctionData,
   http,
+  parseEventLogs,
+  TransactionNotFoundError,
   type Hex,
+  type Log,
   type TransactionSerializable,
 } from 'viem';
 import { arbitrum } from 'viem/chains';
@@ -208,15 +211,6 @@ export async function slotsRemaining(giveawayId: bigint): Promise<bigint> {
   })) as bigint;
 }
 
-export async function rootsCount(giveawayId: bigint): Promise<bigint> {
-  return (await publicClient().readContract({
-    address: GIVEAWAY_MANAGER_V2,
-    abi: GIVEAWAY_MANAGER_V2_ABI,
-    functionName: 'getEligibilityRootsCount',
-    args: [giveawayId],
-  })) as bigint;
-}
-
 /** G5: the on-chain fact that makes a repeated entry a no-op instead of a second one. */
 export async function hasEntered(giveawayId: bigint, wallet: `0x${string}`): Promise<boolean> {
   return (await publicClient().readContract({
@@ -350,6 +344,19 @@ async function currentFees(): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerG
   return { maxFeePerGas, maxPriorityFeePerGas };
 }
 
+/** What a mined transaction tells this side: how it ended, and what it emitted. */
+export interface MinedReceipt {
+  readonly status: 'success' | 'reverted';
+  /**
+   * The logs of the transaction, as the node returned them.
+   *
+   * Here so a caller can read a value the contract assigned rather than guess it.
+   * rootIndexFromLogs below is the only reader, and it lives in this module so
+   * that no viem log type crosses out of it.
+   */
+  readonly logs: readonly Log[];
+}
+
 /**
  * Waits for a receipt, bounded.
  *
@@ -358,16 +365,80 @@ async function currentFees(): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerG
  * caller records the hash and lets a later pass reconcile, which is what finding
  * K3 asked for: the V1 lost the hash entirely when the function died.
  */
-export async function waitForReceipt(hash: Hex): Promise<{ status: 'success' | 'reverted' } | null> {
+export async function waitForReceipt(hash: Hex): Promise<MinedReceipt | null> {
   try {
     const receipt = await publicClient().waitForTransactionReceipt({
       hash,
       timeout: RECEIPT_TIMEOUT_MS,
     });
-    return { status: receipt.status };
+    return { status: receipt.status, logs: receipt.logs };
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether the node still knows this transaction at all — mined or pending.
+ *
+ * I8. A transaction that is neither is dropped: evicted from the mempool, or
+ * replaced, and in both cases it will never be mined and no amount of waiting
+ * changes that. Without this question there was no way to tell "not confirmed
+ * yet" from "will never confirm", so an entry whose transaction had been dropped
+ * sat in SUBMITTED for ever.
+ *
+ * A node that cannot answer is treated as a node that still has it. The honest
+ * reading of an RPC failure is that nothing was learned, and the expensive
+ * mistake here is the other one: declaring a live transaction dropped puts the
+ * entry back in the queue and buys a second funding for a transaction that was
+ * about to be mined.
+ */
+export async function transactionKnown(hash: Hex): Promise<boolean> {
+  try {
+    await publicClient().getTransaction({ hash });
+    return true;
+  } catch (error) {
+    // viem throws TransactionNotFoundError for a hash the node does not have and
+    // something else for a transport failure. Only the first is an answer.
+    return !(error instanceof TransactionNotFoundError);
+  }
+}
+
+/**
+ * The index the contract assigned to a root, read from the event it emitted.
+ *
+ * §1.1/G5. The index used to be read with getEligibilityRootsCount at `latest`
+ * BEFORE the transaction was broadcast, which is the number of roots already
+ * mined and not the index this publication would be given. One publication for
+ * the same campaign still in the mempool — the ordinary case, because a run
+ * publishes for several campaigns and its receipt wait is bounded — and the two
+ * agreed on a number only one of them could have. The entries were then promoted
+ * with an index pointing at somebody else's root, every proof built against it
+ * failed to verify, and enter() reverted with NotEligible on each of them for as
+ * long as the row existed.
+ *
+ * addEligibilityRoot emits EligibilityRootAdded(giveawayId, rootIndex, root) with
+ * roots.length - 1 (GiveawayManagerV2.sol:679), so the receipt carries the answer
+ * the contract itself decided. Filtered on the campaign and on the manager
+ * address as well as on the event: one transaction is one campaign here, but
+ * nothing in the decoding says so.
+ *
+ * Returns null when the receipt carries no such event, which is not a number to
+ * guess at — the caller records nothing and lets the next run publish again.
+ */
+export function rootIndexFromLogs(logs: readonly Log[], giveawayId: bigint): bigint | null {
+  const events = parseEventLogs({
+    abi: GIVEAWAY_MANAGER_V2_ABI,
+    eventName: 'EligibilityRootAdded',
+    logs: logs as Log[],
+  });
+
+  for (const event of events) {
+    if (event.address.toLowerCase() !== (GIVEAWAY_MANAGER_V2 as string).toLowerCase()) continue;
+    const args = event.args as { giveawayId: bigint; rootIndex: bigint };
+    if (args.giveawayId !== giveawayId) continue;
+    return args.rootIndex;
+  }
+  return null;
 }
 
 // -----------------------------------------------------------------------------

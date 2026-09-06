@@ -535,6 +535,53 @@ BEGIN
 END;
 $fn$;
 
+-- G6: writes a nonce the holder of the lease has reconciled against the account.
+--
+-- SEPARATE FROM bridge_v2_release_funder BECAUSE IT MUST BE ABLE TO GO DOWN, and
+-- release takes GREATEST on purpose: release records a nonce that has been spent,
+-- and a spent nonce never un-spends, so a stale release must not rewind a funder
+-- somebody else has since advanced.
+--
+-- That guard is exactly what made a dropped transaction permanent. A transaction
+-- evicted from the mempool leaves next_nonce one past a number that will now
+-- never be mined; every later transaction from that funder is signed with a gap
+-- in front of it and is never mined either, and GREATEST means nothing can bring
+-- the stored value back down. The funder is dead and no run repairs it. The same
+-- arithmetic kills a funder whose key has any prior history: the row is created
+-- at 0 (the column default, and the seed script) against an account already at
+-- forty, so every transaction it signs is refused as stale, nothing is mined, and
+-- the stored number never moves.
+--
+-- The caller decides what the correct value is, from `latest` and `pending` on
+-- the account itself (funders.ts); this only enforces who may write it. The lease
+-- token, so the correction belongs to the operation that read the account and not
+-- to whoever ran last, and disabled_at, because a funder taken out of rotation
+-- stays out.
+CREATE OR REPLACE FUNCTION bridge_v2_reconcile_funder_nonce(
+  p_funder_index integer,
+  p_lease_token  uuid,
+  p_next_nonce   bigint
+) RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = public, extensions
+AS $fn$
+DECLARE
+  v_rows integer;
+BEGIN
+  UPDATE bridge_v2_funders
+     SET next_nonce = p_next_nonce,
+         updated_at = now()
+   WHERE funder_index = p_funder_index
+     AND lease_token  = p_lease_token
+     AND disabled_at IS NULL;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RETURN v_rows = 1;
+END;
+$fn$;
+
+COMMENT ON FUNCTION bridge_v2_reconcile_funder_nonce IS
+  'G6: the lease holder corrects next_nonce against the account, in either direction.';
+
 -- H8: a funder that cannot be used is taken out of rotation rather than retried
 -- forever. Disabling is deliberate and visible, not an implicit skip.
 CREATE OR REPLACE FUNCTION bridge_v2_disable_funder(p_funder_index integer)
@@ -751,3 +798,42 @@ AS $fn$
 $fn$;
 
 COMMENT ON FUNCTION bridge_v2_next_wallet_index IS 'I9: reserve the index so the address is known before the row is written.';
+
+-- -----------------------------------------------------------------------------
+-- the campaign queue — C8 and G4
+-- -----------------------------------------------------------------------------
+-- Campaigns holding VERIFIED entries, one row each, longest-waiting first.
+--
+-- BOTH HALVES OF THAT SENTENCE ARE THE FIX. The processor used to read twenty
+-- entry rows with no DISTINCT and no ORDER BY and take whatever campaigns turned
+-- up among them, so the limit it thought was "twenty campaigns" was "twenty
+-- entries". A campaign with twenty VERIFIED entries filled the result on its own
+-- and every other campaign on the platform waited — not for a run, but
+-- indefinitely, because the very same rows came back on the next run and the one
+-- after that. One campaign that could not progress stopped root publication for
+-- all of them.
+--
+-- DISTINCT alone would let the same campaign be picked first for ever, so the
+-- order is the other half: min(created_at) per campaign is how long its oldest
+-- unserved entry has been waiting, and serving that first is what makes the queue
+-- fair rather than merely correct.
+--
+-- giveaway_id comes back as text. It is numeric(78,0), PostgREST renders a
+-- numeric as a JSON number, and a JSON number is an IEEE double: a uint256 id
+-- would arrive already rounded and BigInt() of it is a different campaign or a
+-- throw.
+CREATE OR REPLACE FUNCTION bridge_v2_campaigns_with_verified(p_limit integer)
+RETURNS TABLE (giveaway_id text)
+LANGUAGE sql
+SET search_path = public, extensions
+AS $fn$
+  SELECT e.giveaway_id::text
+    FROM bridge_v2_entries e
+   WHERE e.status = 'VERIFIED'
+   GROUP BY e.giveaway_id
+   ORDER BY min(e.created_at) ASC
+   LIMIT GREATEST(p_limit, 0);
+$fn$;
+
+COMMENT ON FUNCTION bridge_v2_campaigns_with_verified IS
+  'C8/G4: one row per campaign with work waiting, longest-waiting first, so no campaign starves another.';

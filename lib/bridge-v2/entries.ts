@@ -190,20 +190,37 @@ export async function listVerified(giveawayId: bigint, limit: number): Promise<E
   return Array.isArray(rows) ? rows.map(toEntry) : [];
 }
 
-/** Campaigns with work waiting, so the processor never scans the id space (C10 of the contract spec). */
+/**
+ * Campaigns with work waiting, so the processor never scans the id space (C10 of
+ * the contract spec).
+ *
+ * C8/G4: THE LIMIT APPLIES TO CAMPAIGNS, WHICH IS WHAT THE CALLER IS COUNTING.
+ * It used to apply to entry rows: twenty of them were read, with no order and no
+ * distinct, and whatever campaigns happened to appear among those twenty were
+ * what the publication stage got to see. A campaign holding twenty VERIFIED
+ * entries filled the whole result on its own and every other campaign waited —
+ * indefinitely, because the same twenty rows came back on the next run, and the
+ * run after that. One campaign that could not progress stopped root publication
+ * for all of them, which any creator could cause by accident and any attacker on
+ * purpose.
+ *
+ * Distinct is half of it; the order is the other half. Grouping by campaign and
+ * ordering by the oldest VERIFIED entry each one holds means the campaign that
+ * has been waiting longest is served first, and no campaign appears more than
+ * once however many entries it is holding. Both happen in the database, because
+ * doing them here would mean reading every VERIFIED row on the platform in order
+ * to sort twenty of them.
+ */
 export async function campaignsWithVerified(limit: number): Promise<bigint[]> {
   const db = getDb();
   const rows = checked(
     'entry.campaigns_pending',
     await db
-      .from('bridge_v2_entries')
-      .select('giveaway_id::text')
-      .eq('status', 'VERIFIED')
-      .limit(limit)
+      .rpc('bridge_v2_campaigns_with_verified', { p_limit: limit })
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as Array<{ giveaway_id: string }> | null;
   if (!Array.isArray(rows)) return [];
-  return [...new Set(rows.map((row) => row.giveaway_id))].map((id) => BigInt(id));
+  return rows.map((row) => BigInt(row.giveaway_id));
 }
 
 /** Entries admitted to a root and waiting to be funded and submitted. */

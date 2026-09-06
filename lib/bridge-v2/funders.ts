@@ -20,6 +20,7 @@ import type { Hex, TransactionSerializable } from 'viem';
 import { DB_TIMEOUT_MS, FUNDER_LEASE_SECONDS } from './config.js';
 import { requireEnv } from './env.js';
 import { checked, getDb } from './db.js';
+import { publicClient } from './chain.js';
 
 export interface FunderLease {
   readonly index: number;
@@ -86,12 +87,93 @@ export async function acquireFunder(): Promise<FunderLease | null> {
   const row = Array.isArray(rows) ? rows[0] : undefined;
   if (row === undefined) return null;
 
+  const address = row.address as `0x${string}`;
+  const nextNonce = await reconcileNonce(row.funder_index, address, row.next_nonce, row.lease_token);
+
   return {
     index: row.funder_index,
-    address: row.address as `0x${string}`,
-    nextNonce: row.next_nonce,
+    address,
+    nextNonce,
     leaseToken: row.lease_token,
   };
+}
+
+/**
+ * G6: brings the stored nonce back into agreement with the account.
+ *
+ * The stored number is the authority WHILE a lease is held — that is the whole
+ * point of it, and it is what stops two operations reading a pending count at
+ * the same moment. It is not the authority about the account's history, and it
+ * was being treated as if it were: the row is created with next_nonce 0 by the
+ * schema default and by the seed script, and from then on it only ever moves
+ * through releaseFunder, which takes GREATEST of the old value and the new. Two
+ * things follow, and both are outages no run recovers from.
+ *
+ * A funder key with any prior history starts at 0 against an account whose count
+ * is already forty. Every transaction it signs is refused as a stale nonce,
+ * nothing is ever mined, so the stored number never advances, and the funder is
+ * dead on arrival. That covers the ordinary case of a key that has been used for
+ * anything before, and the case of a rotated pool member.
+ *
+ * A transaction dropped from the mempool leaves the stored number one past a
+ * nonce that will now never be used. Everything the funder signs afterwards has
+ * a gap in front of it and is never mined, and GREATEST means the stored number
+ * can only go up. The funder is stuck for ever, and the bridge disables it or
+ * waits on it rather than repairing it.
+ *
+ * The account answers both. `latest` is what has actually been mined; `pending`
+ * is that plus what the node holds for this account, counted from `latest`
+ * without gaps. So:
+ *
+ *   stored < latest    the row is behind the chain. The chain wins.
+ *   stored > pending   the transactions the row counts are neither mined nor held
+ *                      anywhere. They are gone. The chain wins.
+ *   otherwise          the row is inside what the account has committed to, which
+ *                      is exactly the range it exists to serialise. The row wins,
+ *                      and a concurrent unmined broadcast is not overwritten.
+ *
+ * The correction is written back under the lease token, so only the holder of a
+ * live lease can move it and a lapsed holder cannot rewind a funder somebody else
+ * is using. A failure to read the account leaves the stored value alone: not
+ * knowing is not a reason to rewrite a nonce.
+ */
+async function reconcileNonce(
+  index: number,
+  address: `0x${string}`,
+  stored: number,
+  leaseToken: string,
+): Promise<number> {
+  let latest: number;
+  let pending: number;
+  try {
+    const client = publicClient();
+    [latest, pending] = await Promise.all([
+      client.getTransactionCount({ address, blockTag: 'latest' }),
+      client.getTransactionCount({ address, blockTag: 'pending' }),
+    ]);
+  } catch {
+    return stored;
+  }
+
+  const reconciled = stored < latest ? latest : stored > pending ? pending : stored;
+  if (reconciled === stored) return stored;
+
+  const db = getDb();
+  const written = checked(
+    'funder.reconcile_nonce',
+    await db.rpc('bridge_v2_reconcile_funder_nonce', {
+      p_funder_index: index,
+      p_lease_token: leaseToken,
+      p_next_nonce: reconciled,
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as boolean | null;
+
+  // A refused write means the lease is no longer ours, and signing on a nonce
+  // this side corrected under a lease somebody else holds is the collision the
+  // lease exists to prevent. The stored value comes back unchanged; the caller's
+  // first signed transaction then fails on it and the operation ends there, which
+  // is the safe direction to be wrong in.
+  return written === true ? reconciled : stored;
 }
 
 /**
