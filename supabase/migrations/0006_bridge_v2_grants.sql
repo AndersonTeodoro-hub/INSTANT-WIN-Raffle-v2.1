@@ -143,6 +143,9 @@ GRANT SELECT, INSERT, DELETE ON TABLE public.bridge_v2_ops_events TO service_rol
 -- is already somebody's wallet.
 GRANT USAGE ON SEQUENCE public.bridge_v2_wallet_index_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.bridge_v2_ops_events_id_seq TO service_role;
+-- Sec.7/G4: read once per scheduled run, through bridge_v2_next_run_sequence, to
+-- decide which phase the run starts at.
+GRANT USAGE ON SEQUENCE public.bridge_v2_run_seq TO service_role;
 
 -- -----------------------------------------------------------------------------
 -- functions — all nineteen of 0005
@@ -205,6 +208,7 @@ GRANT EXECUTE ON FUNCTION public.bridge_v2_cleanup(integer, integer, integer)   
 GRANT EXECUTE ON FUNCTION public.bridge_v2_next_wallet_index()                                        TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_try_lock(text, integer)                                    TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_release_lock(text, uuid)                                   TO service_role;
+GRANT EXECUTE ON FUNCTION public.bridge_v2_next_run_sequence()                                        TO service_role;
 
 -- No ALTER DEFAULT PRIVILEGES here on purpose. It would apply to every function
 -- created in this schema by the role running the migration, which includes the

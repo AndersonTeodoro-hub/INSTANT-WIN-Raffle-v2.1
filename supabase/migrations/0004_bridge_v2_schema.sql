@@ -209,11 +209,28 @@ CREATE TABLE IF NOT EXISTS bridge_v2_entries (
   wallet_address  text          NOT NULL CHECK (wallet_address ~ '^0x[0-9a-fA-F]{40}$'),
   root_index      numeric(78,0),
   tx_hash         text,
-  -- H7: set once the derived wallet has been dealt with, whether the remainder
-  -- was recovered or was below the cost of recovering it. It is what makes the
-  -- sweep a queue that drains: without it the batch of oldest CONFIRMED entries
-  -- returned the same rows on every run, and any entry not in the first batch
-  -- was never swept at all.
+  -- H7, the pair that decides what the sweep looks at. Both are needed, and
+  -- neither is an audit trail; the ops events are that.
+  --
+  -- funded_at is written immediately BEFORE gas is sent to the derived wallet, by
+  -- every phase that sends any: the entry funding, and the prize claim and
+  -- delivery fundings that come after it. Before rather than after, so there is
+  -- no ordering in which gas arrives at a wallet this column has not already
+  -- named. It errs towards marking a wallet that was never funded, which costs
+  -- the sweep one look at an empty address; the other direction leaves value in
+  -- an address nothing lists.
+  --
+  -- swept_at says the wallet has been dealt with SINCE that funding — recovered,
+  -- or found to hold less than recovering it would cost. Every funding clears it,
+  -- which is what makes the prize phase's remainder reachable at all: the entry's
+  -- gas is swept while the campaign runs, and the claim's and the delivery's
+  -- remainders are put back in the queue by their own fundings months later.
+  --
+  -- Neither column mentions status, deliberately. An entry that was funded and
+  -- then failed — the campaign closed between the funding and the retry — holds
+  -- exactly as much gas as one that confirmed, and the sweep read only CONFIRMED
+  -- rows, so that gas stayed where it was for ever.
+  funded_at       timestamptz,
   swept_at        timestamptz,
   idempotency_key text          NOT NULL UNIQUE,
   created_at      timestamptz   NOT NULL DEFAULT now(),
@@ -227,7 +244,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_entries_phone_giveaway_unique
   ON bridge_v2_entries (giveaway_id, phone_hmac) WHERE phone_hmac IS NOT NULL;
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_giveaway_idx ON bridge_v2_entries (giveaway_id, status);
 ALTER TABLE bridge_v2_entries ADD COLUMN IF NOT EXISTS swept_at timestamptz;
+ALTER TABLE bridge_v2_entries ADD COLUMN IF NOT EXISTS funded_at timestamptz;
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_pending_idx ON bridge_v2_entries (status, updated_at);
+-- H7: the sweep queue, partial on the two columns that define it, so it holds
+-- only the wallets that still owe a sweep however many entries the platform has
+-- finished with. No status in it: gas is gas whatever the entry ended as.
+CREATE INDEX IF NOT EXISTS bridge_v2_entries_sweep_queue_idx
+  ON bridge_v2_entries (updated_at)
+  WHERE funded_at IS NOT NULL AND swept_at IS NULL;
+-- H7, for a database that already holds entries: a row that reached the chain was
+-- funded, and on the old shape nothing recorded when. Without this the wallets
+-- that are unswept TODAY would leave the queue the moment the column decides who
+-- is in it, which is the opposite of what the column is for. tx_hash and the
+-- three post-funding states are the evidence available on the old rows; the
+-- timestamp is approximate and is used for nothing but "not null". Idempotent:
+-- the filter excludes every row it has already written.
+UPDATE bridge_v2_entries
+   SET funded_at = updated_at
+ WHERE funded_at IS NULL
+   AND (tx_hash IS NOT NULL OR status IN ('FUNDING', 'SUBMITTED', 'CONFIRMED'));
 -- C8/G4: what bridge_v2_campaigns_with_verified groups and orders by. Partial on
 -- the one status it asks about, so it stays small however many entries the
 -- platform has finished with, and ordered by created_at so the "oldest entry per
@@ -235,6 +270,8 @@ CREATE INDEX IF NOT EXISTS bridge_v2_entries_pending_idx ON bridge_v2_entries (s
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_verified_queue_idx
   ON bridge_v2_entries (giveaway_id, created_at) WHERE status = 'VERIFIED';
 
+COMMENT ON COLUMN bridge_v2_entries.funded_at IS 'H7: gas was sent to this wallet. Written before the transfer, by every phase that funds.';
+COMMENT ON COLUMN bridge_v2_entries.swept_at IS 'H7: dealt with since that funding. Cleared by the next one, so every phase remainder is reachable.';
 COMMENT ON COLUMN bridge_v2_entries.idempotency_key IS 'G5: one external effect per key. A repeat never funds or enters twice.';
 COMMENT ON COLUMN bridge_v2_entries.wallet_address IS 'I9: written at creation from the derivation, never a sentinel.';
 

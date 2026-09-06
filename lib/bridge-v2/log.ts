@@ -16,6 +16,7 @@
 
 import { getDb } from './db.js';
 import { DB_TIMEOUT_MS } from './config.js';
+import { contractErrorName } from './abi.js';
 
 /** Event kinds. A closed set, so a grep for a kind finds every site that emits it. */
 export type OpsKind =
@@ -64,13 +65,38 @@ export type Detail = Record<string, string | number | boolean | null>;
 export interface Logger {
   readonly correlationId: string;
   event(kind: OpsKind, detail?: Detail): Promise<void>;
-  /** Records a failure by class and code. Never the message, never the stack. */
+  /**
+   * Records a failure by class, plus the contract error when there is one. Never
+   * the message, never the stack.
+   */
   failure(kind: OpsKind, error: unknown, detail?: Detail): Promise<void>;
 }
 
 function errorName(error: unknown): string {
   if (error instanceof Error) return error.name;
   return typeof error;
+}
+
+/**
+ * K5: the class, and — for a revert — the error the contract actually raised.
+ *
+ * The class alone was not diagnosis. Every refusal the manager makes arrives as
+ * one wrapper class, so "EstimateGasExecutionError" was the recorded cause of a
+ * closed campaign, an unverifiable proof, a paused contract, an exhausted slot
+ * ledger and a revoked bridge role alike — five things an operator would do five
+ * different things about, written down as the same word. The four bytes that tell
+ * them apart were in the error the whole time and in the ABI the whole time, and
+ * nothing put the two together.
+ *
+ * K4 still holds: a contract error NAME is a constant of a deployed contract.
+ * contractErrorName returns nothing else — never the arguments, which for the
+ * built-in Error(string) would be a string the contract chose.
+ */
+function failureDetail(error: unknown, detail: Detail): Detail {
+  const revert = contractErrorName(error);
+  return revert === null
+    ? { ...detail, error_class: errorName(error) }
+    : { ...detail, error_class: errorName(error), error_revert: revert };
 }
 
 /**
@@ -109,7 +135,6 @@ export function createLogger(route: string, correlationId: string): Logger {
   return {
     correlationId,
     event: (kind, detail = {}) => persist(kind, detail),
-    failure: (kind, error, detail = {}) =>
-      persist(kind, { ...detail, error_class: errorName(error) }),
+    failure: (kind, error, detail = {}) => persist(kind, failureDetail(error, detail)),
   };
 }

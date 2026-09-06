@@ -21,22 +21,18 @@ import type { Logger } from './log.js';
 import {
   advance,
   campaignsWithVerified,
-  listConfirmed,
+  fundingMark,
   listEligible,
   listStale,
   listSubmitted,
+  listSweepable,
   listVerified,
+  markFunded,
   markSwept,
   touch,
   type Entry,
 } from './entries.js';
-import {
-  ENTRY_WORST_CASE_MS,
-  FUNDING_STALE_MS,
-  PRIZE_WORST_CASE_MS,
-  RECEIPT_TIMEOUT_MS,
-  RPC_TIMEOUT_MS,
-} from './config.js';
+import { FUNDING_STALE_MS, PHASE_RESERVATION_MS, SWEEP_WORST_CASE_MS } from './config.js';
 import type { RunDeadline } from './runlock.js';
 import { proofForAddress, publishBatch } from './eligibility.js';
 import {
@@ -75,6 +71,7 @@ import { GIVEAWAY_MANAGER_V2 } from './config.js';
 import {
   acquireFunder,
   disableFunder,
+  randomFunderAddress,
   releaseFunder,
   renewLease,
   signAsFunder,
@@ -116,8 +113,9 @@ export async function publishPendingRoots(log: Logger, deadline: RunDeadline): P
   for (const giveawayId of await campaignsWithVerified(CAMPAIGN_BATCH)) {
     // G4: one publication is a manager transaction plus a bounded receipt wait.
     // Starting another with less than that left is starting work the platform
-    // will interrupt.
-    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS)) break;
+    // will interrupt. The size is declared in config.ts beside the budget it has
+    // to fit inside, which is where it is checked.
+    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.publishRoots)) break;
 
     try {
       if (await publishForCampaign(giveawayId, log)) published += 1;
@@ -285,7 +283,14 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
   // The claim on the entry, taken before anything that can fail transiently. A
   // false here means another run took it, which under the pipeline lock should
   // not happen and is still the only safe reading of it.
-  if (!(await advance(entry.id, 'ELIGIBLE', 'FUNDING'))) return;
+  //
+  // H7: and the mark that says gas is about to enter this wallet, written in the
+  // same statement as the claim. Nothing below can fund a wallet whose row does
+  // not already say it was funded, whatever kills this invocation between the two
+  // — because there is no "between the two". An attempt that ends before the
+  // transfer costs the sweep one look at an empty address, which is the side to
+  // be wrong on: the other one strands value where nothing lists it.
+  if (!(await advance(entry.id, 'ELIGIBLE', 'FUNDING', fundingMark()))) return;
 
   // B8: the gas budget is claimed before any of it is spent. Inside the claim,
   // so a refusal returns the entry to ELIGIBLE — at the back of the queue,
@@ -330,14 +335,24 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
       },
     );
 
-    // The funding must be mined before the wallet can pay for its own entry.
-    const fundingReceipt = await waitForReceipt(fundingHash);
-    if (fundingReceipt === null || fundingReceipt.status !== 'success') {
-      await advance(entry.id, 'FUNDING', 'ELIGIBLE');
-      await log.event('entry.failed', { reason: 'funding_not_mined' });
-      return;
+    // H3/H7: null is "the wallet already holds what the entry needs", which is
+    // the ordinary shape of a retry — the previous attempt's gas is still there.
+    // Nothing was sent, so there is nothing to wait for.
+    if (fundingHash === null) {
+      await log.event('entry.funded', {
+        giveaway_id: entry.giveawayId.toString(),
+        reason: 'already_funded',
+      });
+    } else {
+      // The funding must be mined before the wallet can pay for its own entry.
+      const fundingReceipt = await waitForReceipt(fundingHash);
+      if (fundingReceipt === null || fundingReceipt.status !== 'success') {
+        await advance(entry.id, 'FUNDING', 'ELIGIBLE');
+        await log.event('entry.failed', { reason: 'funding_not_mined' });
+        return;
+      }
+      await log.event('entry.funded', { giveaway_id: entry.giveawayId.toString() });
     }
-    await log.event('entry.funded', { giveaway_id: entry.giveawayId.toString() });
 
     // G3: the lease is extended before the second, slower half.
     if (!(await renewLease(lease))) {
@@ -426,7 +441,7 @@ export async function processEligibleEntries(log: Logger, deadline: RunDeadline)
   let attempted = 0;
 
   for (const entry of entries) {
-    if (!deadline.hasTimeFor(ENTRY_WORST_CASE_MS)) break;
+    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.processEntries)) break;
     attempted += 1;
 
     try {
@@ -474,7 +489,7 @@ export async function reconcileFunding(log: Logger, deadline: RunDeadline): Prom
   let recovered = 0;
 
   for (const entry of entries) {
-    if (!deadline.hasTimeFor(2 * RPC_TIMEOUT_MS)) break;
+    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.reconcileFunding)) break;
 
     try {
       if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
@@ -535,7 +550,7 @@ export async function reconcileSubmitted(log: Logger, deadline: RunDeadline): Pr
   for (const entry of entries) {
     // G4: one of these can wait a full receipt timeout, and asks the node about
     // the hash afterwards.
-    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS)) break;
+    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.reconcileSubmitted)) break;
     seen += 1;
 
     try {
@@ -601,28 +616,47 @@ async function reconcileOneSubmitted(entry: Entry, log: Logger): Promise<void> {
 }
 
 /**
- * H7: recovers the gas an entry did not spend.
+ * H7: recovers the gas a derived wallet was given and did not spend.
  *
- * Every entry funds the wallet with the same margin the plan uses, and whatever
- * the transaction did not consume stays in the derived wallet. The V1 had no
- * mechanism at all, so the remainder of every entry ever made was stranded, one
- * address at a time.
+ * Every funding sends the wallet the margin the plan uses, and whatever the
+ * transaction did not consume stays there. The V1 had no mechanism at all, so the
+ * remainder of every entry ever made was stranded, one address at a time.
  *
- * The destination is a funder address, so the gas returns to the pool it came
- * from. Nothing here can send anywhere else: the destination is not a parameter
- * of any route (H2).
+ * WHAT IT LOOKS AT IS NOW EVERY WALLET THAT WAS PAID, and the two things that
+ * narrowed it are recorded on listSweepable: it read only CONFIRMED entries, so a
+ * wallet funded for an entry that ended FAILED kept its gas for ever, and the
+ * mark it wrote was terminal, so the two prize fundings that come months later
+ * left remainders no pass would look at. The queue is the wallets that have been
+ * funded and not swept since, whatever the entry ended as and whichever phase did
+ * the funding.
+ *
+ * D6: the destination is drawn from the funder pool rather than fixed. It is
+ * still a funder and still nothing a request can name (H2) — but it is no longer
+ * the same funder for every participant, which is an edge the random funding had
+ * deliberately refused to draw.
+ *
+ * G6, ON MEETING A PRIZE IN FLIGHT, which a queue that outlives the entry stage
+ * can now do. This pass holds the pipeline lock, so it never runs beside the
+ * stage that claims and delivers; what it can meet is a claim broadcast by an
+ * earlier run and not yet mined. sweepRemainder reads the derived wallet's nonce
+ * at `pending`, so the sweep is signed one past that claim and cannot be mined
+ * before it — the claim's gas cannot be taken out from under it. What can happen
+ * instead is that the sweep is refused, because the value it computed from the
+ * balance at `latest` no longer exists once the claim has paid for itself. That
+ * is a failed sweep and not a lost prize, and the catch below puts the wallet
+ * back in the queue rather than closing it.
  */
 export async function sweepConfirmed(
   log: Logger,
-  destination: `0x${string}`,
+  poolSize: number,
   deadline: RunDeadline,
 ): Promise<number> {
-  const entries = await listConfirmed(ENTRY_BATCH);
+  const entries = await listSweepable(ENTRY_BATCH);
   let swept = 0;
 
   for (const entry of entries) {
     // G4: a sweep is four reads and a broadcast, with no receipt wait.
-    if (!deadline.hasTimeFor(5 * RPC_TIMEOUT_MS)) break;
+    if (!deadline.hasTimeFor(SWEEP_WORST_CASE_MS)) break;
 
     const participant = await getParticipant(entry.participantId);
     if (participant === null) {
@@ -636,7 +670,7 @@ export async function sweepConfirmed(
       const hash = await sweepRemainder(
         participant.walletIndex,
         entry.walletAddress,
-        destination,
+        randomFunderAddress(poolSize),
         signAsDerived,
       );
       if (hash !== null) {
@@ -644,17 +678,23 @@ export async function sweepConfirmed(
         await log.event('sweep.done', { giveaway_id: entry.giveawayId.toString() });
       }
       // Marked either way. A null means the remainder is below what the sweep
-      // itself costs, and nothing will ever fund this wallet again, so there is
-      // no later run in which the answer changes. Leaving it unmarked is what
-      // made the batch return the same rows for ever and never reach the
-      // entries behind them.
+      // itself costs, and nothing about the wallet changes until it is funded
+      // again — at which point the funding clears this mark and the wallet comes
+      // back. Leaving it unmarked is what made the batch return the same rows for
+      // ever and never reach the entries behind them.
       await markSwept(entry.id);
     } catch (error) {
-      // A wallet that cannot be swept is not a failure of the entry, which has
-      // already confirmed. Recorded, marked, and not retried: the batch is a
-      // queue and a row that throws must not be the head of it for ever.
+      // TOUCHED, NOT MARKED. A throw here is a sweep that could not be made now —
+      // an RPC having a bad minute, or a transaction of the wallet's own still in
+      // the mempool — and none of those is an answer about the remainder. Marking
+      // it closed the wallet permanently, which for the last funding a wallet
+      // ever receives, the prize delivery, meant the remainder of the whole prize
+      // path was abandoned on one transient error with nothing left to reopen it.
+      // The row still has to leave the head of the queue, and touch is what does
+      // that: this list is ordered by updated_at, so the wallet goes to the back
+      // and is tried again rather than given up on.
       await log.failure('sweep.done', error);
-      await markSwept(entry.id);
+      await touch(entry.id);
     }
   }
 
@@ -680,6 +720,7 @@ const PRIZE_BATCH = 10;
  * that means for its own state.
  */
 async function fundAndSubmit(
+  entryId: string,
   walletIndex: number,
   wallet: `0x${string}`,
   to: `0x${string}`,
@@ -687,6 +728,14 @@ async function fundAndSubmit(
   plan: GasPlan,
   log: Logger,
 ): Promise<`0x${string}` | null> {
+  // H7: the same mark the entry path writes into its FUNDING transition, and for
+  // the same reason — before anything is spent, so no gas reaches this wallet
+  // that the sweep queue does not already know about. It matters more here than
+  // there: this is the second and third time this wallet is funded, months after
+  // the sweep decided it was finished with, and the mark clearing swept_at is the
+  // only thing that brings it back.
+  await markFunded(entryId);
+
   // B8: the gas budget is claimed before any of it is spent, exactly as on the
   // entry path. A settled campaign gets no free pass to the pool.
   if (!(await claimSpend('chain', 1, log))) return null;
@@ -710,10 +759,15 @@ async function fundAndSubmit(
       },
     );
 
-    const funded = await waitForReceipt(fundingHash);
-    if (funded === null || funded.status !== 'success') {
-      await log.event('prize.failed', { reason: 'funding_not_mined' });
-      return null;
+    // H3/H7: null is "the wallet already holds what this call needs" — the gas a
+    // previous attempt sent and this one would otherwise send again. Nothing was
+    // broadcast, so there is no receipt to wait for.
+    if (fundingHash !== null) {
+      const funded = await waitForReceipt(fundingHash);
+      if (funded === null || funded.status !== 'success') {
+        await log.event('prize.failed', { reason: 'funding_not_mined' });
+        return null;
+      }
     }
 
     // G3: the lease is extended before the second, slower half rather than left
@@ -878,6 +932,7 @@ async function processPrize(
 
     const quote = await quoteClaim(giveawayId, walletAddress);
     const claimHash = await fundAndSubmit(
+      custody.entryId,
       participant.walletIndex,
       walletAddress,
       GIVEAWAY_MANAGER_V2,
@@ -960,6 +1015,7 @@ async function processPrize(
   // from the row; the token or collection comes from the chain. Neither reaches
   // here from a request.
   const deliveryHash = await fundAndSubmit(
+    custody.entryId,
     participant.walletIndex,
     walletAddress,
     delivery.to,
@@ -1011,14 +1067,21 @@ export async function processPrizes(log: Logger, deadline: RunDeadline): Promise
     // G4: a prize can be a claim and a delivery, each with its own funding and
     // its own receipt wait, so it is the most expensive unit the pipeline runs.
     //
-    // The size of that unit is PRIZE_WORST_CASE_MS and is defined in config.ts
-    // beside the budget it has to fit inside, which is the whole of the fix: the
-    // reservation written here was 2 * ENTRY_WORST_CASE_MS = 300_000 ms against a
-    // budget of 280_000 ms, so it was false on the first millisecond of every run
-    // and this loop never ran its body once. No prize was ever claimed and none
-    // was ever delivered, and nothing said so — the stage returned 0 and looked
-    // like a stage with no work to do.
-    if (!deadline.hasTimeFor(PRIZE_WORST_CASE_MS)) break;
+    // The size of that unit is declared in config.ts beside the budget it has to
+    // fit inside, which is half of the fix: the reservation written here was
+    // 2 * ENTRY_WORST_CASE_MS = 300_000 ms against a budget of 280_000 ms, so it
+    // was false on the first millisecond of every run and this loop never ran its
+    // body once. No prize was ever claimed and none was ever delivered, and
+    // nothing said so — the stage returned 0 and looked like a stage with no work
+    // to do.
+    //
+    // The other half is that this stage no longer runs fifth every time. Even
+    // with the arithmetic right, 240_000 ms of a 280_000 ms budget is a
+    // reservation only a run that has spent almost nothing can meet, and four
+    // busy stages in front of it meant that under load it was never that run. The
+    // cron rotates which stage goes first (§7/G4), so one run in
+    // PHASE_STARVATION_BOUND_RUNS gives this loop the whole budget.
+    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.processPrizes)) break;
 
     try {
       if (await processPrize(prize, log, deadlineSeconds)) delivered += 1;

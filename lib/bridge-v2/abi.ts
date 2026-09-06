@@ -26,7 +26,10 @@
  * The errors are here so a revert can be decoded by name. Without them a refusal
  * from the contract is an opaque byte string and the bridge cannot tell "entries
  * closed" from "not eligible", which are different answers to the participant.
+ * contractErrorName at the foot of this file is what finally reads them.
  */
+
+import { decodeErrorResult, type Hex } from 'viem';
 
 export const GIVEAWAY_MANAGER_V2_ABI = [
   {
@@ -773,3 +776,95 @@ export const ERC1155_PRIZE_MODULE_ABI = [
  * and computing it would mean carrying the two selectors instead.
  */
 export const ERC1155_RECEIVER_INTERFACE_ID = '0x4e2312e0' as const;
+
+// -----------------------------------------------------------------------------
+// K5 — reading a revert back
+// -----------------------------------------------------------------------------
+
+/**
+ * Every ABI a revert reaching this bridge can have come from.
+ *
+ * The manager first, because all but two of the interesting refusals live there;
+ * then the token standards, because a prize delivery is a call into a contract
+ * the campaign creator chose; then the prize modules, which have errors of their
+ * own.
+ */
+const REVERT_ABIS = [
+  GIVEAWAY_MANAGER_V2_ABI,
+  ERC20_ABI,
+  ERC721_ABI,
+  ERC1155_ABI,
+  ERC721_PRIZE_MODULE_ABI,
+  ERC1155_PRIZE_MODULE_ABI,
+] as const;
+
+/**
+ * The name of the contract error behind a failure, or null.
+ *
+ * K5, AND THE HEADER OF THIS FILE ALREADY PROMISED IT. Ten custom errors are
+ * carried here so that "a revert can be decoded by name", and nothing decoded
+ * one: log.failure recorded error.name, which for every refusal this contract
+ * makes is the string "EstimateGasExecutionError". That is the class of the
+ * wrapper, and it is the same class for a campaign that closed a block ago, a
+ * proof that does not verify, a paused platform, a slot ledger that ran out and a
+ * role the contract no longer accepts — five different operator actions behind
+ * one word. The V1 failure K5 exists to close was throwing away err.message;
+ * throwing away the four bytes that say which error it was is the same loss by a
+ * different route.
+ *
+ * WHERE THOSE FOUR BYTES ARE. viem's estimateGas takes no ABI, so it cannot
+ * decode anything and does not try: the payload arrives as `data` on an error
+ * several links down the cause chain, and the walk below finds it wherever in
+ * that chain it sits rather than depending on a nesting that changes between
+ * versions. A contract-aware call decodes on its own and leaves the answer in
+ * `data.errorName`; both are read, because the bridge makes both kinds of call.
+ *
+ * THE CHAIN IS WALKED BY HAND, and not with viem's own walker, because reaching
+ * that walker means an instanceof against viem's base class and an instanceof is
+ * an identity check. Two copies of the library in one process — a bundler that
+ * did not dedupe, a transitive copy under a wallet package — and every revert in
+ * the system silently reads as "not a revert", which is the failure this function
+ * exists to end, restored by the diagnosis. `cause` is a language feature and
+ * needs no agreement between copies. The depth cap is for a cause that points
+ * back into its own chain; nothing observed does, and a diagnostic must not be
+ * able to hang the failure path it is describing.
+ *
+ * K4 IS WHY ONLY THE NAME COMES BACK. decodeErrorResult also returns the
+ * arguments, and one of the shapes it recognises is the built-in Error(string) —
+ * an arbitrary string chosen by whatever contract reverted. A name is a constant
+ * of a deployed contract and says nothing about a person; the arguments are
+ * exactly the kind of value that must not reach a log.
+ *
+ * Null for anything that is not a revert, so a timeout and a transport failure
+ * still read as what they are.
+ */
+export function contractErrorName(error: unknown): string | null {
+  let decoded: string | null = null;
+  let payload: Hex | null = null;
+
+  let link: unknown = error;
+  for (let depth = 0; depth < 16 && link !== null && link !== undefined; depth += 1) {
+    const data = (link as { data?: unknown }).data;
+    if (typeof data === 'string' && /^0x[0-9a-fA-F]{8,}$/.test(data)) {
+      payload ??= data as Hex;
+    } else if (typeof data === 'object' && data !== null) {
+      const named = (data as { errorName?: unknown }).errorName;
+      if (typeof named === 'string' && decoded === null) decoded = named;
+    }
+    link = (link as { cause?: unknown }).cause;
+  }
+
+  if (decoded !== null) return decoded;
+  if (payload === null) return null;
+
+  for (const abi of REVERT_ABIS) {
+    try {
+      return decodeErrorResult({ abi, data: payload }).errorName;
+    } catch {
+      // Not this contract's error. Try the next; if none of them knows the
+      // selector the caller keeps the class it already had, because an
+      // undecodable revert is still more honest than a guess.
+    }
+  }
+  return null;
+}

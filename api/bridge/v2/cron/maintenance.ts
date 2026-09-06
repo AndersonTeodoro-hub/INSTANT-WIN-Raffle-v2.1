@@ -133,7 +133,10 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     });
 
     // H7: the remainder goes back to a funder, never to an address a request
-    // could name (H2).
+    // could name (H2). WHICH funder is drawn per wallet rather than fixed —
+    // sending every participant's remainder to funder 0 rebuilt on the recovery
+    // side precisely the correlation D6 spends a randomly assigned funding pool
+    // avoiding, and did it in a batch, on a schedule, one transaction per person.
     //
     // G6: this is the one thing in this route that signs as a derived wallet,
     // so it runs under the PIPELINE's lock and not this route's. Without it the
@@ -151,9 +154,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
         sweepSkipped = true;
       } else {
         try {
-          swept = await safely(log, 'sweep', () =>
-            sweepConfirmed(log, funderAddress(0), deadline),
-          );
+          swept = await safely(log, 'sweep', () => sweepConfirmed(log, size, deadline));
         } finally {
           await releaseRunLock(pipeline);
         }

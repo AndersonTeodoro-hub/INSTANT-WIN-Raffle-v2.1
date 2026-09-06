@@ -584,6 +584,20 @@ export async function publishEligibilityRoot(giveawayId: bigint, root: Hex): Pro
  * concurrently is what let two invocations build the same transaction in the V1.
  * It is reported as spent through onNonceSpent as soon as the signed bytes are
  * handed to the RPC, so the caller records the advance whatever comes back.
+ *
+ * H3/H7: WHAT IS SENT IS THE SHORTFALL, NOT THE REQUIREMENT. Every attempt used
+ * to transfer the full worst case without ever asking what the wallet already
+ * held, and the wallet is very often not empty: the previous attempt's gas is
+ * still sitting there whenever enter() reverted, whenever a receipt was never
+ * seen, whenever the run was killed between the funding and the call. Each retry
+ * moved a second full worst case into the same address, the sweep recovered one
+ * transfer's worth at a time, and the difference was gas the pool paid twice for
+ * one entry — a cost that grows with exactly the conditions that cause retries.
+ * What the wallet holds is a number the chain has and this side did not ask for.
+ *
+ * Returns null when the wallet already holds what the transaction needs. Nothing
+ * is signed and nothing is broadcast, so the funder's nonce does not move: there
+ * is no transaction to consume it.
  */
 export async function fundDerivedWallet(
   lease: { index: number; address: `0x${string}`; nextNonce: number },
@@ -591,10 +605,19 @@ export async function fundDerivedWallet(
   amountWei: bigint,
   signAsFunder: (index: number, tx: TransactionSerializable) => Promise<Hex>,
   onNonceSpent: (nextNonce: number) => void,
-): Promise<Hex> {
+): Promise<Hex | null> {
   if (amountWei <= 0n || amountWei > MAX_GAS_COST_WEI) {
     throw new ChainError('funding_amount_out_of_band');
   }
+
+  // Read before the estimate rather than beside it, because the estimate is of
+  // the transfer this call will actually make and that is not known until the
+  // balance is. One extra round trip, weighed against a transfer of real value on
+  // every retry of every entry and of every prize.
+  const balance = await publicClient().getBalance({ address: destination });
+  if (balance >= amountWei) return null;
+
+  const shortfall = amountWei - balance;
 
   // Estimated, never assumed. A value transfer is 21_000 on a bare EVM and is
   // not 21_000 here: Arbitrum One folds the L1 data component into the number
@@ -603,14 +626,15 @@ export async function fundDerivedWallet(
   // of the transaction it was signing.
   //
   // Estimated WITH the value, so an RPC that refuses for insufficient funds says
-  // so before a funder signs a transfer it cannot pay for.
+  // so before a funder signs a transfer it cannot pay for — and with the value
+  // actually being sent, so that check is made against the real transfer.
   const [fees, estimate] = await Promise.all([
     currentFees(),
-    publicClient().estimateGas({ account: lease.address, to: destination, value: amountWei }),
+    publicClient().estimateGas({ account: lease.address, to: destination, value: shortfall }),
   ]);
 
   const plan = planGas(estimate, fees.maxFeePerGas, fees.maxPriorityFeePerGas, GAS_BANDS.TRANSFER);
-  if (plan.worstCaseWei + amountWei > MAX_GAS_COST_WEI) {
+  if (plan.worstCaseWei + shortfall > MAX_GAS_COST_WEI) {
     throw new ChainError('funding_cost_above_ceiling');
   }
 
@@ -618,7 +642,7 @@ export async function fundDerivedWallet(
     chainId: CHAIN_ID,
     type: 'eip1559',
     to: destination,
-    value: amountWei,
+    value: shortfall,
     nonce: lease.nextNonce,
     gas: plan.gasLimit,
     maxFeePerGas: plan.maxFeePerGas,

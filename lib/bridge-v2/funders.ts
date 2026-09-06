@@ -19,6 +19,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { Hex, TransactionSerializable } from 'viem';
 import { DB_TIMEOUT_MS, FUNDER_LEASE_SECONDS } from './config.js';
 import { requireEnv } from './env.js';
+import { randomIndex } from './crypto.js';
 import { checked, getDb } from './db.js';
 import { publicClient } from './chain.js';
 
@@ -55,6 +56,30 @@ function keyAt(index: number): Hex {
 /** The public address of a pool member, for seeding the table and for monitoring. */
 export function funderAddress(index: number): `0x${string}` {
   return privateKeyToAccount(keyAt(index)).address;
+}
+
+/**
+ * D6: where one sweep sends its remainder.
+ *
+ * EVERY SWEEP WENT TO funderAddress(0). Funding is drawn at random from the pool
+ * precisely so that an observer reading the chain cannot line the derived wallets
+ * up behind a single address — and then the recovery pass sent every one of those
+ * wallets' remainders to exactly one, drawing the edges the random funding had
+ * refused to draw. It is worse than the V1 shape D6 mitigates, because a sweep
+ * leaves one transaction per participant converging on one point, in a batch, on
+ * a schedule.
+ *
+ * Drawn the way a funder is drawn, so the sweep's edges are distributed like the
+ * funding's and the graph gains nothing an observer did not already have. A
+ * mitigation and not a fix, exactly as R3 already declares of the funding side:
+ * the model makes some correlation inherent, and what this requires is that the
+ * sweep add none of its own.
+ *
+ * H2 is untouched. The destination is a key the deployment configured, picked
+ * here by the CSPRNG; no request can name it and none can influence the pick.
+ */
+export function randomFunderAddress(poolSize: number): `0x${string}` {
+  return funderAddress(randomIndex(poolSize));
 }
 
 /** How many funders are configured. H8 uses it to check the pool is not empty. */

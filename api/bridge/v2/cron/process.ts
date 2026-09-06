@@ -2,6 +2,8 @@ import { handle, ok, refuse } from '../../../../lib/bridge-v2/http.js';
 import { requireEnv } from '../../../../lib/bridge-v2/env.js';
 import { assertConfigured } from '../../../../lib/bridge-v2/alert.js';
 import { timingSafeEqualHex } from '../../../../lib/bridge-v2/crypto.js';
+import { PIPELINE_PHASES, type PipelinePhase } from '../../../../lib/bridge-v2/config.js';
+import type { Logger } from '../../../../lib/bridge-v2/log.js';
 import {
   processEligibleEntries,
   processPrizes,
@@ -9,7 +11,30 @@ import {
   reconcileFunding,
   reconcileSubmitted,
 } from '../../../../lib/bridge-v2/processor.js';
-import { acquireRunLock, releaseRunLock, runDeadline } from '../../../../lib/bridge-v2/runlock.js';
+import {
+  acquireRunLock,
+  nextRunSequence,
+  releaseRunLock,
+  runDeadline,
+  type RunDeadline,
+} from '../../../../lib/bridge-v2/runlock.js';
+
+/**
+ * The stages, under the names config.ts declares a reservation for.
+ *
+ * Keyed by PipelinePhase rather than merely listed, so a stage without a declared
+ * reservation does not compile and a declared reservation without a stage does
+ * not either. The numbers and the work they describe used to live in different
+ * files with nothing tying them together, which is how the prize stage came to
+ * reserve more than the entire budget and stay that way.
+ */
+const STAGES: Record<PipelinePhase, (log: Logger, deadline: RunDeadline) => Promise<number>> = {
+  reconcileSubmitted,
+  reconcileFunding,
+  publishRoots: publishPendingRoots,
+  processEntries: processEligibleEntries,
+  processPrizes,
+};
 
 /**
  * GET or POST /api/bridge/v2/cron/process
@@ -81,24 +106,44 @@ const route = handle('cron/process', async ({ request, log }) => {
   // nothing half-written.
   const deadline = runDeadline();
 
-  try {
-    // Ordered so that work moves one stage per run in the worst case, and
-    // several when everything is healthy. Reconciliation runs first so an entry
-    // that has already landed is not looked at again by the funding stage.
-    const reconciled = await reconcileSubmitted(log, deadline);
-    // I8: entries left in FUNDING by a run that no longer exists. Before the
-    // funding stage, so an entry recovered here is available to it in the same
-    // run rather than in the next one.
-    const recovered = await reconcileFunding(log, deadline);
-    const roots = await publishPendingRoots(log, deadline);
-    const processed = await processEligibleEntries(log, deadline);
-    // Section 7, last because it is the only stage whose input is produced by a
-    // third party rather than by the stage before it: a campaign settles when
-    // its creator and Chainlink say so, not when this pipeline gets there.
-    const prizes = await processPrizes(log, deadline);
+  // §7/G4: WHERE THIS RUN STARTS, AND WHY IT IS NOT ALWAYS THE SAME PLACE.
+  //
+  // The five stages reserve 460 seconds between them out of a budget of 280, and
+  // they used to run in a fixed order with the largest reservation last. That is
+  // not a preference about ordering, it is starvation stated as code: under
+  // continuous load the four stages in front consume the budget, the prize
+  // stage's guard is false, and prizes are never claimed or delivered at all —
+  // the same outage this file's own history already records from an arithmetic
+  // error, reached again by scheduling, and just as silent, because a stage that
+  // starts nothing returns zero and reads like a stage with nothing to do.
+  //
+  // One number per run, taken from a sequence so it advances once per run that
+  // actually happens rather than once per minute, and every phase leads a run
+  // once within PHASE_STARVATION_BOUND_RUNS. A phase that leads has the whole
+  // budget, and config.ts checks that the whole budget is enough for each of
+  // them; those two facts together are the guarantee.
+  //
+  // Nothing is skipped and nothing is reordered — the declared order is still the
+  // order, read from a different starting point. It can be, because correctness
+  // never rested on it: every stage is conditional on the state it expects (G5),
+  // and no stage is the input of the next within one run. What the declared order
+  // buys is latency in the healthy case, and the run that starts at phase zero
+  // still gets exactly that.
+  const offset = (await nextRunSequence()) % PIPELINE_PHASES.length;
 
-    await log.event('route.ok', { reconciled, recovered, roots, processed, prizes });
-    return ok({ reconciled, recovered, roots, processed, prizes });
+  try {
+    const counts: Record<string, number> = {};
+    for (let step = 0; step < PIPELINE_PHASES.length; step += 1) {
+      const phase = PIPELINE_PHASES[(offset + step) % PIPELINE_PHASES.length];
+      counts[phase] = await STAGES[phase](log, deadline);
+    }
+
+    const firstPhase = PIPELINE_PHASES[offset];
+    // The starting phase is in the record because a stage that did nothing and a
+    // stage that never began look identical from a count, and telling them apart
+    // is the whole point of the rotation being visible.
+    await log.event('route.ok', { ...counts, first_phase: firstPhase });
+    return ok({ firstPhase, ...counts });
   } finally {
     // Released whatever happened, including on the throw the envelope turns into
     // a 500. A lock that cannot be released expires on its own, which is what

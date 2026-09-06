@@ -778,6 +778,38 @@ $fn$;
 COMMENT ON FUNCTION bridge_v2_release_lock IS 'Releases only the lock this run took; an expired-and-retaken lock is left alone.';
 
 -- -----------------------------------------------------------------------------
+-- the run sequence — §7/G4
+-- -----------------------------------------------------------------------------
+-- Which phase a scheduled run starts at.
+--
+-- THE PIPELINE HAS FIVE PHASES AND A BUDGET SMALLER THAN THE SUM OF WHAT THEY
+-- RESERVE, so a fixed order starves the last one under load: the prize phase
+-- reserves 240 of the run's 280 seconds and was declared fifth, and four busy
+-- phases in front of it meant its guard was false on every run. The run therefore
+-- rotates, and the rotation has to advance by exactly one per run that actually
+-- happens — not per minute, because the cron fires every minute over work that
+-- may take five and the runs that find the lock held do nothing at all. A clock
+-- would then hand the same phase the lead every time, which is the bug with extra
+-- steps.
+--
+-- A sequence is the whole mechanism: nextval is atomic, it survives the process,
+-- and it is read exactly once per run, immediately after the lock is taken. Gaps
+-- do not matter — nothing here needs the numbers to be contiguous, only to move.
+-- bridge_v2_locks cannot hold this: the row is deleted on release.
+CREATE SEQUENCE IF NOT EXISTS bridge_v2_run_seq AS bigint START WITH 0 MINVALUE 0 CYCLE;
+
+CREATE OR REPLACE FUNCTION bridge_v2_next_run_sequence()
+RETURNS bigint
+LANGUAGE sql
+SET search_path = public, extensions
+AS $fn$
+  SELECT nextval('bridge_v2_run_seq');
+$fn$;
+
+COMMENT ON FUNCTION bridge_v2_next_run_sequence IS
+  'Sec.7/G4: one number per scheduled run, so the phase order rotates and no phase starves.';
+
+-- -----------------------------------------------------------------------------
 -- wallet index reservation — I9
 -- -----------------------------------------------------------------------------
 -- The address column is NOT NULL with a format CHECK, so a participant row can

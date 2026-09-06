@@ -303,24 +303,36 @@ export async function listStale(
 }
 
 /**
- * Entries that reached the chain and have not been swept yet, for H7.
+ * H7: derived wallets that have been given gas and not dealt with since.
  *
- * swept_at is the reason this is a queue that drains rather than a window that
- * never moves. An entry stays CONFIRMED for ever, so a list of CONFIRMED
- * entries ordered by updated_at and capped at a batch returned the same rows on
- * every scheduled run: whatever the first batch could not sweep — a wallet whose
- * remainder is not worth the transaction is the common case — blocked every
- * entry behind it permanently. The column is written for each entry the pass
- * looked at, including the ones it decided not to sweep, so the head advances.
+ * TWO THINGS USED TO NARROW THIS, AND BOTH LEFT GAS BEHIND FOR EVER.
+ *
+ * It read CONFIRMED rows. A wallet is funded before enter() is broadcast, and
+ * enter() does not always succeed: the transaction reverts, or the campaign
+ * closes in the meantime, and the entry goes back to ELIGIBLE and from there to
+ * FAILED. That wallet holds exactly as much gas as one whose entry landed, and no
+ * query anywhere listed it. The status of an entry says nothing about whether its
+ * wallet was ever paid, so this asks the columns that do.
+ *
+ * And swept_at was written once, terminally. The prize phase funds the same
+ * wallet twice more — a claim, then a delivery — months after the entry was
+ * swept, and each of those leaves its own remainder. One terminal mark said the
+ * wallet had been finished with before two of its three fundings had happened.
+ *
+ * So the queue is "funded, and not swept since". funded_at is written immediately
+ * before every funding by every phase that funds, and clears swept_at as it goes.
+ * The queue still drains, which is the property the mark exists for: a pass
+ * writes swept_at for every row it looked at, including the wallets whose
+ * remainder is not worth the transaction, so nothing holds the head for ever.
  */
-export async function listConfirmed(limit: number): Promise<Entry[]> {
+export async function listSweepable(limit: number): Promise<Entry[]> {
   const db = getDb();
   const rows = checked(
-    'entry.list_confirmed',
+    'entry.list_sweepable',
     await db
       .from('bridge_v2_entries')
       .select(COLUMNS)
-      .eq('status', 'CONFIRMED')
+      .not('funded_at', 'is', null)
       .is('swept_at', null)
       .order('updated_at', { ascending: true })
       .limit(limit)
@@ -330,12 +342,43 @@ export async function listConfirmed(limit: number): Promise<Entry[]> {
 }
 
 /**
- * H7: this entry's derived wallet has been dealt with, whatever the outcome.
+ * H7: the two columns that put a wallet into the sweep queue, as one write.
+ *
+ * Applied immediately BEFORE gas is sent, never after, and the ordering is the
+ * whole guarantee. A wallet cannot receive gas unless this write has already
+ * succeeded, so there is no failure — a killed function, a database error, a
+ * broadcast whose answer never came back — that leaves value in an address the
+ * queue does not hold. It errs the other way instead, marking a wallet that was
+ * never actually funded, and that costs one look at an empty address.
+ *
+ * Clearing swept_at is what makes the mark repeatable. The entry funding, the
+ * prize claim and the prize delivery each pay the same wallet at a different
+ * time, and each has to put it back in the queue.
+ */
+export function fundingMark(): Record<string, string | null> {
+  return { funded_at: new Date().toISOString(), swept_at: null };
+}
+
+/** H7: the same mark on its own, for a phase that funds without changing state. */
+export async function markFunded(entryId: string): Promise<void> {
+  const db = getDb();
+  checked(
+    'entry.mark_funded',
+    await db
+      .from('bridge_v2_entries')
+      .update(fundingMark())
+      .eq('id', entryId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
+}
+
+/**
+ * H7: this entry's derived wallet has been dealt with since it was last funded.
  *
  * Written for a wallet that was swept and for one whose remainder was below the
- * cost of sweeping it. The second case is terminal too: nothing funds that
- * wallet again, so a remainder that is not worth recovering today is not worth
- * recovering later either.
+ * cost of sweeping it, because both mean the same thing to this pass: there is
+ * nothing more to do here until somebody funds the wallet again. The next funding
+ * clears it and the wallet comes back.
  */
 export async function markSwept(entryId: string): Promise<void> {
   const db = getDb();

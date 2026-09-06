@@ -70,6 +70,35 @@ export async function releaseRunLock(lock: RunLock): Promise<boolean> {
   return released === true;
 }
 
+/**
+ * §7/G4: the number of this run, and therefore which phase it starts at.
+ *
+ * Read once, immediately after the lock is taken, so it advances by exactly one
+ * per run that actually happens. That is the property the rotation needs, and it
+ * is why the offset is not derived from the clock: the cron fires every minute
+ * over work that may take five, so most fires find the lock held and do nothing
+ * at all, and a clock-derived offset would then hand the same phase the lead
+ * every single time — the starvation it exists to prevent, reproduced by the
+ * mechanism meant to fix it.
+ *
+ * A database error throws, like the lock acquisition it follows and for the same
+ * reason: every stage of the run reads and writes this database, so a run that
+ * cannot get one number out of it is a run that could not have done anything.
+ */
+export async function nextRunSequence(): Promise<number> {
+  const db = getDb();
+  const value = checkedMaybe(
+    'lock.run_sequence',
+    await db.rpc('bridge_v2_next_run_sequence').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as number | string | null;
+
+  // A bigint over PostgREST is a JSON number today and would be a string if the
+  // driver ever decided otherwise; the sequence cycles, so neither form ever
+  // exceeds what a double holds exactly. Nothing depends on the numbers being
+  // contiguous — only on their moving.
+  return value === null ? 0 : Number(value);
+}
+
 export interface RunDeadline {
   /** True while there is time to start another unit of work of this size. */
   hasTimeFor(estimateMs?: number): boolean;

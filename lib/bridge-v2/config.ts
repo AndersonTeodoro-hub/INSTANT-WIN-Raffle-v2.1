@@ -11,6 +11,19 @@
  * configurable contract address is a configurable place to send gas.
  */
 
+/**
+ * The deployment descriptor, imported rather than described.
+ *
+ * G4 asks that every route with an external wait declare a duration the platform
+ * will honour, and that duration is derived from the timeouts in this file. Two
+ * files therefore have to agree about a number — and the last time two numbers in
+ * this system had to agree, the prize reservation and the run budget, they did
+ * not, and the stage that claims prizes never ran once. Importing the descriptor
+ * is what turns "they agree" from a sentence in a comment into the check at the
+ * bottom of this file.
+ */
+import vercelConfig from '../../vercel.json';
+
 /** Arbitrum One. The bridge signs on no other chain. */
 export const CHAIN_ID = 42161 as const;
 
@@ -216,11 +229,12 @@ export const RUN_BUDGET_MS = (CRON_MAX_DURATION_SECONDS - 20) * 1000;
  * there until the timeout expires; that is the ordinary shape of the slow case
  * and not a pathology, so 2 × RECEIPT_TIMEOUT_MS is a duration this path takes.
  *
- * The RPC term is an ALLOWANCE, and is named as one. processEligible makes nine
+ * The RPC term is an ALLOWANCE, and is named as one. processEligible makes ten
  * sequential round trips outside those two waits — hasEntered, readGiveaway,
- * slotsRemaining, the funder nonce reconciliation, the entry quote, the funding
- * estimate, the funding broadcast, the derived nonce, the entry broadcast — and
- * reserving nine RPC_TIMEOUT_MS would be reserving ninety seconds for calls that
+ * slotsRemaining, the funder nonce reconciliation, the entry quote, the balance
+ * of the wallet about to be funded, the funding estimate, the funding broadcast,
+ * the derived nonce, the entry broadcast — and reserving ten RPC_TIMEOUT_MS would
+ * be reserving a hundred seconds for calls that
  * answer in tens of milliseconds, because RPC_TIMEOUT_MS is the point at which a
  * call is abandoned and not a time anything is expected to take. Four of them is
  * forty seconds of slack over reads whose realistic total is under a second.
@@ -239,9 +253,9 @@ export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
  * A prize is two entry-shaped units back to back — claim, then delivery, each a
  * funding transaction with its receipt and a call with its receipt — plus the
  * reads that decide between them: the campaign, what the wallet is owed, whether
- * it has already been paid, and what is left in it to hand on. Eighteen
- * sequential round trips and four receipt waits, under the same split as above:
- * the four waits in full, the reads on an allowance.
+ * it has already been paid, and what is left in it to hand on. Twenty sequential
+ * round trips and four receipt waits, under the same split as above: the four
+ * waits in full, the reads on an allowance.
  *
  * It used to be written at the call site as 2 * ENTRY_WORST_CASE_MS, which was
  * the right shape and the wrong number, because the number it produced was larger
@@ -252,21 +266,99 @@ export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
 export const PRIZE_WORST_CASE_MS = 2 * ENTRY_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS;
 
 /**
- * G4, checked rather than declared.
+ * What each stage of the pipeline reserves before it starts one unit of its own
+ * work, and — because the keys are the stage names — what the stages ARE.
  *
- * Every stage of the pipeline reserves the size of one unit of its own work
- * before starting one, and a reservation larger than the whole budget is a stage
- * that can never start anything. That is not hypothetical: with a 60-second
- * receipt timeout the prize stage reserved 300_000 ms against a 280_000 ms
- * budget, the comparison was false on the first millisecond of every run, and the
- * stage that claims and delivers prizes never ran once. Nothing reported it,
- * because a stage that starts no work returns zero and looks exactly like a stage
- * with no work to do.
+ * HERE RATHER THAN AT THE CALL SITES, and that is the fix rather than tidiness.
+ * Every one of these numbers used to be written where it was used, and the prize
+ * one was written there as 2 * ENTRY_WORST_CASE_MS: 300_000 ms against a 280_000
+ * ms budget, false on the first millisecond of every run, so the stage that
+ * claims and delivers prizes never ran its body once and nothing said so. A
+ * reservation kept beside the budget it has to fit inside is a reservation
+ * somebody can check, which is what happens below.
+ *
+ * The key set is the phase set as well. api/bridge/v2/cron/process.ts builds its
+ * run out of these keys, so a stage cannot exist without a declared reservation
+ * and a reservation cannot be declared for a stage the run does not have.
+ */
+export const PHASE_RESERVATION_MS = {
+  /** One SUBMITTED entry: a bounded receipt wait, then the reads about its hash. */
+  reconcileSubmitted: RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS,
+  /** One abandoned FUNDING entry: hasEntered, and the transition that follows it. */
+  reconcileFunding: 2 * RPC_TIMEOUT_MS,
+  /** One campaign: a manager transaction and its receipt. */
+  publishRoots: RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS,
+  /** One entry: fund, wait, submit, wait. */
+  processEntries: ENTRY_WORST_CASE_MS,
+  /** One prize: a claim and a delivery, each funded and each awaited. */
+  processPrizes: PRIZE_WORST_CASE_MS,
+} as const;
+
+export type PipelinePhase = keyof typeof PHASE_RESERVATION_MS;
+
+/**
+ * The phases in their declared order, which is the order a run prefers: the two
+ * reconciliations first, so an entry that has already landed is not looked at
+ * again by the stages behind them; prizes last, because they are the one stage
+ * whose input a third party produces.
+ *
+ * A run rotates this list. It never reorders it, and it never skips an entry of
+ * it — correctness never depended on the order, because every stage is
+ * conditional on the state it expects (G5) and none of them is the input of the
+ * next within a single run.
+ */
+export const PIPELINE_PHASES = Object.keys(PHASE_RESERVATION_MS) as readonly PipelinePhase[];
+
+/**
+ * §7/G4: the starvation bound, declared here so it can be checked below rather
+ * than hoped for at the call site.
+ *
+ * A FIXED ORDER OVER A BUDGET SMALLER THAN THE SUM OF THE RESERVATIONS IS
+ * STARVATION BY CONSTRUCTION. The five reservations add up to 460_000 ms against
+ * a 280_000 ms budget, and the largest of them, 240_000 ms for a prize, was
+ * declared last. Under continuous load the four stages in front of it consume the
+ * budget and the guard on the fifth is false every single time — the same outage
+ * as the arithmetic bug this file already records, reached by scheduling instead
+ * of by a wrong number, and just as silent: a stage that starts no work returns
+ * zero and looks exactly like a stage with nothing to do.
+ *
+ * The run therefore starts at a different phase each time, advancing by one per
+ * run, so each phase leads a run once in this many consecutive runs and a phase
+ * that leads has the entire budget to itself. That last clause is the part that
+ * has to be true rather than asserted, and it is what the loop below checks: a
+ * leading phase can start one unit only if its own reservation fits inside the
+ * whole budget.
+ */
+export const PHASE_STARVATION_BOUND_RUNS = PIPELINE_PHASES.length;
+
+/**
+ * H7: what the sweep reserves per wallet — four reads and a broadcast, with no
+ * receipt wait.
+ *
+ * Not a pipeline phase: it runs on the maintenance schedule, borrowing the
+ * pipeline's lock for the one thing in that route that signs as a derived wallet.
+ * It is checked against the budget with the others because it is a unit of work
+ * bounded by the same run budget, and a reservation nobody checks is how the
+ * prize stage disappeared.
+ */
+export const SWEEP_WORST_CASE_MS = 5 * RPC_TIMEOUT_MS;
+
+/**
+ * G4 and §7/G4, checked rather than declared.
+ *
+ * A reservation larger than the whole budget is a unit of work that can never
+ * start. That is not hypothetical: with a 60-second receipt timeout the prize
+ * stage reserved 300_000 ms against a 280_000 ms budget, the comparison was false
+ * on the first millisecond of every run, and no prize was ever claimed or
+ * delivered.
  *
  * A comment asserting that the numbers fit would have been just as wrong as the
- * numbers were. This is the same claim made executable: change any constant above
- * so that the largest unit no longer fits, and the first import of this module
- * throws instead of the pipeline quietly doing nothing.
+ * numbers were. This is the same claim made executable, and it is now made about
+ * EVERY unit rather than only the largest one — because with the rotation above,
+ * "the largest fits" is no longer the property that matters. What matters is that
+ * each phase, on the run it leads, can start one unit; a single phase whose
+ * reservation exceeded the budget would be starved for ever however the run is
+ * ordered, and PHASE_STARVATION_BOUND_RUNS would be a number that means nothing.
  *
  * The values, since the point is that they are checked and not asserted:
  *
@@ -274,17 +366,25 @@ export const PRIZE_WORST_CASE_MS = 2 * ENTRY_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS;
  *   ENTRY_WORST_CASE_MS  2 * 30_000 + 4 * 10_000  = 100_000
  *   PRIZE_WORST_CASE_MS  2 * 100_000 + 4 * 10_000 = 240_000
  *
- * and the reservation each stage actually makes, every one strictly under the
- * budget: 50_000 for a root publication and for one SUBMITTED reconciliation,
- * 20_000 for a FUNDING reconciliation, 50_000 for a sweep, 100_000 for an entry,
- * 240_000 for a prize. The largest of them leaves 40_000 ms of margin.
+ * and every reservation, each strictly under the budget: 50_000 for a root
+ * publication and for one SUBMITTED reconciliation, 20_000 for a FUNDING
+ * reconciliation, 50_000 for a sweep, 100_000 for an entry, 240_000 for a prize.
+ * The largest leaves 40_000 ms of margin.
  */
-export const LARGEST_UNIT_MS = PRIZE_WORST_CASE_MS;
-if (LARGEST_UNIT_MS >= RUN_BUDGET_MS) {
-  throw new Error(
-    `[bridge-v2] run budget ${RUN_BUDGET_MS}ms cannot start the largest unit of ` +
-      `work (${LARGEST_UNIT_MS}ms); no run would ever reach the prize stage`,
-  );
+const EVERY_RESERVATION_MS: Record<string, number> = {
+  ...PHASE_RESERVATION_MS,
+  sweep: SWEEP_WORST_CASE_MS,
+};
+
+export const LARGEST_UNIT_MS = Math.max(...Object.values(EVERY_RESERVATION_MS));
+
+for (const [unit, reservation] of Object.entries(EVERY_RESERVATION_MS)) {
+  if (reservation >= RUN_BUDGET_MS) {
+    throw new Error(
+      `[bridge-v2] run budget ${RUN_BUDGET_MS}ms cannot start one unit of ${unit} ` +
+        `(${reservation}ms); that work would never run and no run would report it`,
+    );
+  }
 }
 
 /**
@@ -383,3 +483,89 @@ export const OPS_RETENTION_DAYS = 30 as const;
 export const SESSION_GRACE_DAYS = 7 as const;
 /** D3: floor for responses on paths that would otherwise reveal existence by latency. */
 export const UNIFORM_RESPONSE_MS = 400;
+
+// -----------------------------------------------------------------------------
+// G4 — the duration every route with an external wait declares
+// -----------------------------------------------------------------------------
+/**
+ * A route's worst case, from the stages it can actually wait on.
+ *
+ * Both terms are ceilings and neither is an expectation, for the reason
+ * DB_TIMEOUT_MS already gives: the timeout is the point at which a call is
+ * abandoned, not a time anything is expected to take. A route's declared duration
+ * has to be a ceiling too, because the platform enforces it by killing the
+ * process — and a process killed mid-route is the shape of failure this whole
+ * file exists to bound.
+ *
+ * An RPC stage is one round trip or one Promise.all of them, since concurrent
+ * calls share a timeout. A database stage is one PostgREST request.
+ */
+function maxDurationSeconds(rpcStages: number, dbStages: number): number {
+  return Math.ceil((rpcStages * RPC_TIMEOUT_MS + dbStages * DB_TIMEOUT_MS) / 1000);
+}
+
+/**
+ * What each route declares to the platform, and what vercel.json must say.
+ *
+ * ONLY THE TWO CRONS DECLARED ANYTHING, and the reason that was wrong is not that
+ * the other routes are fast. entry/start reads the campaign and then its slot
+ * ledger — two RPC stages, 20_000 ms of ceiling — around a dozen and a half
+ * database requests each bounded at 8_000 ms, and it does that while a
+ * participant waits. G4 says no external wait is unbounded; a route whose own
+ * bounds add up past the duration the platform allows it is a route the platform
+ * kills in the middle, which is unbounded from the participant's side and leaves
+ * a half-written entry from the bridge's.
+ *
+ * Derived, not chosen. Change RPC_TIMEOUT_MS or DB_TIMEOUT_MS and these numbers
+ * move with them, and the check below fails until vercel.json is brought back
+ * into line.
+ */
+export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
+  // The pipeline and the maintenance pass budget themselves against
+  // CRON_MAX_DURATION_SECONDS through RUN_BUDGET_MS, so their declaration is that
+  // ceiling itself rather than a sum of stages.
+  'api/bridge/v2/cron/process.ts': CRON_MAX_DURATION_SECONDS,
+  'api/bridge/v2/cron/maintenance.ts': CRON_MAX_DURATION_SECONDS,
+  // Two RPC stages: readGiveaway, whose two reads are concurrent, and
+  // slotsRemaining. Sixteen database stages: the session read and its A4 slide,
+  // one rate-limit call per axis and the route applies six, the participant read,
+  // the entry lookup and insert and the re-read that a lost unique-constraint
+  // race takes, the custody policy upsert, the link code insert, the ops event —
+  // plus the one the envelope writes if the route throws after all of them.
+  'api/bridge/v2/entry/start.ts': maxDurationSeconds(2, 16),
+};
+
+/**
+ * G4, checked rather than declared, exactly as the run budget above is.
+ *
+ * The relation this holds is in both directions. Every route this file gives a
+ * duration must carry that duration in vercel.json, or the platform is enforcing
+ * a limit the code does not know about; and every route vercel.json configures
+ * must appear here, or there is a number in the deployment that nothing derived
+ * and nobody checks — which is precisely how the prize reservation came to be
+ * larger than the budget it was compared against.
+ */
+const DECLARED_DURATIONS = vercelConfig.functions as Record<string, { maxDuration?: number }>;
+
+for (const [route, seconds] of Object.entries(ROUTE_MAX_DURATION_SECONDS)) {
+  if (seconds > CRON_MAX_DURATION_SECONDS) {
+    throw new Error(
+      `[bridge-v2] ${route} needs ${seconds}s but the platform allows at most ` +
+        `${CRON_MAX_DURATION_SECONDS}s; its worst case cannot be declared honestly`,
+    );
+  }
+  if (DECLARED_DURATIONS[route]?.maxDuration !== seconds) {
+    throw new Error(
+      `[bridge-v2] vercel.json declares ${String(DECLARED_DURATIONS[route]?.maxDuration)} for ` +
+        `${route}; its worst case derived from the timeouts above is ${seconds}s`,
+    );
+  }
+}
+
+for (const route of Object.keys(DECLARED_DURATIONS)) {
+  if (!(route in ROUTE_MAX_DURATION_SECONDS)) {
+    throw new Error(
+      `[bridge-v2] vercel.json configures ${route} with a duration this file does not derive`,
+    );
+  }
+}

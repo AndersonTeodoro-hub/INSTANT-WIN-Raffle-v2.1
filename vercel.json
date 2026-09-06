@@ -4,7 +4,8 @@
   ],
   "functions": {
     "api/bridge/v2/cron/process.ts": { "maxDuration": 300 },
-    "api/bridge/v2/cron/maintenance.ts": { "maxDuration": 300 }
+    "api/bridge/v2/cron/maintenance.ts": { "maxDuration": 300 },
+    "api/bridge/v2/entry/start.ts": { "maxDuration": 148 }
   },
   "crons": [
     { "path": "/api/bridge/v2/cron/process", "schedule": "* * * * *" },

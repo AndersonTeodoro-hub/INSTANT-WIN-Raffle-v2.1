@@ -36,23 +36,32 @@ export function toHex(bytes: Uint8Array): string {
 }
 
 /**
- * A decimal string of exactly `digits` digits, uniformly distributed (J1).
+ * A uniformly distributed integer in [0, bound), from the CSPRNG.
  *
- * The rejection loop matters. 2^32 is not a multiple of 10^6, so taking the
- * remainder directly would make the low end of the range very slightly more
- * likely. The result would still look random and would still be wrong, which is
- * the kind of weakness nobody notices until it is being exploited.
+ * The rejection loop is the whole of it. 2^32 is not a multiple of an arbitrary
+ * bound, so taking the remainder directly would make the low end of the range
+ * very slightly more likely. The result would still look random and would still
+ * be wrong, which is the kind of weakness nobody notices until it is being
+ * exploited — and both users need better than "looks random": the digits of a
+ * verification code (J1), and the funder a sweep returns to (D6).
  */
-export function randomDigits(digits: number): string {
-  const range = 10 ** digits;
-  const limit = Math.floor(0xffff_ffff / range) * range;
+export function randomIndex(bound: number): number {
+  if (!Number.isInteger(bound) || bound <= 0 || bound > 0x1_0000_0000) {
+    throw new Error('[bridge-v2] random bound is outside the supported range');
+  }
+  const limit = Math.floor(0x1_0000_0000 / bound) * bound;
   const buf = new Uint32Array(1);
   let value: number;
   do {
     crypto.getRandomValues(buf);
     value = buf[0] as number;
   } while (value >= limit);
-  return String(value % range).padStart(digits, '0');
+  return value % bound;
+}
+
+/** A decimal string of exactly `digits` digits, uniformly distributed (J1). */
+export function randomDigits(digits: number): string {
+  return String(randomIndex(10 ** digits)).padStart(digits, '0');
 }
 
 /**
