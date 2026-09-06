@@ -5,13 +5,23 @@
  * (instant-win-audit/v2, out/GiveawayManagerV2.sol/GiveawayManagerV2.json), not
  * written by hand. To change it, extract again; do not edit an entry in place.
  *
- * H1 keeps this list short on purpose. The bridge signs exactly two things — a
- * gas transfer and enter() — so the surface loaded into the process that holds
- * the funder keys is only what those two need plus the views that decide whether
- * they are allowed to happen. vrfCoordinator and subscriptionId are views as
- * well: H8 asks for the VRF subscription balance to be monitored, and the two
- * public immutables are how the bridge learns where to look without a second
- * configured address to keep in step with the deployment.
+ * H1 keeps this list short on purpose. What the bridge signs against this
+ * contract is enter(), addEligibilityRoot() under the role key, and claimPrize()
+ * on behalf of a winning derived wallet — nothing else is here that can move
+ * state. Everything else in the list is a view that decides whether one of those
+ * three is allowed to happen.
+ *
+ * claimPrize and its views are section 7 of the specification: a settled
+ * campaign pays msg.sender, and msg.sender has to be the derived wallet that was
+ * drawn, so the claim is a transaction this side signs or the prize is never
+ * collected at all. claimable() is what tells the bridge there is something to
+ * collect, winnerIndex() is which item an NFT winner is owed (section 8.3), and
+ * CLAIM_DEADLINE is the ninety-day window past which the creator takes it back.
+ *
+ * vrfCoordinator and subscriptionId are views as well: H8 asks for the VRF
+ * subscription balance to be monitored, and the two public immutables are how the
+ * bridge learns where to look without a second configured address to keep in step
+ * with the deployment.
  *
  * The errors are here so a revert can be decoded by name. Without them a refusal
  * from the contract is an opaque byte string and the bridge cannot tell "entries
@@ -409,6 +419,114 @@ export const GIVEAWAY_MANAGER_V2_ABI = [
   },
   {
     "type": "function",
+    "name": "CLAIM_DEADLINE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "claimPrize",
+    "inputs": [
+      {
+        "name": "giveawayId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimable",
+    "inputs": [
+      {
+        "name": "giveawayId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "wallet",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "winnerIndex",
+    "inputs": [
+      {
+        "name": "giveawayId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "wallet",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "prizeClaimed",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "ClaimExpired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingToClaim",
+    "inputs": []
+  },
+  {
+    "type": "function",
     "name": "vrfCoordinator",
     "inputs": [],
     "outputs": [{ "name": "", "type": "address", "internalType": "contract IVRFCoordinatorV2Plus" }],
@@ -469,6 +587,92 @@ export const VRF_COORDINATOR_V2_PLUS_ABI = [
       { "name": "subOwner", "type": "address", "internalType": "address" },
       { "name": "consumers", "type": "address[]", "internalType": "address[]" }
     ],
+    "stateMutability": "view"
+  }
+] as const;
+
+/**
+ * The prize itself, once it is in the derived wallet.
+ *
+ * E2 sends a prize at or above the threshold, and every NFT, to a wallet the
+ * winner owns. The contract can only deliver to msg.sender, so the value passes
+ * through the derived wallet and is handed on from there — which needs exactly
+ * one function per prize kind and nothing else.
+ *
+ * H2 still holds: the destination of that transfer is the address the
+ * participant confirmed through E4, read from the database, and the token or
+ * collection is read from the chain. Neither is a parameter of any route.
+ */
+export const ERC20_ABI = [
+  {
+    "type": "function",
+    "name": "balanceOf",
+    "inputs": [{ "name": "account", "type": "address", "internalType": "address" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "transfer",
+    "inputs": [
+      { "name": "to", "type": "address", "internalType": "address" },
+      { "name": "amount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
+    "stateMutability": "nonpayable"
+  }
+] as const;
+
+export const ERC721_ABI = [
+  {
+    "type": "function",
+    "name": "ownerOf",
+    "inputs": [{ "name": "tokenId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "safeTransferFrom",
+    "inputs": [
+      { "name": "from", "type": "address", "internalType": "address" },
+      { "name": "to", "type": "address", "internalType": "address" },
+      { "name": "tokenId", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  }
+] as const;
+
+/**
+ * The two views of ERC721PrizeModule the bridge needs to know WHICH item a
+ * winner was handed.
+ *
+ * The core stores the winner's position, not the token id; the module holds the
+ * deposited items and gives the n-th of them to the n-th winner (section 8.3).
+ * So the token id is itemsOf(giveawayId)[winnerIndex] and the collection is the
+ * one recorded at custody. Read only — the bridge never calls this module.
+ *
+ * The module address is not configured here either: it comes from
+ * getGiveaway().prizeModule, which the core bound at creation and never
+ * reassigns.
+ */
+export const ERC721_PRIZE_MODULE_ABI = [
+  {
+    "type": "function",
+    "name": "custodyOf",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      { "name": "collection", "type": "address", "internalType": "contract IERC721" },
+      { "name": "itemCount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "itemsOf",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256[]", "internalType": "uint256[]" }],
     "stateMutability": "view"
   }
 ] as const;

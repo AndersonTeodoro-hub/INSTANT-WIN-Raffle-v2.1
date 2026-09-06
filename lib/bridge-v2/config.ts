@@ -54,6 +54,12 @@ export const RATE_LIMITS = {
   EMAIL: { windowSeconds: 3600, max: 5, penaltySeconds: 300 },
   UNKNOWN_EMAIL: { windowSeconds: 86400, max: 2, penaltySeconds: 3600 },
   PHONE: { windowSeconds: 86400, max: 3, penaltySeconds: 3600 },
+  // The Telegram chat the bot is talking to. This is the per-caller axis of the
+  // webhook: every update arrives from Telegram's own infrastructure, so the
+  // source address identifies Telegram and not the person, and limiting on it
+  // limits every participant together while stopping no individual abuser.
+  // The key is the chat HMAC, never the chat id (K4, R4).
+  TELEGRAM_CHAT: { windowSeconds: 3600, max: 30, penaltySeconds: 300 },
   // C7: the device fingerprint. Weak by design (signals.ts), so the ceiling is
   // loose enough that a shared office NAT is not a false positive and tight
   // enough that one machine cannot register a hundred accounts in an hour.
@@ -119,6 +125,14 @@ export const RPC_TIMEOUT_MS = 10_000;
 export const RECEIPT_TIMEOUT_MS = 60_000;
 /** G4: email and Telegram calls. */
 export const HTTP_TIMEOUT_MS = 8_000;
+/**
+ * G4: the database is an external service like any other, and PostgREST answers
+ * over HTTP. Every query carries this as an AbortSignal, so no request path can
+ * wait on it for ever. Generous relative to the queries actually issued — all of
+ * them are single-row or bounded-batch — because the point is a ceiling, not a
+ * performance budget.
+ */
+export const DB_TIMEOUT_MS = 8_000;
 /** G3: lease length, and the point at which a live operation renews it. */
 export const FUNDER_LEASE_SECONDS = 90 as const;
 
@@ -130,16 +144,42 @@ export const FUNDER_LEASE_SECONDS = 90 as const;
  */
 export const MAX_GAS_COST_WEI = 2n * 10n ** 14n;
 
-/** H4: the estimate must land inside this band or the entry fails unspent. */
-export const MIN_PLAUSIBLE_GAS = 40_000n;
-export const MAX_PLAUSIBLE_GAS = 2_000_000n;
+/**
+ * H4: the estimate must land inside one of these bands or the transaction fails
+ * unspent.
+ *
+ * One band per shape of transaction, because no single pair of numbers is a
+ * sanity check for both a bare value transfer and a call into the manager.
+ *
+ * Every signed transaction takes its limit from eth_estimateGas; there is no
+ * constant gas limit anywhere. The 21_000 that used to be written into the two
+ * value transfers was not even correct on this chain: eth_estimateGas on
+ * Arbitrum One reports 21_299 for a zero-value transfer and 21_305 with a value,
+ * measured 2026-09-06, because the L1 data component is folded into the number.
+ * A transaction signed with a limit of 21_000 is a transaction that runs out of
+ * gas, so the constant was not a saved round trip but a broken one.
+ */
+export const GAS_BANDS = {
+  /** A bare value transfer: funding a derived wallet, and the sweep back. */
+  TRANSFER: { min: 21_000n, max: 500_000n },
+  /** A call into GiveawayManagerV2: enter, addEligibilityRoot, claimPrize. */
+  MANAGER: { min: 40_000n, max: 2_000_000n },
+  /**
+   * Handing a prize on to the destination the winner confirmed: an ERC-20
+   * transfer, or an ERC-721 safeTransferFrom. Measured on Arbitrum One
+   * 2026-09-06: 45_637 for a USDC transfer to a cold address, 94_605 to 128_114
+   * for safeTransferFrom across three live collections. The floor is below the
+   * cheapest of those because the prize token is chosen by the campaign creator
+   * and a minimal ERC-20 is cheaper than USDC.
+   */
+  DELIVERY: { min: 25_000n, max: 500_000n },
+} as const;
+
+export type GasBand = (typeof GAS_BANDS)[keyof typeof GAS_BANDS];
 
 /** Margin over the estimate, so a price move between estimate and send does not strand the entry. */
 export const GAS_MARGIN_NUMERATOR = 150n;
 export const GAS_MARGIN_DENOMINATOR = 100n;
-
-/** H7: leftover below this is not worth a sweep transaction. */
-export const SWEEP_MIN_WEI = 5n * 10n ** 13n;
 
 // -----------------------------------------------------------------------------
 // H8 — the alert thresholds

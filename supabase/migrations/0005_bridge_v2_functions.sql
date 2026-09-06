@@ -17,8 +17,19 @@
 -- must hold the table privileges granted in 0006, so a leaked role cannot reach
 -- past what it was granted by calling a function that runs as the owner.
 --
+-- SEARCH PATH. Every function below sets it to public, extensions rather than
+-- public alone. citext is the reason: two of these functions take a citext
+-- parameter and several read citext columns, and the type, its operators and its
+-- comparison functions are all resolved through the search_path at execution
+-- time. Where citext was installed into extensions rather than public -- which
+-- depends on when and by whom it was first created, and IF NOT EXISTS makes a
+-- later WITH SCHEMA clause a no-op -- a body declared with public alone parses
+-- at creation and then fails at runtime on the = it cannot resolve. Naming both
+-- schemas is correct in either case and costs nothing in the other.
+--
 -- Idempotent: CREATE OR REPLACE throughout.
 -- =============================================================================
+SET search_path = public, extensions;
 
 -- -----------------------------------------------------------------------------
 -- rate limiting — B1, B2, B3, B4
@@ -39,7 +50,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_rate_limit_hit(
   p_penalty_seconds  integer
 ) RETURNS TABLE (allowed boolean, retry_after_seconds integer)
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_window   timestamptz;
@@ -96,7 +107,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_claim_email_code_attempt(
   p_max_attempts    integer
 ) RETURNS TABLE (code_id uuid, code_hash text, attempts_left integer)
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_now timestamptz := now();
@@ -129,7 +140,7 @@ COMMENT ON FUNCTION bridge_v2_claim_email_code_attempt IS 'J4: one attempt spent
 CREATE OR REPLACE FUNCTION bridge_v2_consume_email_code(p_code_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_rows integer;
@@ -149,7 +160,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION bridge_v2_supersede_email_codes(p_email_canonical citext)
 RETURNS integer
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_rows integer;
@@ -165,14 +176,26 @@ $fn$;
 -- -----------------------------------------------------------------------------
 -- link code consumption — 05/09/2026 decision, step 3 ("validates the code once")
 -- -----------------------------------------------------------------------------
+-- The previous signatures took a bigint chat id and returned a numeric campaign
+-- id. Both are dropped rather than replaced: CREATE OR REPLACE cannot change a
+-- parameter type or a return type, so leaving them would leave two overloads
+-- live and PostgREST would have to guess which one a call meant.
+DROP FUNCTION IF EXISTS bridge_v2_claim_link_for_chat(text, bigint);
+DROP FUNCTION IF EXISTS bridge_v2_consume_link_for_chat(bigint);
 -- Single use is enforced by the WHERE clause, not by a prior read: two bot
 -- updates carrying the same code race on one UPDATE and exactly one wins.
+-- p_chat_hmac, never a chat id: R4 keeps every Telegram identifier hashed at
+-- rest, and the caller hashes before it gets here (phone.ts, K4).
+--
+-- giveaway_id leaves as text. The column is numeric(78,0) and PostgREST renders
+-- a numeric as a JSON number, which is a double: a uint256 campaign id would
+-- reach the caller already rounded, and it would be rounded silently.
 CREATE OR REPLACE FUNCTION bridge_v2_claim_link_for_chat(
   p_code_hash text,
-  p_chat_id   bigint
-) RETURNS TABLE (link_id uuid, participant_id uuid, giveaway_id numeric)
+  p_chat_hmac text
+) RETURNS TABLE (link_id uuid, participant_id uuid, giveaway_id text)
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 BEGIN
   -- bridge_v2_link_codes_live_chat_unique allows one live link per chat. A
@@ -182,18 +205,18 @@ BEGIN
   -- instead: the earlier link is detached from the chat and left unconsumed, so
   -- it can still be reopened from the page.
   UPDATE bridge_v2_link_codes c
-     SET telegram_chat_id = NULL
-   WHERE c.telegram_chat_id = p_chat_id
+     SET telegram_chat_hmac = NULL
+   WHERE c.telegram_chat_hmac = p_chat_hmac
      AND c.consumed_at IS NULL
      AND c.code_hash <> p_code_hash;
 
   RETURN QUERY
   UPDATE bridge_v2_link_codes c
-     SET telegram_chat_id = p_chat_id
+     SET telegram_chat_hmac = p_chat_hmac
    WHERE c.code_hash = p_code_hash
      AND c.consumed_at IS NULL
      AND c.expires_at > now()
-  RETURNING c.id, c.participant_id, c.giveaway_id;
+  RETURNING c.id, c.participant_id, c.giveaway_id::text;
 EXCEPTION
   -- Belt and braces for the same reason: a collision that survives the detach
   -- above leaves as "no live link", never as an exception the webhook has to
@@ -209,19 +232,19 @@ COMMENT ON FUNCTION bridge_v2_claim_link_for_chat IS 'Binds a started link to th
 -- is enforced by the WHERE clause, so two deliveries of the same contact race on
 -- one statement and exactly one wins. Telegram retries an unacknowledged
 -- delivery, so a duplicate here is expected traffic rather than an attack.
-CREATE OR REPLACE FUNCTION bridge_v2_consume_link_for_chat(p_chat_id bigint)
-RETURNS TABLE (link_id uuid, participant_id uuid, giveaway_id numeric)
+CREATE OR REPLACE FUNCTION bridge_v2_consume_link_for_chat(p_chat_hmac text)
+RETURNS TABLE (link_id uuid, participant_id uuid, giveaway_id text)
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 BEGIN
   RETURN QUERY
   UPDATE bridge_v2_link_codes c
      SET consumed_at = now()
-   WHERE c.telegram_chat_id = p_chat_id
+   WHERE c.telegram_chat_hmac = p_chat_hmac
      AND c.consumed_at IS NULL
      AND c.expires_at > now()
-  RETURNING c.id, c.participant_id, c.giveaway_id;
+  RETURNING c.id, c.participant_id, c.giveaway_id::text;
 END;
 $fn$;
 
@@ -259,7 +282,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_bind_phone_and_verify(
   p_cooldown_days    integer
 ) RETURNS text
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_owner    uuid;
@@ -367,7 +390,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_release_phone(
   p_cooldown_days   integer
 ) RETURNS integer
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_rows integer;
@@ -397,7 +420,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION bridge_v2_acquire_funder(p_lease_seconds integer)
 RETURNS TABLE (funder_index integer, address text, next_nonce bigint, lease_token uuid)
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_token uuid := gen_random_uuid();
@@ -434,7 +457,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_renew_funder_lease(
   p_lease_seconds integer
 ) RETURNS boolean
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_rows integer;
@@ -456,7 +479,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_release_funder(
   p_next_nonce    bigint
 ) RETURNS boolean
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_rows integer;
@@ -477,7 +500,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION bridge_v2_disable_funder(p_funder_index integer)
 RETURNS boolean
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_rows integer;
@@ -504,7 +527,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_claim_spend(
   p_day_cap   integer
 ) RETURNS boolean
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_now  timestamptz := now();
@@ -556,7 +579,7 @@ CREATE OR REPLACE FUNCTION bridge_v2_cleanup(
   p_session_grace_days integer
 ) RETURNS TABLE (table_name text, rows_removed integer)
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
 DECLARE
   v_n integer;
@@ -606,7 +629,7 @@ COMMENT ON FUNCTION bridge_v2_cleanup IS 'I10/K7/D7: bounded retention for every
 CREATE OR REPLACE FUNCTION bridge_v2_next_wallet_index()
 RETURNS bigint
 LANGUAGE sql
-SET search_path = public
+SET search_path = public, extensions
 AS $fn$
   SELECT nextval('bridge_v2_wallet_index_seq');
 $fn$;

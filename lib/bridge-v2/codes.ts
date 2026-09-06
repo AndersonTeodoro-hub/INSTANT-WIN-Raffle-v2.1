@@ -8,7 +8,12 @@
  * TypeScript.
  */
 
-import { EMAIL_CODE_DIGITS, EMAIL_CODE_MAX_ATTEMPTS, EMAIL_CODE_TTL_MS } from './config.js';
+import {
+  DB_TIMEOUT_MS,
+  EMAIL_CODE_DIGITS,
+  EMAIL_CODE_MAX_ATTEMPTS,
+  EMAIL_CODE_TTL_MS,
+} from './config.js';
 import { keyedHash, randomDigits, timingSafeEqualHex } from './crypto.js';
 import { checked, getDb } from './db.js';
 
@@ -41,7 +46,9 @@ export async function issueEmailCode(canonicalEmail: string): Promise<string> {
   // between two issues leaves exactly one live code rather than two.
   checked(
     'code.supersede',
-    await db.rpc('bridge_v2_supersede_email_codes', { p_email_canonical: canonicalEmail }),
+    await db
+      .rpc('bridge_v2_supersede_email_codes', { p_email_canonical: canonicalEmail })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
   checked(
@@ -50,7 +57,7 @@ export async function issueEmailCode(canonicalEmail: string): Promise<string> {
       email_canonical: canonicalEmail,
       code_hash: await hashCode(code, canonicalEmail),
       expires_at: new Date(Date.now() + EMAIL_CODE_TTL_MS).toISOString(),
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
   return code;
@@ -88,7 +95,7 @@ export async function verifyEmailCode(
     await db.rpc('bridge_v2_claim_email_code_attempt', {
       p_email_canonical: canonicalEmail,
       p_max_attempts: EMAIL_CODE_MAX_ATTEMPTS,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as AttemptRow[] | null;
 
   const row = Array.isArray(rows) ? rows[0] : undefined;
@@ -101,7 +108,9 @@ export async function verifyEmailCode(
 
   const consumed = checked(
     'code.consume',
-    await db.rpc('bridge_v2_consume_email_code', { p_code_id: row.code_id }),
+    await db
+      .rpc('bridge_v2_consume_email_code', { p_code_id: row.code_id })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as boolean | null;
 
   // G2: the consumption result is acted on. A code consumed by someone else

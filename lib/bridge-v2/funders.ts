@@ -17,7 +17,7 @@
 
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Hex, TransactionSerializable } from 'viem';
-import { FUNDER_LEASE_SECONDS } from './config.js';
+import { DB_TIMEOUT_MS, FUNDER_LEASE_SECONDS } from './config.js';
 import { requireEnv } from './env.js';
 import { checked, getDb } from './db.js';
 
@@ -78,7 +78,9 @@ export async function acquireFunder(): Promise<FunderLease | null> {
   const db = getDb();
   const rows = checked(
     'funder.acquire',
-    await db.rpc('bridge_v2_acquire_funder', { p_lease_seconds: FUNDER_LEASE_SECONDS }),
+    await db
+      .rpc('bridge_v2_acquire_funder', { p_lease_seconds: FUNDER_LEASE_SECONDS })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as AcquireRow[] | null;
 
   const row = Array.isArray(rows) ? rows[0] : undefined;
@@ -107,7 +109,7 @@ export async function renewLease(lease: FunderLease): Promise<boolean> {
       p_funder_index: lease.index,
       p_lease_token: lease.leaseToken,
       p_lease_seconds: FUNDER_LEASE_SECONDS,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as boolean | null;
   return renewed === true;
 }
@@ -128,7 +130,7 @@ export async function releaseFunder(lease: FunderLease, nextNonce: number): Prom
       p_funder_index: lease.index,
       p_lease_token: lease.leaseToken,
       p_next_nonce: nextNonce,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as boolean | null;
   return released === true;
 }
@@ -138,7 +140,9 @@ export async function disableFunder(index: number): Promise<boolean> {
   const db = getDb();
   const disabled = checked(
     'funder.disable',
-    await db.rpc('bridge_v2_disable_funder', { p_funder_index: index }),
+    await db
+      .rpc('bridge_v2_disable_funder', { p_funder_index: index })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as boolean | null;
   return disabled === true;
 }

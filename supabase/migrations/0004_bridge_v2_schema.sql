@@ -15,6 +15,16 @@
 -- Idempotent: every statement is IF NOT EXISTS or equivalent.
 -- =============================================================================
 
+-- Extensions may live in public or in extensions depending on when and by whom
+-- they were installed, and citext is the one that matters: a citext column, a
+-- citext parameter and the = operator that compares them are all resolved
+-- through the search_path. Setting it here means every CREATE, every GRANT and
+-- every function signature below resolves the type the same way, whichever
+-- schema actually holds it, instead of depending on the search_path the migration
+-- happens to be run under. The functions in 0005 carry the same pair for the same
+-- reason, because a function body resolves its operators at execution time.
+SET search_path = public, extensions;
+
 CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -107,19 +117,32 @@ CREATE TABLE IF NOT EXISTS bridge_v2_link_codes (
   giveaway_id    numeric(78,0) NOT NULL CHECK (giveaway_id > 0),
   expires_at     timestamptz   NOT NULL,
   consumed_at    timestamptz,
-  -- Set when the bot receives /start with this code, cleared never. It is what
-  -- lets the contact message that arrives afterwards be matched back to the
-  -- campaign and participant: a contact reply carries no code of its own.
-  telegram_chat_id bigint,
+  -- Set when the bot receives /start with this code. It is what lets the contact
+  -- message that arrives afterwards be matched back to the campaign and
+  -- participant: a contact reply carries no code of its own.
+  --
+  -- R4: the HMAC, never the id. A Telegram chat id in a private chat with a bot
+  -- is the user id, and the user id is stored hashed on bridge_v2_phones; a dump
+  -- of this table in clear named the Telegram account of every participant
+  -- beside the campaign they opened. Same root as the other Telegram
+  -- identifiers, its own label, and the lookup only ever needs to recognise the
+  -- same chat twice, never to read the id back.
+  telegram_chat_hmac text,
   created_at     timestamptz   NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS bridge_v2_link_codes_expiry_idx ON bridge_v2_link_codes (expires_at);
 -- At most one live link per chat, so two started links cannot both be waiting
 -- for the same contact reply.
+-- Applied to a database that already carries the previous shape of this table.
+-- The old column is dropped rather than converted: it holds a chat id in clear,
+-- and the point of the change is that the value should never have been there.
+ALTER TABLE bridge_v2_link_codes ADD COLUMN IF NOT EXISTS telegram_chat_hmac text;
+ALTER TABLE bridge_v2_link_codes DROP COLUMN IF EXISTS telegram_chat_id;
+
 CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_link_codes_live_chat_unique
-  ON bridge_v2_link_codes (telegram_chat_id)
-  WHERE telegram_chat_id IS NOT NULL AND consumed_at IS NULL;
+  ON bridge_v2_link_codes (telegram_chat_hmac)
+  WHERE telegram_chat_hmac IS NOT NULL AND consumed_at IS NULL;
 CREATE INDEX IF NOT EXISTS bridge_v2_link_codes_participant_idx ON bridge_v2_link_codes (participant_id, giveaway_id);
 
 COMMENT ON TABLE bridge_v2_link_codes IS 'Single-use code bound to campaign and participant; consumed once by the Telegram bot.';
@@ -186,6 +209,12 @@ CREATE TABLE IF NOT EXISTS bridge_v2_entries (
   wallet_address  text          NOT NULL CHECK (wallet_address ~ '^0x[0-9a-fA-F]{40}$'),
   root_index      numeric(78,0),
   tx_hash         text,
+  -- H7: set once the derived wallet has been dealt with, whether the remainder
+  -- was recovered or was below the cost of recovering it. It is what makes the
+  -- sweep a queue that drains: without it the batch of oldest CONFIRMED entries
+  -- returned the same rows on every run, and any entry not in the first batch
+  -- was never swept at all.
+  swept_at        timestamptz,
   idempotency_key text          NOT NULL UNIQUE,
   created_at      timestamptz   NOT NULL DEFAULT now(),
   updated_at      timestamptz   NOT NULL DEFAULT now(),
@@ -197,6 +226,7 @@ CREATE TABLE IF NOT EXISTS bridge_v2_entries (
 CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_entries_phone_giveaway_unique
   ON bridge_v2_entries (giveaway_id, phone_hmac) WHERE phone_hmac IS NOT NULL;
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_giveaway_idx ON bridge_v2_entries (giveaway_id, status);
+ALTER TABLE bridge_v2_entries ADD COLUMN IF NOT EXISTS swept_at timestamptz;
 CREATE INDEX IF NOT EXISTS bridge_v2_entries_pending_idx ON bridge_v2_entries (status, updated_at);
 
 COMMENT ON COLUMN bridge_v2_entries.idempotency_key IS 'G5: one external effect per key. A repeat never funds or enters twice.';
@@ -309,10 +339,31 @@ CREATE TABLE IF NOT EXISTS bridge_v2_custody (
   requires_own_wallet      boolean     NOT NULL,
   destination_address      text        CHECK (destination_address IS NULL OR destination_address ~ '^0x[0-9a-fA-F]{40}$'),
   destination_confirmed_at timestamptz,
+  -- E3. Written when claimPrize is mined and the prize is actually in the
+  -- derived wallet, never at entry time: custody cannot expire before it starts,
+  -- and a campaign that runs longer than the window would otherwise have handed
+  -- every winner an expiry already in the past.
   custody_expires_at       timestamptz,
+  -- Section 7. claimed_at says the prize is in the derived wallet, delivered_at
+  -- says it has left for the address the winner confirmed. Two facts rather than
+  -- one status, because a run that dies between the claim and the delivery has
+  -- to be resumable at exactly the point it stopped.
+  claimed_at               timestamptz,
+  claim_tx_hash            text,
+  delivered_at             timestamptz,
+  delivery_tx_hash         text,
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claimed_at       timestamptz;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claim_tx_hash    text;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivered_at     timestamptz;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivery_tx_hash text;
+
+-- The prize queue: undelivered custody rows, oldest touched first.
+CREATE INDEX IF NOT EXISTS bridge_v2_custody_pending_idx
+  ON bridge_v2_custody (updated_at) WHERE delivered_at IS NULL;
 
 -- -----------------------------------------------------------------------------
 -- ops_events — K5 and K8

@@ -1,7 +1,9 @@
 import { handle, ok, refuse } from '../../../../lib/bridge-v2/http.js';
 import { optionalEnv } from '../../../../lib/bridge-v2/env.js';
+import { timingSafeEqualHex } from '../../../../lib/bridge-v2/crypto.js';
 import {
   processEligibleEntries,
+  processPrizes,
   publishPendingRoots,
   reconcileSubmitted,
 } from '../../../../lib/bridge-v2/processor.js';
@@ -10,8 +12,8 @@ import {
  * GET or POST /api/bridge/v2/cron/process
  *
  * Drives the on-chain pipeline: publish roots for what has been verified, fund
- * and submit what has been admitted, and finish anything whose receipt was never
- * seen.
+ * and submit what has been admitted, finish anything whose receipt was never
+ * seen, and collect and deliver the prizes of campaigns that have settled.
  *
  * Separate from the Telegram webhook on purpose. Telegram retries a delivery it
  * does not see acknowledged, so doing chain work inside the webhook would replay
@@ -26,7 +28,13 @@ import {
 const route = handle('cron/process', async ({ request, log }) => {
   const secret = optionalEnv('CRON_SECRET');
   if (secret === undefined) return refuse(503, 'Not available.');
-  if (request.headers.get('authorization') !== `Bearer ${secret}`) {
+  // J5 applies here as much as it does to a verification code: a shared secret
+  // compared with === returns at the first differing byte, and the difference is
+  // measurable across enough samples by anyone who can call this route as often
+  // as they like — which is anyone, since the comparison is the only thing
+  // guarding it. The bridge already owns a constant-time compare and this is the
+  // one place that was not using it.
+  if (!timingSafeEqualHex(request.headers.get('authorization') ?? '', `Bearer ${secret}`)) {
     return refuse(401, 'Unauthorized.');
   }
 
@@ -36,9 +44,13 @@ const route = handle('cron/process', async ({ request, log }) => {
   const reconciled = await reconcileSubmitted(log);
   const roots = await publishPendingRoots(log);
   const processed = await processEligibleEntries(log);
+  // Section 7, last because it is the only stage whose input is produced by a
+  // third party rather than by the stage before it: a campaign settles when its
+  // creator and Chainlink say so, not when this pipeline gets there.
+  const prizes = await processPrizes(log);
 
-  await log.event('route.ok', { reconciled, roots, processed });
-  return ok({ reconciled, roots, processed });
+  await log.event('route.ok', { reconciled, roots, processed, prizes });
+  return ok({ reconciled, roots, processed, prizes });
 });
 
 /**

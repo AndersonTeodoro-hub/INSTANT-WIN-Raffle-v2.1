@@ -13,6 +13,7 @@
  */
 
 import { checked, checkedMaybe, getDb } from './db.js';
+import { DB_TIMEOUT_MS } from './config.js';
 import { addressOf } from './wallet.js';
 
 export interface Participant {
@@ -43,6 +44,7 @@ async function findByEmail(canonicalEmail: string): Promise<Participant | null> 
       .from('bridge_v2_participants')
       .select('id, wallet_index, wallet_address')
       .eq('email_canonical', canonicalEmail)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as ParticipantRow | null;
   return row === null ? null : toParticipant(row);
@@ -65,7 +67,7 @@ export async function getOrCreateParticipant(canonicalEmail: string): Promise<Pa
   // Reserved before the address is derived, so the row can be written complete.
   const index = checked(
     'participant.reserve_index',
-    await db.rpc('bridge_v2_next_wallet_index'),
+    await db.rpc('bridge_v2_next_wallet_index').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as number | string;
 
   const walletIndex = Number(index);
@@ -79,6 +81,7 @@ export async function getOrCreateParticipant(canonicalEmail: string): Promise<Pa
       wallet_address: walletAddress,
     })
     .select('id, wallet_index, wallet_address')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (inserted.error) {
@@ -103,6 +106,7 @@ export async function getParticipant(id: string): Promise<Participant | null> {
       .from('bridge_v2_participants')
       .select('id, wallet_index, wallet_address')
       .eq('id', id)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as ParticipantRow | null;
   return row === null ? null : toParticipant(row);

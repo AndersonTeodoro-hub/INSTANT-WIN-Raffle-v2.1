@@ -3,6 +3,7 @@ import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { checked, checkedMaybe, getDb } from '../../../../lib/bridge-v2/db.js';
+import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
 
 /**
  * POST /api/bridge/v2/privacy/export
@@ -44,6 +45,7 @@ const route = handle('privacy/export', async ({ request, log }) => {
       .from('bridge_v2_participants')
       .select('email_canonical, wallet_address, created_at')
       .eq('id', session.participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as { email_canonical: string; wallet_address: string; created_at: string } | null;
 
@@ -53,9 +55,13 @@ const route = handle('privacy/export', async ({ request, log }) => {
     'export.entries',
     await db
       .from('bridge_v2_entries')
-      .select('giveaway_id, status, wallet_address, tx_hash, created_at, updated_at')
+      // ::text, like every other read of this column: numeric(78,0) does not
+      // survive a JSON number, and an export is the one place a wrong id would
+      // be handed to the participant as a fact about themselves.
+      .select('giveaway_id::text, status, wallet_address, tx_hash, created_at, updated_at')
       .eq('participant_id', session.participantId)
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as unknown[] | null;
 
   await log.event('route.ok');

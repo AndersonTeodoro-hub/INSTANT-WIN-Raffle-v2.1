@@ -15,7 +15,7 @@
  * same number, and a uniqueness key that resets on demand is not one.
  */
 
-import { PHONE_COOLDOWN_DAYS } from './config.js';
+import { DB_TIMEOUT_MS, PHONE_COOLDOWN_DAYS } from './config.js';
 import { keyedHash } from './crypto.js';
 import { checked, getDb } from './db.js';
 
@@ -32,6 +32,28 @@ export function hashPhone(normalisedNumber: string): Promise<string> {
  */
 export function hashTelegramId(telegramId: string): Promise<string> {
   return keyedHash('BRIDGE_V2_PHONE_HMAC_KEY', 'telegram-user-v1', telegramId);
+}
+
+/**
+ * R4 again, for the chat id, which was the one Telegram identifier still stored
+ * in clear.
+ *
+ * A chat id is a Telegram account identifier by another name: for a private
+ * chat with a bot it equals the user id, and the user id is kept hashed two
+ * functions above. Storing one in clear and the other under an HMAC protected
+ * nothing, because a dump of bridge_v2_link_codes named the Telegram account of
+ * every participant who ever opened the bot, next to the campaign they opened it
+ * for. R4 requires the phone number and the user id to be encrypted at rest
+ * under a key held separately from the data; the same rule reaches this value
+ * for the same reason.
+ *
+ * Its own label, so it shares a root with the other two Telegram identifiers and
+ * shares a derived key with neither. The hash is deterministic, which is all the
+ * lookup needs: the bot matches an arriving contact to the /start that preceded
+ * it by hashing the chat id again, never by reading one back.
+ */
+export function hashTelegramChatId(chatId: number): Promise<string> {
+  return keyedHash('BRIDGE_V2_PHONE_HMAC_KEY', 'telegram-chat-v1', String(chatId));
 }
 
 /**
@@ -78,7 +100,7 @@ export async function bindPhoneAndVerify(
       p_giveaway_id: giveawayId.toString(),
       p_telegram_id_hmac: telegramIdHash,
       p_cooldown_days: PHONE_COOLDOWN_DAYS,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as BindOutcome | null;
   // A null result is not a success. Treated as a duplicate so the caller refuses.
   return outcome ?? 'DUPLICATE';
@@ -100,7 +122,7 @@ export async function releasePhone(participantId: string): Promise<number> {
     await db.rpc('bridge_v2_release_phone', {
       p_participant_id: participantId,
       p_cooldown_days: PHONE_COOLDOWN_DAYS,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as number | null;
   return released ?? 0;
 }

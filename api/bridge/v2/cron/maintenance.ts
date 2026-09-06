@@ -1,5 +1,6 @@
 import { handle, ok, refuse } from '../../../../lib/bridge-v2/http.js';
 import { optionalEnv, assertEnv } from '../../../../lib/bridge-v2/env.js';
+import { timingSafeEqualHex } from '../../../../lib/bridge-v2/crypto.js';
 import {
   FUNDER_LOW_BALANCE_WEI,
   OPS_RETENTION_DAYS,
@@ -8,6 +9,7 @@ import {
   SPEND_ALERT_FRACTION,
   SPEND_CAPS,
   VRF_LOW_LINK_JUELS,
+  DB_TIMEOUT_MS,
 } from '../../../../lib/bridge-v2/config.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { sweepConfirmed } from '../../../../lib/bridge-v2/processor.js';
@@ -45,7 +47,13 @@ import { alert } from '../../../../lib/bridge-v2/alert.js';
 const route = handle('cron/maintenance', async ({ request, log }) => {
   const secret = optionalEnv('CRON_SECRET');
   if (secret === undefined) return refuse(503, 'Not available.');
-  if (request.headers.get('authorization') !== `Bearer ${secret}`) {
+  // J5 applies here as much as it does to a verification code: a shared secret
+  // compared with === returns at the first differing byte, and the difference is
+  // measurable across enough samples by anyone who can call this route as often
+  // as they like — which is anyone, since the comparison is the only thing
+  // guarding it. The bridge already owns a constant-time compare and this is the
+  // one place that was not using it.
+  if (!timingSafeEqualHex(request.headers.get('authorization') ?? '', `Bearer ${secret}`)) {
     return refuse(401, 'Unauthorized.');
   }
 
@@ -59,7 +67,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     await db.rpc('bridge_v2_cleanup', {
       p_ops_retention_days: OPS_RETENTION_DAYS,
       p_session_grace_days: SESSION_GRACE_DAYS,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as Array<{ table_name: string; rows_removed: number }> | null;
 
   const removed = Array.isArray(cleaned)
@@ -113,7 +121,8 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       .from('bridge_v2_external_spend')
       .select('provider, units')
       .eq('window_kind', 'DAY')
-      .gte('window_start', dayStart.toISOString()),
+      .gte('window_start', dayStart.toISOString())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as Array<{ provider: string; units: number }> | null;
 
   for (const row of Array.isArray(spend) ? spend : []) {
@@ -137,7 +146,8 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       .from('bridge_v2_ops_events')
       .select('route')
       .eq('kind', 'route.error')
-      .gte('created_at', hourAgo),
+      .gte('created_at', hourAgo)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as Array<{ route: string | null }> | null;
 
   const perRoute = new Map<string, number>();

@@ -11,9 +11,17 @@
  * address, with no exception. The reason for the NFT rule is that its value is
  * declared by the creator and is not verifiable on-chain — there is no number to
  * trust, so there is no threshold to apply.
+ *
+ * WHEN THE CLOCK STARTS. custody_expires_at is written when the prize is
+ * actually in the derived wallet, which is when claimPrize has been mined, and
+ * not when the entry is opened. Setting it at entry time dated a custody that
+ * had not begun, and for any campaign that runs longer than thirty days it dated
+ * it into the past: the window expired before there was anything in the wallet
+ * to expire. E3 asks that custody never be indefinite, and custody starts when
+ * the value arrives.
  */
 
-import { CUSTODY_OWN_WALLET_THRESHOLD, CUSTODY_TEMPORARY_DAYS } from './config.js';
+import { CUSTODY_TEMPORARY_DAYS, CUSTODY_OWN_WALLET_THRESHOLD, DB_TIMEOUT_MS } from './config.js';
 import { PrizeKind } from './abi.js';
 import { checked, checkedMaybe, getDb } from './db.js';
 
@@ -22,8 +30,6 @@ export type PrizeKindName = 'TOKEN' | 'NFT';
 export interface CustodyPolicy {
   readonly prizeKind: PrizeKindName;
   readonly requiresOwnWallet: boolean;
-  /** Null when the winner must supply an address, because nothing is held. */
-  readonly custodyExpiresAt: Date | null;
 }
 
 /**
@@ -44,21 +50,21 @@ export function policyFor(
   winnersCount: number,
 ): CustodyPolicy {
   if (prizeKind === PrizeKind.NFT) {
-    return { prizeKind: 'NFT', requiresOwnWallet: true, custodyExpiresAt: null };
+    return { prizeKind: 'NFT', requiresOwnWallet: true };
   }
 
   const winners = winnersCount > 0 ? BigInt(winnersCount) : 1n;
   const share = prizeAmount / winners;
 
-  if (share >= CUSTODY_OWN_WALLET_THRESHOLD) {
-    return { prizeKind: 'TOKEN', requiresOwnWallet: true, custodyExpiresAt: null };
-  }
+  return {
+    prizeKind: 'TOKEN',
+    requiresOwnWallet: share >= CUSTODY_OWN_WALLET_THRESHOLD,
+  };
+}
 
-  // E3: custody is never indefinite. The expiry is set the moment it begins, so
-  // there is no state in which a prize is held with no end date. Past it the
-  // contract's own claim deadline governs, which is where the value goes.
-  const expiry = new Date(Date.now() + CUSTODY_TEMPORARY_DAYS * 24 * 60 * 60 * 1000);
-  return { prizeKind: 'TOKEN', requiresOwnWallet: false, custodyExpiresAt: expiry };
+/** E3: how long temporary custody lasts, from the moment the prize arrives. */
+export function custodyExpiryFrom(startedAt: Date): Date {
+  return new Date(startedAt.getTime() + CUSTODY_TEMPORARY_DAYS * 24 * 60 * 60 * 1000);
 }
 
 /**
@@ -77,11 +83,10 @@ export async function recordPolicy(entryId: string, policy: CustodyPolicy): Prom
         entry_id: entryId,
         prize_kind: policy.prizeKind,
         requires_own_wallet: policy.requiresOwnWallet,
-        custody_expires_at: policy.custodyExpiresAt?.toISOString() ?? null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'entry_id' },
-    ),
+    ).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 }
 
@@ -91,7 +96,12 @@ export interface CustodyRecord {
   readonly requiresOwnWallet: boolean;
   readonly destinationAddress: `0x${string}` | null;
   readonly destinationConfirmedAt: string | null;
+  /** Set when the prize reached the derived wallet, never before (E3). */
   readonly custodyExpiresAt: string | null;
+  readonly claimedAt: string | null;
+  readonly claimTxHash: string | null;
+  readonly deliveredAt: string | null;
+  readonly deliveryTxHash: string | null;
 }
 
 interface CustodyRow {
@@ -101,6 +111,30 @@ interface CustodyRow {
   destination_address: string | null;
   destination_confirmed_at: string | null;
   custody_expires_at: string | null;
+  claimed_at: string | null;
+  claim_tx_hash: string | null;
+  delivered_at: string | null;
+  delivery_tx_hash: string | null;
+}
+
+const CUSTODY_COLUMNS =
+  'entry_id, prize_kind, requires_own_wallet, destination_address, ' +
+  'destination_confirmed_at, custody_expires_at, claimed_at, claim_tx_hash, ' +
+  'delivered_at, delivery_tx_hash';
+
+function toCustody(row: CustodyRow): CustodyRecord {
+  return {
+    entryId: row.entry_id,
+    prizeKind: row.prize_kind,
+    requiresOwnWallet: row.requires_own_wallet,
+    destinationAddress: row.destination_address as `0x${string}` | null,
+    destinationConfirmedAt: row.destination_confirmed_at,
+    custodyExpiresAt: row.custody_expires_at,
+    claimedAt: row.claimed_at,
+    claimTxHash: row.claim_tx_hash,
+    deliveredAt: row.delivered_at,
+    deliveryTxHash: row.delivery_tx_hash,
+  };
 }
 
 export async function readCustody(entryId: string): Promise<CustodyRecord | null> {
@@ -109,20 +143,13 @@ export async function readCustody(entryId: string): Promise<CustodyRecord | null
     'custody.select',
     await db
       .from('bridge_v2_custody')
-      .select('entry_id, prize_kind, requires_own_wallet, destination_address, destination_confirmed_at, custody_expires_at')
+      .select(CUSTODY_COLUMNS)
       .eq('entry_id', entryId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as CustodyRow | null;
 
-  if (row === null) return null;
-  return {
-    entryId: row.entry_id,
-    prizeKind: row.prize_kind,
-    requiresOwnWallet: row.requires_own_wallet,
-    destinationAddress: row.destination_address as `0x${string}` | null,
-    destinationConfirmedAt: row.destination_confirmed_at,
-    custodyExpiresAt: row.custody_expires_at,
-  };
+  return row === null ? null : toCustody(row);
 }
 
 /**
@@ -146,6 +173,7 @@ export async function proposeDestination(
     })
     .eq('entry_id', entryId)
     .select('entry_id')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
     .maybeSingle();
   if (updated.error) return false;
   return updated.data !== null;
@@ -172,7 +200,130 @@ export async function confirmDestination(
     .eq('entry_id', entryId)
     .eq('destination_address', destination)
     .select('entry_id')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
     .maybeSingle();
   if (updated.error) return false;
   return updated.data !== null;
+}
+
+// -----------------------------------------------------------------------------
+// The prize queue — what the scheduled pass reads and writes
+// -----------------------------------------------------------------------------
+
+/** One row of the prize queue: the custody record plus the entry it belongs to. */
+export interface PendingPrize {
+  readonly custody: CustodyRecord;
+  readonly participantId: string;
+  readonly giveawayId: bigint;
+  readonly walletAddress: `0x${string}`;
+}
+
+interface PendingRow extends CustodyRow {
+  entry: {
+    participant_id: string;
+    giveaway_id: string;
+    wallet_address: string;
+  };
+}
+
+/**
+ * Prizes that have not been delivered yet, oldest first.
+ *
+ * Only entries that reached the chain can have won anything, so the join is an
+ * inner one on CONFIRMED. The ordering key is updated_at and every pass writes
+ * it, whether or not it managed to move the prize along — otherwise a row that
+ * cannot progress yet, because the winner has not named a destination, sits at
+ * the head of the queue for ever and the rows behind it are never looked at.
+ *
+ * giveaway_id is cast to text in the query. It is numeric(78,0) and PostgREST
+ * renders a numeric as a JSON number, which is an IEEE double: a uint256 id
+ * would arrive already rounded, and BigInt() of a rounded double is a different
+ * campaign or a thrown error.
+ */
+export async function listPendingPrizes(limit: number): Promise<PendingPrize[]> {
+  const db = getDb();
+  const rows = checked(
+    'custody.list_pending',
+    await db
+      .from('bridge_v2_custody')
+      .select(
+        `${CUSTODY_COLUMNS}, entry:bridge_v2_entries!inner(participant_id, giveaway_id::text, wallet_address, status)`,
+      )
+      .is('delivered_at', null)
+      .eq('entry.status', 'CONFIRMED')
+      .order('updated_at', { ascending: true })
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as PendingRow[] | null;
+
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    custody: toCustody(row),
+    participantId: row.entry.participant_id,
+    giveawayId: BigInt(row.entry.giveaway_id),
+    walletAddress: row.entry.wallet_address as `0x${string}`,
+  }));
+}
+
+/**
+ * E3: records that the prize is now in the derived wallet, and when custody ends.
+ *
+ * The expiry is written here and nowhere else, because here is the first moment
+ * at which there is a custody to expire. Conditional on claimed_at being null so
+ * two passes that both saw an unmined claim cannot restart the clock.
+ */
+export async function beginCustody(
+  entryId: string,
+  claimTxHash: string | null,
+  expiresAt: Date | null,
+): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = await db
+    .from('bridge_v2_custody')
+    .update({
+      claimed_at: now,
+      claim_tx_hash: claimTxHash,
+      custody_expires_at: expiresAt?.toISOString() ?? null,
+      updated_at: now,
+    })
+    .eq('entry_id', entryId)
+    .is('claimed_at', null)
+    .select('entry_id')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+    .maybeSingle();
+  if (updated.error) return false;
+  return updated.data !== null;
+}
+
+/** The prize left the derived wallet for the address the winner confirmed (E4). */
+export async function markDelivered(entryId: string, txHash: string | null): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = await db
+    .from('bridge_v2_custody')
+    .update({ delivered_at: now, delivery_tx_hash: txHash, updated_at: now })
+    .eq('entry_id', entryId)
+    .is('delivered_at', null)
+    .select('entry_id')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+    .maybeSingle();
+  if (updated.error) return false;
+  return updated.data !== null;
+}
+
+/**
+ * Moves a row to the back of the prize queue without changing anything else.
+ *
+ * What makes the queue a queue. A prize waiting on a destination the participant
+ * has not given yet is not an error and not finished; it just must not be the
+ * row every run looks at first.
+ */
+export async function touchCustody(entryId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .from('bridge_v2_custody')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('entry_id', entryId)
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
 }

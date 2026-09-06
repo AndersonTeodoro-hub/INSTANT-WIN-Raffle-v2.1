@@ -11,7 +11,7 @@
  * not limited is a free enumeration budget.
  */
 
-import { RATE_LIMITS, type RateAxis } from './config.js';
+import { DB_TIMEOUT_MS, RATE_LIMITS, type RateAxis } from './config.js';
 import { getDb, checked } from './db.js';
 import { sha256Hex } from './crypto.js';
 
@@ -57,7 +57,7 @@ export async function enforce(checks: readonly AxisCheck[]): Promise<RateVerdict
         p_window_seconds: limit.windowSeconds,
         p_max_count: limit.max,
         p_penalty_seconds: limit.penaltySeconds,
-      }),
+      }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
     ) as HitRow[] | null;
 
     const verdict = Array.isArray(rows) ? rows[0] : undefined;

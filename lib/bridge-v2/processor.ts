@@ -15,7 +15,6 @@
  * serverless runtime, but the timing itself is the owner's to fix.
  */
 
-import { SWEEP_MIN_WEI } from './config.js';
 import { claimSpend } from './spend.js';
 import { alert } from './alert.js';
 import type { Logger } from './log.js';
@@ -26,20 +25,38 @@ import {
   listEligible,
   listSubmitted,
   listVerified,
+  markSwept,
+  touch,
   type Entry,
 } from './entries.js';
 import { proofForAddress, publishBatch } from './eligibility.js';
 import {
   ChainError,
+  claimableFor,
+  claimDeadlineSeconds,
+  fundDerivedWallet,
   hasEntered,
+  prizeAlreadyClaimed,
+  prizeDelivery,
+  quoteClaim,
+  quoteDelivery,
   quoteEntryCost,
   readGiveaway,
   slotsRemaining,
-  submitEnter,
+  submitAsDerived,
   sweepRemainder,
   waitForReceipt,
-  fundDerivedWallet,
+  type GasPlan,
 } from './chain.js';
+import {
+  beginCustody,
+  custodyExpiryFrom,
+  listPendingPrizes,
+  markDelivered,
+  touchCustody,
+  type PendingPrize,
+} from './custody.js';
+import { GIVEAWAY_MANAGER_V2 } from './config.js';
 import {
   acquireFunder,
   disableFunder,
@@ -97,6 +114,10 @@ export async function publishPendingRoots(log: Logger): Promise<number> {
     }
 
     const root = await publishBatch(giveawayId, admit.map((entry) => entry.walletAddress), log);
+    // Not confirmed on chain: nothing was recorded, so nothing is promoted. The
+    // entries stay VERIFIED and the next run publishes again against a freshly
+    // read index (eligibility.ts).
+    if (root === null) continue;
 
     for (const entry of admit) {
       await advance(entry.id, 'VERIFIED', 'ELIGIBLE', { root_index: root.rootIndex.toString() });
@@ -209,9 +230,10 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
       return;
     }
 
-    const hash = await submitEnter(
+    const hash = await submitAsDerived(
       participant.walletIndex,
       entry.walletAddress,
+      GIVEAWAY_MANAGER_V2,
       quote.data,
       quote.plan,
       signAsDerived,
@@ -283,8 +305,15 @@ export async function reconcileSubmitted(log: Logger): Promise<number> {
       // sweep will recover if the entry never succeeds.
       await advance(entry.id, 'SUBMITTED', 'ELIGIBLE');
       await log.event('entry.failed', { reason: 'reverted' });
+      continue;
     }
-    // Still pending: left alone for the next run.
+
+    // Still in the mempool. Nothing about the entry changes, but its place in
+    // the queue must: the list is the oldest SUBMITTED entries by updated_at,
+    // and leaving the row untouched keeps it at the head of every subsequent
+    // run. One transaction that never confirms would then stop every entry
+    // behind it from ever being reconciled.
+    await touch(entry.id);
   }
 
   return entries.length;
@@ -308,26 +337,333 @@ export async function sweepConfirmed(log: Logger, destination: `0x${string}`): P
 
   for (const entry of entries) {
     const participant = await getParticipant(entry.participantId);
-    if (participant === null) continue;
+    if (participant === null) {
+      // No participant row means no derivation index, so this wallet can never
+      // be signed for. Marked, or it holds the head of the queue for ever.
+      await markSwept(entry.id);
+      continue;
+    }
 
     try {
       const hash = await sweepRemainder(
         participant.walletIndex,
         entry.walletAddress,
         destination,
-        SWEEP_MIN_WEI,
         signAsDerived,
       );
       if (hash !== null) {
         swept += 1;
         await log.event('sweep.done', { giveaway_id: entry.giveawayId.toString() });
       }
+      // Marked either way. A null means the remainder is below what the sweep
+      // itself costs, and nothing will ever fund this wallet again, so there is
+      // no later run in which the answer changes. Leaving it unmarked is what
+      // made the batch return the same rows for ever and never reach the
+      // entries behind them.
+      await markSwept(entry.id);
     } catch (error) {
       // A wallet that cannot be swept is not a failure of the entry, which has
-      // already confirmed. Recorded and left for the next run.
+      // already confirmed. Recorded, marked, and not retried: the batch is a
+      // queue and a row that throws must not be the head of it for ever.
       await log.failure('sweep.done', error);
+      await markSwept(entry.id);
     }
   }
 
   return swept;
+}
+
+// -----------------------------------------------------------------------------
+// Prizes — E1 to E4, and claimPrize(uint256)
+// -----------------------------------------------------------------------------
+
+/** How many prizes one scheduled run touches. */
+const PRIZE_BATCH = 10;
+
+/**
+ * Funds a derived wallet for one call and sends it, under a funder lease.
+ *
+ * The claim and the delivery need exactly what an entry needs — a wallet with no
+ * balance has to be given the gas for its own transaction first — so this is the
+ * same sequence processEligible runs, with the same G3 renewal across the slow
+ * half and the same G6 nonce accounting in the finally.
+ *
+ * Returns null when the transaction could not be sent; the caller decides what
+ * that means for its own state.
+ */
+async function fundAndSubmit(
+  walletIndex: number,
+  wallet: `0x${string}`,
+  to: `0x${string}`,
+  data: `0x${string}`,
+  plan: GasPlan,
+  log: Logger,
+): Promise<`0x${string}` | null> {
+  // B8: the gas budget is claimed before any of it is spent, exactly as on the
+  // entry path. A settled campaign gets no free pass to the pool.
+  if (!(await claimSpend('chain', 1, log))) return null;
+
+  const lease = await acquireFunder();
+  if (lease === null) {
+    await log.event('funder.exhausted');
+    await alert(log, 'no funder available');
+    return null;
+  }
+
+  let nextNonce = lease.nextNonce;
+  try {
+    const fundingHash = await fundDerivedWallet(
+      lease,
+      wallet,
+      plan.worstCaseWei,
+      signAsFunder,
+      (spent) => {
+        nextNonce = spent;
+      },
+    );
+
+    const funded = await waitForReceipt(fundingHash);
+    if (funded === null || funded.status !== 'success') {
+      await log.event('prize.failed', { reason: 'funding_not_mined' });
+      return null;
+    }
+
+    // G3: the lease is extended before the second, slower half rather than left
+    // to lapse under a running operation.
+    if (!(await renewLease(lease))) {
+      await log.event('prize.failed', { reason: 'lease_lost' });
+      return null;
+    }
+
+    return await submitAsDerived(walletIndex, wallet, to, data, plan, signAsDerived);
+  } finally {
+    // G6: the nonce advances whether or not the transaction succeeded, because a
+    // broadcast transaction consumes its nonce either way.
+    const released = await releaseFunder(lease, nextNonce);
+    if (!released) {
+      await disableFunder(lease.index);
+      await log.event('funder.disabled', { funder_index: lease.index });
+      await alert(log, 'funder lease could not be released', { funder_index: lease.index });
+    }
+  }
+}
+
+/**
+ * Collects and delivers one prize.
+ *
+ * The premise, stated once, because both branches below follow from it: a prize
+ * can only ever be collected by the derived wallet. claimPrize pays msg.sender,
+ * and the winner the contract drew is the address that entered, so there is no
+ * arrangement in which the participant claims for themselves and no parameter
+ * anywhere that would deliver the prize elsewhere in a single step.
+ *
+ * TEMPORARY CUSTODY — a token prize whose per-winner share is under the E2
+ * threshold. The claim is made as soon as the campaign settles, which puts the
+ * value beyond the reach of the ninety-day deadline and makes it the winner's;
+ * the thirty-day clock starts at that moment and not before (E3). When the
+ * participant confirms a destination the prize is handed on; past the expiry
+ * with none given, the bridge stops and raises an alert instead of holding it
+ * silently for ever.
+ *
+ * OWN WALLET — every NFT, and any token share at or above the threshold. Nothing
+ * is claimed until a destination is confirmed, because claiming early would park
+ * a large prize in the one place E1 says value must never rest. Once it is
+ * confirmed, the claim and the delivery are two transactions back to back and
+ * the prize is in the derived wallet only between them.
+ *
+ * Both branches record the same two facts, so a run that dies between them is
+ * picked up by the next: claimed_at says the prize is in the wallet,
+ * delivered_at says it has left.
+ */
+async function processPrize(
+  pending: PendingPrize,
+  log: Logger,
+  deadlineSeconds: bigint,
+): Promise<boolean> {
+  const { custody, giveawayId, walletAddress } = pending;
+
+  const campaign = await readGiveaway(giveawayId);
+  if (!campaign.isSettled) {
+    // Not drawn yet, or cancelled. Either way there is nothing to collect now.
+    await touchCustody(custody.entryId);
+    return false;
+  }
+
+  const participant = await getParticipant(pending.participantId);
+  if (participant === null) {
+    await touchCustody(custody.entryId);
+    return false;
+  }
+
+  // E4: only a destination the participant confirmed counts. A merely proposed
+  // one is an address they have been shown and have not yet agreed to.
+  const destination = custody.destinationConfirmedAt === null ? null : custody.destinationAddress;
+
+  // The contract's own window, read from the contract rather than copied here.
+  // Past it claimPrize reverts with ClaimExpired and the creator may reclaim, so
+  // there is nothing left for this side to attempt.
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+  const claimClosed = nowSeconds > campaign.settledAt + deadlineSeconds;
+
+  // ---------------------------------------------------------------- the claim
+  if (custody.claimedAt === null && (await prizeAlreadyClaimed(giveawayId, walletAddress))) {
+    // The contract says this wallet has been paid and this side has no record of
+    // it, which is what a claim broadcast by a run that died before its receipt
+    // arrived looks like. The prize is in the wallet; custody began when that
+    // transaction was mined and the row has to say so, or the delivery below is
+    // never reached and the value stays where E1 says nothing may rest.
+    await beginCustody(
+      custody.entryId,
+      custody.claimTxHash,
+      custody.requiresOwnWallet ? null : custodyExpiryFrom(new Date()),
+    );
+    await log.event('prize.claimed', {
+      giveaway_id: giveawayId.toString(),
+      prize_kind: custody.prizeKind,
+      reason: 'already_on_chain',
+    });
+  } else if (custody.claimedAt === null) {
+    if (claimClosed) {
+      await log.event('prize.expired', { giveaway_id: giveawayId.toString() });
+      await touchCustody(custody.entryId);
+      return false;
+    }
+
+    // E2: a prize that must go to a wallet the winner owns is not claimed until
+    // there is one to send it to.
+    if (custody.requiresOwnWallet && destination === null) {
+      await touchCustody(custody.entryId);
+      return false;
+    }
+
+    if ((await claimableFor(giveawayId, walletAddress)) <= 0n) {
+      // Not a winner, or the prize is already collected. Neither is an error,
+      // and neither becomes one by being looked at again.
+      await touchCustody(custody.entryId);
+      return false;
+    }
+
+    const quote = await quoteClaim(giveawayId, walletAddress);
+    const claimHash = await fundAndSubmit(
+      participant.walletIndex,
+      walletAddress,
+      GIVEAWAY_MANAGER_V2,
+      quote.data,
+      quote.plan,
+      log,
+    );
+    if (claimHash === null) {
+      await touchCustody(custody.entryId);
+      return false;
+    }
+
+    const claimed = await waitForReceipt(claimHash);
+    if (claimed === null || claimed.status !== 'success') {
+      // Nothing recorded, so the next run sees an unclaimed prize and tries
+      // again — which is right either way, because claimableFor above reads zero
+      // once a claim has landed and turns the retry into a no-op rather than a
+      // second attempt.
+      await log.event('prize.failed', { reason: 'claim_not_mined' });
+      await touchCustody(custody.entryId);
+      return false;
+    }
+
+    // E3: the prize is in the derived wallet now. This is the moment custody
+    // begins and therefore the only moment at which its expiry may be set. The
+    // own-wallet branch gets none, because it holds nothing: the delivery below
+    // runs in the same pass.
+    await beginCustody(
+      custody.entryId,
+      claimHash,
+      custody.requiresOwnWallet ? null : custodyExpiryFrom(new Date()),
+    );
+    await log.event('prize.claimed', {
+      giveaway_id: giveawayId.toString(),
+      prize_kind: custody.prizeKind,
+    });
+  }
+
+  // ------------------------------------------------------------- the delivery
+  if (destination === null) {
+    // E3: temporary custody is bounded. Past the expiry with no destination
+    // given, somebody's money is sitting in a wallet the specification says is
+    // not a vault, and that is worth waking somebody up for.
+    const expiry = custody.custodyExpiresAt;
+    if (expiry !== null && new Date(expiry).getTime() <= Date.now()) {
+      await log.event('prize.custody_expired', { giveaway_id: giveawayId.toString() });
+      await alert(log, 'temporary custody expired with no destination');
+    }
+    await touchCustody(custody.entryId);
+    return false;
+  }
+
+  const delivery = await prizeDelivery(campaign, giveawayId, walletAddress, destination);
+  if (delivery === null) {
+    // Nothing left in the wallet to hand on, which is what an earlier delivery
+    // mined after this side stopped waiting looks like.
+    await markDelivered(custody.entryId, custody.deliveryTxHash);
+    return false;
+  }
+
+  const plan = await quoteDelivery(walletAddress, delivery);
+  // H2: the destination is the address confirmed under a session (E4) and read
+  // from the row; the token or collection comes from the chain. Neither reaches
+  // here from a request.
+  const deliveryHash = await fundAndSubmit(
+    participant.walletIndex,
+    walletAddress,
+    delivery.to,
+    delivery.data,
+    plan,
+    log,
+  );
+  if (deliveryHash === null) {
+    await touchCustody(custody.entryId);
+    return false;
+  }
+
+  const receipt = await waitForReceipt(deliveryHash);
+  if (receipt?.status !== 'success') {
+    // Not marked delivered. The next run reads the wallet balance again, so a
+    // transfer that confirms late is seen as nothing left to send rather than
+    // sent a second time.
+    await log.event('prize.failed', { reason: 'delivery_not_mined' });
+    await touchCustody(custody.entryId);
+    return false;
+  }
+
+  await markDelivered(custody.entryId, deliveryHash);
+  await log.event('prize.delivered', {
+    giveaway_id: giveawayId.toString(),
+    prize_kind: custody.prizeKind,
+  });
+  return true;
+}
+
+/**
+ * Runs the prize path for a bounded number of entries.
+ *
+ * Every row the pass looks at is written, moved along or not, so the queue
+ * advances and a prize waiting on a destination does not shadow the ones behind
+ * it.
+ */
+export async function processPrizes(log: Logger): Promise<number> {
+  const pending = await listPendingPrizes(PRIZE_BATCH);
+  if (pending.length === 0) return 0;
+
+  // Read once per run rather than once per prize: it is a constant in the
+  // deployed bytecode, and a second read would only be a second chance for the
+  // RPC to fail.
+  const deadlineSeconds = await claimDeadlineSeconds();
+
+  let delivered = 0;
+  for (const prize of pending) {
+    try {
+      if (await processPrize(prize, log, deadlineSeconds)) delivered += 1;
+    } catch (error) {
+      await log.failure('prize.failed', error);
+      await touchCustody(prize.custody.entryId);
+    }
+  }
+  return delivered;
 }

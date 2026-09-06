@@ -7,6 +7,7 @@ import { parseEmail } from '../../../../lib/bridge-v2/validate.js';
 import { sendCodeEmail } from '../../../../lib/bridge-v2/mail.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
 import { getDb, checkedMaybe } from '../../../../lib/bridge-v2/db.js';
+import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
 
 /**
  * POST /api/bridge/v2/session/request-code   {email}
@@ -49,6 +50,7 @@ const route = handle('session/request-code', async ({ request, log }) => {
       .from('bridge_v2_participants')
       .select('id')
       .eq('email_canonical', canonical)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as { id: string } | null;
 

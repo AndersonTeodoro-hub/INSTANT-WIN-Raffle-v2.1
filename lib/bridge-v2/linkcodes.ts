@@ -13,9 +13,10 @@
  * third party, and because a database dump must not yield replayable codes.
  */
 
-import { LINK_CODE_BYTES, LINK_CODE_TTL_MS } from './config.js';
+import { DB_TIMEOUT_MS, LINK_CODE_BYTES, LINK_CODE_TTL_MS } from './config.js';
 import { keyedHash, randomBytes, toBase64Url } from './crypto.js';
 import { checked, getDb } from './db.js';
+import { hashTelegramChatId } from './phone.js';
 
 function hashLinkCode(code: string): Promise<string> {
   return keyedHash('BRIDGE_V2_CODE_HMAC_KEY', 'telegram-link-v1', code);
@@ -39,7 +40,7 @@ export async function issueLinkCode(participantId: string, giveawayId: bigint): 
       participant_id: participantId,
       giveaway_id: giveawayId.toString(),
       expires_at: new Date(Date.now() + LINK_CODE_TTL_MS).toISOString(),
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
   return code;
@@ -75,6 +76,11 @@ function toLink(row: LinkRow): ConsumedLink {
  *
  * Not consumed here: the code is spent when the contact actually arrives, so a
  * participant who opens the link and never shares a number has not burned it.
+ *
+ * R4: what is written on the row is the HMAC of the chat id, never the id. The
+ * bot has no need to read one back, only to recognise the same chat twice, and a
+ * keyed hash does that without leaving a table that names the Telegram account
+ * of every participant beside the campaign they opened.
  */
 export async function claimLinkForChat(code: string, chatId: number): Promise<ConsumedLink | null> {
   const db = getDb();
@@ -82,8 +88,8 @@ export async function claimLinkForChat(code: string, chatId: number): Promise<Co
     'linkcode.claim_for_chat',
     await db.rpc('bridge_v2_claim_link_for_chat', {
       p_code_hash: await hashLinkCode(code),
-      p_chat_id: chatId,
-    }),
+      p_chat_hmac: await hashTelegramChatId(chatId),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as LinkRow[] | null;
 
   const row = Array.isArray(rows) ? rows[0] : undefined;
@@ -102,7 +108,9 @@ export async function consumeLinkForChat(chatId: number): Promise<ConsumedLink |
   const db = getDb();
   const rows = checked(
     'linkcode.consume_for_chat',
-    await db.rpc('bridge_v2_consume_link_for_chat', { p_chat_id: chatId }),
+    await db
+      .rpc('bridge_v2_consume_link_for_chat', { p_chat_hmac: await hashTelegramChatId(chatId) })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as LinkRow[] | null;
 
   const row = Array.isArray(rows) ? rows[0] : undefined;

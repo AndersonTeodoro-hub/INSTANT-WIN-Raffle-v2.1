@@ -5,6 +5,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
+import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
 
 /**
  * POST /api/bridge/v2/privacy/erase
@@ -61,7 +62,8 @@ const route = handle('privacy/erase', async ({ request, log }) => {
     await db
       .from('bridge_v2_participants')
       .update({ email_canonical: tombstone, updated_at: new Date().toISOString() })
-      .eq('id', session.participantId),
+      .eq('id', session.participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
   const revoked = await revokeAllSessions(session.participantId);

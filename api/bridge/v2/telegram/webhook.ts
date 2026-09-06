@@ -1,9 +1,13 @@
 import { handle, methodGuard, ok, readJsonBody, refuse } from '../../../../lib/bridge-v2/http.js';
 import { enforce } from '../../../../lib/bridge-v2/ratelimit.js';
-import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { parseLinkCode, parsePhone, parseTelegramId } from '../../../../lib/bridge-v2/validate.js';
 import { claimLinkForChat, consumeLinkForChat } from '../../../../lib/bridge-v2/linkcodes.js';
-import { bindPhoneAndVerify, hashPhone, hashTelegramId } from '../../../../lib/bridge-v2/phone.js';
+import {
+  bindPhoneAndVerify,
+  hashPhone,
+  hashTelegramChatId,
+  hashTelegramId,
+} from '../../../../lib/bridge-v2/phone.js';
 import { BOT_MESSAGES, askForContact, isFromTelegram, sendAndClearKeyboard, sendText } from '../../../../lib/bridge-v2/telegram.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
 
@@ -35,10 +39,22 @@ const route = handle('telegram/webhook', async ({ request, log }) => {
     return refuse(401, 'Unauthorized.');
   }
 
-  const signals = await extractSignals(request);
-  const verdict = await enforce([{ axis: 'ROUTE_GLOBAL', value: 'telegram/webhook' }, { axis: 'IP', value: signals.ipHash }]);
-  if (!verdict.allowed) {
-    await log.event('ratelimit.denied', { axis: verdict.deniedAxis ?? 'unknown' });
+  // The route ceiling, and nothing per source address.
+  //
+  // There is no IP axis here, and there must not be one. Every update on this
+  // route arrives from Telegram, so the source address identifies Telegram and
+  // not the person: the axis counted the whole world as one caller. It bought
+  // nothing against an abuser, who reaches this route only through Telegram like
+  // everybody else, and it cost everything under load, because one participant
+  // could put the shared key into penalty and B4 would then hold every other
+  // participant behind a growing wait. A limit that cannot separate its subjects
+  // is a denial-of-service switch with extra steps.
+  //
+  // B2 is satisfied by the axes that do separate them, and they are below: the
+  // chat, once one is known, and the number, at the point where one exists.
+  const routeVerdict = await enforce([{ axis: 'ROUTE_GLOBAL', value: 'telegram/webhook' }]);
+  if (!routeVerdict.allowed) {
+    await log.event('ratelimit.denied', { axis: routeVerdict.deniedAxis ?? 'unknown' });
     return ok();
   }
 
@@ -51,6 +67,15 @@ const route = handle('telegram/webhook', async ({ request, log }) => {
   const chat = message.chat as Record<string, unknown> | undefined;
   const chatId = typeof chat?.id === 'number' ? chat.id : null;
   if (chatId === null) return ok();
+
+  // B2, per caller. The chat is the only thing on this route that identifies one
+  // person before a number has been shared, so it is the axis that has to hold
+  // the flood. Keyed on the HMAC, never on the id (K4, R4).
+  const chatVerdict = await enforce([{ axis: 'TELEGRAM_CHAT', value: await hashTelegramChatId(chatId) }]);
+  if (!chatVerdict.allowed) {
+    await log.event('ratelimit.denied', { axis: 'TELEGRAM_CHAT' });
+    return ok();
+  }
 
   await log.event('telegram.update');
 

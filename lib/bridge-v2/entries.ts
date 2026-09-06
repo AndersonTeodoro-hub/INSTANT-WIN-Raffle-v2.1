@@ -13,6 +13,7 @@
  */
 
 import { checked, checkedMaybe, getDb } from './db.js';
+import { DB_TIMEOUT_MS } from './config.js';
 import { sha256Hex } from './crypto.js';
 import type { Participant } from './participants.js';
 
@@ -47,8 +48,20 @@ interface EntryRow {
   tx_hash: string | null;
 }
 
+/**
+ * giveaway_id and root_index are cast to text by the database, not converted by
+ * this process.
+ *
+ * Both are numeric(78,0), and PostgREST renders a numeric as a JSON number.
+ * JSON.parse turns that into an IEEE double, so any id past 2^53 arrives already
+ * rounded and BigInt() either throws on the fractional result or silently yields
+ * a different campaign. The declared type of the row said string while the value
+ * was a number, which is exactly the shape of bug that survives a type checker.
+ * ::text makes the wire format match the declaration, and the conversion to
+ * bigint then happens from an exact decimal string.
+ */
 const COLUMNS =
-  'id, participant_id, giveaway_id, status, wallet_address, phone_hmac, root_index, tx_hash';
+  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash';
 
 function toEntry(row: EntryRow): Entry {
   return {
@@ -77,6 +90,7 @@ export async function findEntry(participantId: string, giveawayId: bigint): Prom
       .select(COLUMNS)
       .eq('participant_id', participantId)
       .eq('giveaway_id', giveawayId.toString())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as EntryRow | null;
   return row === null ? null : toEntry(row);
@@ -105,6 +119,7 @@ export async function openEntry(participant: Participant, giveawayId: bigint): P
       idempotency_key: await idempotencyKey(participant.id, giveawayId),
     })
     .select(COLUMNS)
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (inserted.error) {
@@ -138,6 +153,7 @@ export async function advance(
     .eq('id', entryId)
     .eq('status', from)
     .select('id')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
     .maybeSingle();
 
   if (updated.error) return false;
@@ -155,7 +171,8 @@ export async function listVerified(giveawayId: bigint, limit: number): Promise<E
       .eq('giveaway_id', giveawayId.toString())
       .eq('status', 'VERIFIED')
       .order('created_at', { ascending: true })
-      .limit(limit),
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as EntryRow[] | null;
   return Array.isArray(rows) ? rows.map(toEntry) : [];
 }
@@ -167,9 +184,10 @@ export async function campaignsWithVerified(limit: number): Promise<bigint[]> {
     'entry.campaigns_pending',
     await db
       .from('bridge_v2_entries')
-      .select('giveaway_id')
+      .select('giveaway_id::text')
       .eq('status', 'VERIFIED')
-      .limit(limit),
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as Array<{ giveaway_id: string }> | null;
   if (!Array.isArray(rows)) return [];
   return [...new Set(rows.map((row) => row.giveaway_id))].map((id) => BigInt(id));
@@ -185,7 +203,8 @@ export async function listEligible(limit: number): Promise<Entry[]> {
       .select(COLUMNS)
       .eq('status', 'ELIGIBLE')
       .order('updated_at', { ascending: true })
-      .limit(limit),
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as EntryRow[] | null;
   return Array.isArray(rows) ? rows.map(toEntry) : [];
 }
@@ -207,12 +226,23 @@ export async function listSubmitted(limit: number): Promise<Entry[]> {
       .select(COLUMNS)
       .eq('status', 'SUBMITTED')
       .order('updated_at', { ascending: true })
-      .limit(limit),
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as EntryRow[] | null;
   return Array.isArray(rows) ? rows.map(toEntry) : [];
 }
 
-/** Entries that reached the chain, for the H7 sweep. */
+/**
+ * Entries that reached the chain and have not been swept yet, for H7.
+ *
+ * swept_at is the reason this is a queue that drains rather than a window that
+ * never moves. An entry stays CONFIRMED for ever, so a list of CONFIRMED
+ * entries ordered by updated_at and capped at a batch returned the same rows on
+ * every scheduled run: whatever the first batch could not sweep — a wallet whose
+ * remainder is not worth the transaction is the common case — blocked every
+ * entry behind it permanently. The column is written for each entry the pass
+ * looked at, including the ones it decided not to sweep, so the head advances.
+ */
 export async function listConfirmed(limit: number): Promise<Entry[]> {
   const db = getDb();
   const rows = checked(
@@ -221,8 +251,45 @@ export async function listConfirmed(limit: number): Promise<Entry[]> {
       .from('bridge_v2_entries')
       .select(COLUMNS)
       .eq('status', 'CONFIRMED')
+      .is('swept_at', null)
       .order('updated_at', { ascending: true })
-      .limit(limit),
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as EntryRow[] | null;
   return Array.isArray(rows) ? rows.map(toEntry) : [];
+}
+
+/**
+ * H7: this entry's derived wallet has been dealt with, whatever the outcome.
+ *
+ * Written for a wallet that was swept and for one whose remainder was below the
+ * cost of sweeping it. The second case is terminal too: nothing funds that
+ * wallet again, so a remainder that is not worth recovering today is not worth
+ * recovering later either.
+ */
+export async function markSwept(entryId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .from('bridge_v2_entries')
+    .update({ swept_at: new Date().toISOString() })
+    .eq('id', entryId)
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
+}
+
+/**
+ * Moves an entry to the back of its queue without changing its state.
+ *
+ * For the pass that finds a submitted transaction still pending: nothing has
+ * happened yet, the row is right as it stands, and the only thing that must
+ * change is that the next run looks at a different entry first. Without it a
+ * transaction that stays in the mempool holds the head of the reconciliation
+ * queue and every entry behind it is never reconciled at all.
+ */
+export async function touch(entryId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .from('bridge_v2_entries')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', entryId)
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
 }

@@ -18,6 +18,7 @@
 
 import type { Hex } from 'viem';
 import { checked, getDb } from './db.js';
+import { DB_TIMEOUT_MS } from './config.js';
 import { buildTree, proofFor, verifyProof } from './merkle.js';
 import { publishEligibilityRoot, rootsCount, waitForReceipt } from './chain.js';
 import type { Logger } from './log.js';
@@ -30,26 +31,56 @@ export interface PublishedRoot {
 }
 
 /**
- * Builds a root over a batch of addresses, publishes it, and records the leaves.
+ * Builds a root over a batch of addresses, publishes it, and — only once the
+ * receipt says it is on chain — records the leaves.
+ *
+ * THE ORDER IS THE POINT. The receipt decides whether anything is written at
+ * all. Writing the root row first and waiting afterwards produced a row saying
+ * an address was admitted under index N of a campaign whose on-chain history had
+ * no index N, because the transaction had timed out or reverted. Everything
+ * downstream believes that row: the entry is promoted to ELIGIBLE, gas is moved
+ * to its wallet, and enter() reverts with InvalidRoot against an index the
+ * contract does not have. The gas is spent, the participant is told they are in,
+ * and nothing on this side ever corrects it.
+ *
+ * So a timeout leaves the batch exactly as it was. The entries stay VERIFIED and
+ * a later run publishes again, reading a fresh index. If the timed-out
+ * transaction does confirm afterwards, the campaign carries one extra root that
+ * nobody proves against — the contract's root list is append-only and unused
+ * entries in it cost nothing, which is a far cheaper outcome than an entry
+ * admitted against a root that does not exist.
  *
  * The leaf set is stored because a proof has to be rebuildable later: the entry
- * that this root admits may be submitted minutes or hours afterwards, and
- * without the original leaves the proof cannot be reconstructed and the address
- * is admitted on-chain with no way to use it.
+ * this root admits may be submitted hours afterwards, and without the original
+ * leaves the proof cannot be reconstructed.
  *
  * The root index is read from the contract rather than counted locally. The
  * contract is the authority on how many roots a campaign has, and a local count
  * that drifted would produce proofs against the wrong index.
+ *
+ * Returns null when the publication is not confirmed on chain.
  */
 export async function publishBatch(
   giveawayId: bigint,
   addresses: readonly `0x${string}`[],
   log: Logger,
-): Promise<PublishedRoot> {
+): Promise<PublishedRoot | null> {
   const tree = buildTree(addresses);
   const rootIndex = await rootsCount(giveawayId);
 
   const txHash = await publishEligibilityRoot(giveawayId, tree.root);
+
+  const receipt = await waitForReceipt(txHash);
+  if (receipt === null || receipt.status !== 'success') {
+    await log.event('root.published', {
+      giveaway_id: giveawayId.toString(),
+      root_index: rootIndex.toString(),
+      leaves: tree.addresses.length,
+      mined: receipt?.status ?? 'pending',
+      recorded: false,
+    });
+    return null;
+  }
 
   const db = getDb();
   const inserted = checked(
@@ -64,29 +95,30 @@ export async function publishBatch(
         tx_hash: txHash,
       })
       .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .single(),
   ) as { id: string };
 
   checked(
     'eligibility.leaves_insert',
-    await db.from('bridge_v2_eligibility_leaves').insert(
-      tree.addresses.map((address, position) => ({
-        root_id: inserted.id,
-        address,
-        position,
-      })),
-    ),
+    await db
+      .from('bridge_v2_eligibility_leaves')
+      .insert(
+        tree.addresses.map((address, position) => ({
+          root_id: inserted.id,
+          address,
+          position,
+        })),
+      )
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
-  // The root is only useful once it is mined. A timeout is not a failure — the
-  // transaction may still confirm — so the caller is told the hash either way
-  // and reconciliation is left to a later pass (G4, K3).
-  const receipt = await waitForReceipt(txHash);
   await log.event('root.published', {
     giveaway_id: giveawayId.toString(),
     root_index: rootIndex.toString(),
     leaves: tree.addresses.length,
-    mined: receipt?.status ?? 'pending',
+    mined: 'success',
+    recorded: true,
   });
 
   return { rootId: inserted.id, rootIndex, root: tree.root, txHash };
@@ -126,9 +158,12 @@ export async function proofForAddress(
     'eligibility.root_select',
     await db
       .from('bridge_v2_eligibility_roots')
-      .select('id, root_index, root')
+      // ::text for the same reason as everywhere else: root_index is
+      // numeric(78,0) and a JSON number cannot carry it exactly.
+      .select('id, root_index::text, root')
       .eq('giveaway_id', giveawayId.toString())
       .eq('root_index', rootIndex.toString())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as RootRow | null;
   if (rootRow === null) return null;
@@ -139,7 +174,8 @@ export async function proofForAddress(
       .from('bridge_v2_eligibility_leaves')
       .select('address, position')
       .eq('root_id', rootRow.id)
-      .order('position', { ascending: true }),
+      .order('position', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as LeafRow[] | null;
   if (!Array.isArray(leaves) || leaves.length === 0) return null;
 

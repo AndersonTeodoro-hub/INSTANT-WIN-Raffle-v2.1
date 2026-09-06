@@ -13,7 +13,7 @@
  * second truth that could disagree with the contract.
  */
 
-import { SPEND_CAPS, type SpendProvider } from './config.js';
+import { DB_TIMEOUT_MS, SPEND_CAPS, type SpendProvider } from './config.js';
 import { getDb, checked } from './db.js';
 import type { Logger } from './log.js';
 import { alert } from './alert.js';
@@ -40,7 +40,7 @@ export async function claimSpend(
       p_units: units,
       p_hour_cap: caps.hour,
       p_day_cap: caps.day,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as boolean | null;
 
   if (allowed !== true) {

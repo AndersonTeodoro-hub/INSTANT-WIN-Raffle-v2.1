@@ -17,6 +17,7 @@ import {
   SESSION_COOKIE,
   SESSION_IDLE_MS,
   SESSION_TOKEN_BYTES,
+  DB_TIMEOUT_MS,
 } from './config.js';
 import { keyedHash, randomBytes, toBase64Url } from './crypto.js';
 import { checked, checkedMaybe, getDb } from './db.js';
@@ -58,7 +59,7 @@ export async function createSession(
       ip_hash: signals.ipHash,
       subnet_hash: signals.subnetHash,
       client_hash: signals.clientHash,
-    }),
+    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
   return token;
@@ -126,6 +127,7 @@ export async function resolveSession(request: Request): Promise<Session | null> 
       .from('bridge_v2_sessions')
       .select('id, participant_id, idle_expires_at, absolute_expires_at, revoked_at')
       .eq('token_hash', tokenHash)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as SessionRow | null;
 
@@ -144,7 +146,8 @@ export async function resolveSession(request: Request): Promise<Session | null> 
       last_seen_at: new Date(now).toISOString(),
       idle_expires_at: new Date(now + SESSION_IDLE_MS).toISOString(),
     })
-    .eq('id', row.id);
+    .eq('id', row.id)
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
 
   return { id: row.id, participantId: row.participant_id };
 }
@@ -165,7 +168,8 @@ export async function revokeAllSessions(participantId: string): Promise<number> 
       .update({ revoked_at: new Date().toISOString() })
       .eq('participant_id', participantId)
       .is('revoked_at', null)
-      .select('id'),
+      .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as Array<{ id: string }> | null;
   return Array.isArray(rows) ? rows.length : 0;
 }

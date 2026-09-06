@@ -33,7 +33,12 @@
 --
 -- Idempotent: the cleanup is guarded, and GRANT on an already-granted privilege
 -- is a silent no-op in Postgres.
+--
+-- The search_path is set for the same reason as in 0004 and 0005: the two grants
+-- below name a citext parameter, and the type has to resolve to whichever schema
+-- actually holds the extension.
 -- =============================================================================
+SET search_path = public, extensions;
 
 -- -----------------------------------------------------------------------------
 -- Remove what the previous revision created
@@ -153,8 +158,10 @@ GRANT EXECUTE ON FUNCTION public.bridge_v2_rate_limit_hit(text, text, integer, i
 GRANT EXECUTE ON FUNCTION public.bridge_v2_claim_email_code_attempt(citext, integer)                  TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_consume_email_code(uuid)                                   TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_supersede_email_codes(citext)                              TO service_role;
-GRANT EXECUTE ON FUNCTION public.bridge_v2_claim_link_for_chat(text, bigint)                          TO service_role;
-GRANT EXECUTE ON FUNCTION public.bridge_v2_consume_link_for_chat(bigint)                              TO service_role;
+-- Both take a keyed hash of the chat id now, not the id (R4), so the signatures
+-- changed and 0005 dropped the old ones.
+GRANT EXECUTE ON FUNCTION public.bridge_v2_claim_link_for_chat(text, text)                            TO service_role;
+GRANT EXECUTE ON FUNCTION public.bridge_v2_consume_link_for_chat(text)                                TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_bind_phone_and_verify(text, uuid, numeric, text, integer)  TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_release_phone(uuid, integer)                               TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_acquire_funder(integer)                                    TO service_role;

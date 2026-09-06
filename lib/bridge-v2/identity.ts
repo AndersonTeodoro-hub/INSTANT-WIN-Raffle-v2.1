@@ -12,7 +12,7 @@
  */
 
 import { getDb, checked } from './db.js';
-import { HTTP_TIMEOUT_MS } from './config.js';
+import { DB_TIMEOUT_MS, HTTP_TIMEOUT_MS } from './config.js';
 
 /**
  * Providers where a dot in the local part addresses the same mailbox.
@@ -72,7 +72,12 @@ async function isDisposable(domain: string): Promise<boolean> {
   const db = getDb();
   const rows = checked(
     'disposable_domains.select',
-    await db.from('bridge_v2_disposable_domains').select('domain').eq('domain', domain).limit(1),
+    await db
+      .from('bridge_v2_disposable_domains')
+      .select('domain')
+      .eq('domain', domain)
+      .limit(1)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
   return Array.isArray(rows) && rows.length > 0;
 }

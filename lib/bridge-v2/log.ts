@@ -15,6 +15,7 @@
  */
 
 import { getDb } from './db.js';
+import { DB_TIMEOUT_MS } from './config.js';
 
 /** Event kinds. A closed set, so a grep for a kind finds every site that emits it. */
 export type OpsKind =
@@ -42,6 +43,11 @@ export type OpsKind =
   | 'funder.disabled'
   | 'spend.denied'
   | 'gas.rejected'
+  | 'prize.claimed'
+  | 'prize.delivered'
+  | 'prize.expired'
+  | 'prize.custody_expired'
+  | 'prize.failed'
   | 'sweep.done'
   | 'cleanup.done'
   | 'alert';
@@ -81,12 +87,19 @@ export function createLogger(route: string, correlationId: string): Logger {
     console.info(`[bridge-v2] ${kind} route=${route} cid=${correlationId}`);
     try {
       const db = getDb();
-      const { error } = await db.from('bridge_v2_ops_events').insert({
-        correlation_id: correlationId,
-        kind,
-        route,
-        detail,
-      });
+      // G4: bounded like every other database call. This one is swallowed on
+      // failure, which makes the timeout more important rather than less: an
+      // unbounded wait here would hold a request open for the sake of a log line
+      // it has already decided it can live without.
+      const { error } = await db
+        .from('bridge_v2_ops_events')
+        .insert({
+          correlation_id: correlationId,
+          kind,
+          route,
+          detail,
+        })
+        .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
       if (error) console.warn(`[bridge-v2] ops event not persisted cid=${correlationId}`);
     } catch {
       console.warn(`[bridge-v2] ops event not persisted cid=${correlationId}`);
