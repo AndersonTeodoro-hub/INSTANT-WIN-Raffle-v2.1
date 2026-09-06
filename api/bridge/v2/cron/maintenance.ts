@@ -22,7 +22,7 @@ import {
 import { alert } from '../../../../lib/bridge-v2/alert.js';
 
 /**
- * POST /api/bridge/v2/cron/maintenance
+ * GET or POST /api/bridge/v2/cron/maintenance
  *
  * Three scheduled duties that have nothing to do with a participant request.
  *
@@ -43,7 +43,7 @@ import { alert } from '../../../../lib/bridge-v2/alert.js';
  * raised is worse than a slow cron.
  */
 const route = handle('cron/maintenance', async ({ request, log }) => {
-  const secret = optionalEnv('BRIDGE_V2_CRON_SECRET');
+  const secret = optionalEnv('CRON_SECRET');
   if (secret === undefined) return refuse(503, 'Not available.');
   if (request.headers.get('authorization') !== `Bearer ${secret}`) {
     return refuse(401, 'Unauthorized.');
@@ -194,5 +194,15 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
  * one known to work is a difference nobody wants to be debugging in production.
  */
 export async function POST(request: Request): Promise<Response> {
+  return route(request);
+}
+
+/**
+ * Vercel invokes a scheduled path with GET, so the crons in vercel.json would
+ * otherwise reach a module that only answers POST and take a 405 every run.
+ * Both verbs run the same handler: the authorisation is the shared secret in the
+ * Authorization header, which is a property of the caller and not of the method.
+ */
+export async function GET(request: Request): Promise<Response> {
   return route(request);
 }

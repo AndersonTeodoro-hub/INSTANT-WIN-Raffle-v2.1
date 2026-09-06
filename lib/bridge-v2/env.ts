@@ -74,8 +74,12 @@ export const OPTIONAL_ENV = [
   'ARBITRUM_RPC_URL',
   // Where K8 alerts are posted. Without it alerts degrade to ops events only.
   'BRIDGE_V2_ALERT_WEBHOOK_URL',
-  // Shared secret for the cron routes, so scheduled work is not publicly callable.
-  'BRIDGE_V2_CRON_SECRET',
+  // Shared secret for the cron routes, so scheduled work is not publicly
+  // callable. Unprefixed on purpose, unlike every other variable here: Vercel
+  // attaches Authorization: Bearer to a scheduled invocation only when the
+  // project holds a variable named exactly CRON_SECRET. A prefixed name would
+  // leave the crons arriving with no credential at all.
+  'CRON_SECRET',
 ] as const;
 
 export type OptionalEnvName = (typeof OPTIONAL_ENV)[number];
