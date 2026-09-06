@@ -19,7 +19,7 @@ import {
   SESSION_TOKEN_BYTES,
 } from './config.js';
 import { keyedHash, randomBytes, toBase64Url } from './crypto.js';
-import { checked, checkedMaybe, getReader, getWriter } from './db.js';
+import { checked, checkedMaybe, getDb } from './db.js';
 import type { RequestSignals } from './signals.js';
 
 /** A2: HMAC under the session root (F1), so a table dump yields no usable token. */
@@ -47,7 +47,7 @@ export async function createSession(
   const token = toBase64Url(randomBytes(SESSION_TOKEN_BYTES));
   const now = Date.now();
 
-  const db = await getWriter();
+  const db = getDb();
   checked(
     'session.insert',
     await db.from('bridge_v2_sessions').insert({
@@ -119,10 +119,10 @@ export async function resolveSession(request: Request): Promise<Session | null> 
   if (token === null) return null;
 
   const tokenHash = await hashToken(token);
-  const reader = await getReader();
+  const db = getDb();
   const row = checkedMaybe(
     'session.select',
-    await reader
+    await db
       .from('bridge_v2_sessions')
       .select('id, participant_id, idle_expires_at, absolute_expires_at, revoked_at')
       .eq('token_hash', tokenHash)
@@ -135,9 +135,10 @@ export async function resolveSession(request: Request): Promise<Session | null> 
   if (new Date(row.absolute_expires_at).getTime() <= now) return null;
   if (new Date(row.idle_expires_at).getTime() <= now) return null;
 
-  // The slide is the reader role's one write (I7), and its failure is not fatal:
-  // a session that failed to slide is still a valid session for this request.
-  await reader
+  // The slide's failure is not fatal: a session that failed to slide is still a
+  // valid session for this request, so the update result is deliberately not
+  // checked here.
+  await db
     .from('bridge_v2_sessions')
     .update({
       last_seen_at: new Date(now).toISOString(),
@@ -156,7 +157,7 @@ export async function resolveSession(request: Request): Promise<Session | null> 
  * stop working", and a caller who has to enumerate sessions will miss one.
  */
 export async function revokeAllSessions(participantId: string): Promise<number> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'session.revoke',
     await db

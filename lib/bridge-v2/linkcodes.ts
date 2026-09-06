@@ -15,7 +15,7 @@
 
 import { LINK_CODE_BYTES, LINK_CODE_TTL_MS } from './config.js';
 import { keyedHash, randomBytes, toBase64Url } from './crypto.js';
-import { checked, getWriter } from './db.js';
+import { checked, getDb } from './db.js';
 
 function hashLinkCode(code: string): Promise<string> {
   return keyedHash('BRIDGE_V2_CODE_HMAC_KEY', 'telegram-link-v1', code);
@@ -30,7 +30,7 @@ function hashLinkCode(code: string): Promise<string> {
  */
 export async function issueLinkCode(participantId: string, giveawayId: bigint): Promise<string> {
   const code = toBase64Url(randomBytes(LINK_CODE_BYTES));
-  const db = await getWriter();
+  const db = getDb();
 
   checked(
     'linkcode.insert',
@@ -77,7 +77,7 @@ function toLink(row: LinkRow): ConsumedLink {
  * participant who opens the link and never shares a number has not burned it.
  */
 export async function claimLinkForChat(code: string, chatId: number): Promise<ConsumedLink | null> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'linkcode.claim_for_chat',
     await db.rpc('bridge_v2_claim_link_for_chat', {
@@ -99,7 +99,7 @@ export async function claimLinkForChat(code: string, chatId: number): Promise<Co
  * duplicate here is expected traffic rather than an attack.
  */
 export async function consumeLinkForChat(chatId: number): Promise<ConsumedLink | null> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'linkcode.consume_for_chat',
     await db.rpc('bridge_v2_consume_link_for_chat', { p_chat_id: chatId }),

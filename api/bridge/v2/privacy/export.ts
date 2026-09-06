@@ -2,7 +2,7 @@ import { handle, methodGuard, ok, refuse } from '../../../../lib/bridge-v2/http.
 import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.js';
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
-import { checked, checkedMaybe, getReader } from '../../../../lib/bridge-v2/db.js';
+import { checked, checkedMaybe, getDb } from '../../../../lib/bridge-v2/db.js';
 
 /**
  * POST /api/bridge/v2/privacy/export
@@ -36,7 +36,7 @@ const route = handle('privacy/export', async ({ request, log }) => {
     return refuse(429, 'Too many requests. Please wait and try again.', retryAfterHeaders(verdict));
   }
 
-  const db = await getReader();
+  const db = getDb();
 
   const participant = checkedMaybe(
     'export.participant',

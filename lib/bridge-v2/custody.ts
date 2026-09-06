@@ -15,7 +15,7 @@
 
 import { CUSTODY_OWN_WALLET_THRESHOLD, CUSTODY_TEMPORARY_DAYS } from './config.js';
 import { PrizeKind } from './abi.js';
-import { checked, checkedMaybe, getWriter } from './db.js';
+import { checked, checkedMaybe, getDb } from './db.js';
 
 export type PrizeKindName = 'TOKEN' | 'NFT';
 
@@ -69,7 +69,7 @@ export function policyFor(
  * participant from the start.
  */
 export async function recordPolicy(entryId: string, policy: CustodyPolicy): Promise<void> {
-  const db = await getWriter();
+  const db = getDb();
   checked(
     'custody.insert',
     await db.from('bridge_v2_custody').upsert(
@@ -104,7 +104,7 @@ interface CustodyRow {
 }
 
 export async function readCustody(entryId: string): Promise<CustodyRecord | null> {
-  const db = await getWriter();
+  const db = getDb();
   const row = checkedMaybe(
     'custody.select',
     await db
@@ -136,7 +136,7 @@ export async function proposeDestination(
   entryId: string,
   destination: `0x${string}`,
 ): Promise<boolean> {
-  const db = await getWriter();
+  const db = getDb();
   const updated = await db
     .from('bridge_v2_custody')
     .update({
@@ -162,7 +162,7 @@ export async function confirmDestination(
   entryId: string,
   destination: `0x${string}`,
 ): Promise<boolean> {
-  const db = await getWriter();
+  const db = getDb();
   const updated = await db
     .from('bridge_v2_custody')
     .update({

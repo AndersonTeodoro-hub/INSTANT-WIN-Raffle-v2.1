@@ -10,7 +10,7 @@
 
 import { EMAIL_CODE_DIGITS, EMAIL_CODE_MAX_ATTEMPTS, EMAIL_CODE_TTL_MS } from './config.js';
 import { keyedHash, randomDigits, timingSafeEqualHex } from './crypto.js';
-import { checked, getWriter } from './db.js';
+import { checked, getDb } from './db.js';
 
 /**
  * J2: the hash is bound to the address it was issued for.
@@ -35,7 +35,7 @@ function hashCode(code: string, canonicalEmail: string): Promise<string> {
  */
 export async function issueEmailCode(canonicalEmail: string): Promise<string> {
   const code = randomDigits(EMAIL_CODE_DIGITS);
-  const db = await getWriter();
+  const db = getDb();
 
   // J3: only the most recent code is valid. Superseding first means a race
   // between two issues leaves exactly one live code rather than two.
@@ -81,7 +81,7 @@ export async function verifyEmailCode(
   canonicalEmail: string,
   candidate: string,
 ): Promise<CodeVerdict> {
-  const db = await getWriter();
+  const db = getDb();
 
   const rows = checked(
     'code.claim_attempt',

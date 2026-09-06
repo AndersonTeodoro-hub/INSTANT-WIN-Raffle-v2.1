@@ -14,7 +14,7 @@
  */
 
 import { SPEND_CAPS, type SpendProvider } from './config.js';
-import { getWriter, checked } from './db.js';
+import { getDb, checked } from './db.js';
 import type { Logger } from './log.js';
 import { alert } from './alert.js';
 
@@ -31,7 +31,7 @@ export async function claimSpend(
   log: Logger,
 ): Promise<boolean> {
   const caps = SPEND_CAPS[provider];
-  const db = await getWriter();
+  const db = getDb();
 
   const allowed = checked(
     'spend.claim',

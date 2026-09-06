@@ -6,7 +6,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { parseEmail } from '../../../../lib/bridge-v2/validate.js';
 import { sendCodeEmail } from '../../../../lib/bridge-v2/mail.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
-import { getWriter, checkedMaybe } from '../../../../lib/bridge-v2/db.js';
+import { getDb, checkedMaybe } from '../../../../lib/bridge-v2/db.js';
 
 /**
  * POST /api/bridge/v2/session/request-code   {email}
@@ -42,7 +42,7 @@ const route = handle('session/request-code', async ({ request, log }) => {
 
   // Whether the address is already known decides which limit applies (B5), and
   // is the only thing this route learns before the limits are enforced.
-  const db = await getWriter();
+  const db = getDb();
   const known = checkedMaybe(
     'participant.exists',
     await db

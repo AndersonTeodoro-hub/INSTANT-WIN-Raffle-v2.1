@@ -5,9 +5,17 @@
  * Two lists exist that no HTTP route may ever write: the gas funder pool, and
  * the disposable-domain blocklist (C2). A route that could add a funder could
  * add one whose key it chose; a route that could edit the blocklist could
- * unblock a disposable provider. So both are seeded from a terminal, by a person,
- * under bridge_v2_seeder — the only role in migration 0006 holding INSERT on
- * either table, and a role that can read no participant, session, phone or entry.
+ * unblock a disposable provider. So both are seeded from a terminal, by a
+ * person, deliberately outside the request path.
+ *
+ * That separation is now operational rather than enforced by the database. The
+ * seeder role is gone with the other per-route roles, because it depended on
+ * minting HS256 tokens from a signing key the project is retiring: the current
+ * JWT key is ECC P-256 with a non-exportable private half. This script and the
+ * routes therefore hold the same credential, and what keeps the funder pool out
+ * of the request path is that no route contains an INSERT against it — a weaker
+ * guarantee than a role that could not perform the write, and stated plainly
+ * rather than implied.
  *
  * Rule 0.1: this file contains no key, no token and no list. Everything comes
  * from the environment at the moment it runs, and nothing is written back to
@@ -15,11 +23,9 @@
  * counts.
  *
  * Usage:
- *   BRIDGE_V2_FUNDER_KEYS=... SUPABASE_URL=... SUPABASE_JWT_SECRET=... \
- *     node scripts/bridge-v2-seed.mjs funders
+ *   BRIDGE_V2_FUNDER_KEYS=... SUPABASE_URL=... SUPABASE_SERVICE_KEY=...  *     node scripts/bridge-v2-seed.mjs funders
  *
- *   SUPABASE_URL=... SUPABASE_JWT_SECRET=... \
- *     node scripts/bridge-v2-seed.mjs disposable-domains <file>
+ *   SUPABASE_URL=... SUPABASE_SERVICE_KEY=...  *     node scripts/bridge-v2-seed.mjs disposable-domains <file>
  *   ... | node scripts/bridge-v2-seed.mjs disposable-domains -
  *
  * The domain list is never embedded here (8.12). It is whatever the operator
@@ -28,10 +34,6 @@
 
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount } from 'viem/accounts';
-
-/** The role this script assumes. Nothing in api/ or lib/ can mint a token for it. */
-const SEED_ROLE = 'bridge_v2_seeder';
-const TOKEN_TTL_SECONDS = 300;
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -42,46 +44,19 @@ function requireEnv(name) {
   return value;
 }
 
-function toBase64Url(bytes) {
-  return Buffer.from(bytes).toString('base64url');
-}
-
 /**
- * The same construction db.ts uses, deliberately duplicated rather than imported.
+ * One PostgREST call. Throws with the status, never with a row.
  *
- * Importing it would mean the module the routes load knows the seeder role name,
- * and a route that can name a role can mint a token for it. Fifteen lines of
- * duplication buys the guarantee that INSERT on the funder pool is unreachable
- * from anything serving a request.
+ * The sb_secret_ key goes in `apikey` and nowhere else. It is not a JWT, and
+ * Supabase rejects it outright if it also arrives as a Bearer token — the same
+ * trap the V1 fell into and fixed in lib/bridge/supabase.ts:30. Sending no
+ * Authorization header at all is the simplest way to stay out of it.
  */
-async function mintSeedToken() {
-  const issuedAt = Math.floor(Date.now() / 1000);
-  const header = toBase64Url(Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
-  const payload = toBase64Url(
-    Buffer.from(
-      JSON.stringify({ role: SEED_ROLE, iss: 'supabase', iat: issuedAt, exp: issuedAt + TOKEN_TTL_SECONDS }),
-    ),
-  );
-  const signingInput = `${header}.${payload}`;
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(requireEnv('SUPABASE_JWT_SECRET')),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
-  return `${signingInput}.${toBase64Url(new Uint8Array(signature))}`;
-}
-
-/** One PostgREST call as the seed role. Throws with the status, never with a row. */
 async function rest(path, init = {}) {
-  const token = await mintSeedToken();
   const response = await fetch(`${requireEnv('SUPABASE_URL')}/rest/v1/${path}`, {
     ...init,
     headers: {
-      apikey: token,
-      authorization: `Bearer ${token}`,
+      apikey: requireEnv('SUPABASE_SERVICE_KEY'),
       'content-type': 'application/json',
       ...(init.headers ?? {}),
     },

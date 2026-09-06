@@ -12,7 +12,7 @@
  * a participant exists without a usable address.
  */
 
-import { checked, checkedMaybe, getWriter } from './db.js';
+import { checked, checkedMaybe, getDb } from './db.js';
 import { addressOf } from './wallet.js';
 
 export interface Participant {
@@ -36,7 +36,7 @@ function toParticipant(row: ParticipantRow): Participant {
 }
 
 async function findByEmail(canonicalEmail: string): Promise<Participant | null> {
-  const db = await getWriter();
+  const db = getDb();
   const row = checkedMaybe(
     'participant.select',
     await db
@@ -60,7 +60,7 @@ export async function getOrCreateParticipant(canonicalEmail: string): Promise<Pa
   const existing = await findByEmail(canonicalEmail);
   if (existing !== null) return existing;
 
-  const db = await getWriter();
+  const db = getDb();
 
   // Reserved before the address is derived, so the row can be written complete.
   const index = checked(
@@ -96,7 +96,7 @@ export async function getOrCreateParticipant(canonicalEmail: string): Promise<Pa
 
 /** Reads a participant by id, for routes that already hold a session. */
 export async function getParticipant(id: string): Promise<Participant | null> {
-  const db = await getWriter();
+  const db = getDb();
   const row = checkedMaybe(
     'participant.by_id',
     await db

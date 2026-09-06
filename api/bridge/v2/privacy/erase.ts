@@ -3,7 +3,7 @@ import { handle, methodGuard, ok, refuse } from '../../../../lib/bridge-v2/http.
 import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.js';
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
-import { checked, getWriter } from '../../../../lib/bridge-v2/db.js';
+import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
 
 /**
@@ -55,7 +55,7 @@ const route = handle('privacy/erase', async ({ request, log }) => {
   // no constraint has to be relaxed to make erasure possible.
   const tombstone = `erased-${toHex(randomBytes(16))}@invalid`;
 
-  const db = await getWriter();
+  const db = getDb();
   checked(
     'privacy.erase',
     await db

@@ -14,7 +14,7 @@
  * driver message can contain row values.
  */
 
-import { getWriter } from './db.js';
+import { getDb } from './db.js';
 
 /** Event kinds. A closed set, so a grep for a kind finds every site that emits it. */
 export type OpsKind =
@@ -80,7 +80,7 @@ export function createLogger(route: string, correlationId: string): Logger {
     // eslint-disable-next-line no-console
     console.info(`[bridge-v2] ${kind} route=${route} cid=${correlationId}`);
     try {
-      const db = await getWriter();
+      const db = getDb();
       const { error } = await db.from('bridge_v2_ops_events').insert({
         correlation_id: correlationId,
         kind,

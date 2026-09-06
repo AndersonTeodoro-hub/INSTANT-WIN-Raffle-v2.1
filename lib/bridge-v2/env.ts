@@ -25,11 +25,12 @@ declare const process: { env: Record<string, string | undefined> };
  * checking F1 needs to see at a glance that the roots really are separate.
  */
 export const REQUIRED_ENV = [
-  // Database. The service key is deliberately absent: V2 talks to PostgREST as
-  // one of two scoped roles (I7), and the JWT for those roles is minted from the
-  // project JWT secret.
+  // Database. The same sb_secret_ key the V1 reads (lib/bridge/supabase.ts:55),
+  // deliberately the same variable rather than a second copy of one credential
+  // under two names. It resolves to service_role, which holds BYPASSRLS; RLS
+  // stays on with no policies so anon and authenticated still reach nothing (I5).
   'SUPABASE_URL',
-  'SUPABASE_JWT_SECRET',
+  'SUPABASE_SERVICE_KEY',
 
   // F1 — five independent roots.
   'BRIDGE_V2_WALLET_SEED',

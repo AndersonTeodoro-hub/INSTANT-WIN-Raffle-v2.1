@@ -12,7 +12,7 @@
  * second funding, or a second email.
  */
 
-import { checked, checkedMaybe, getWriter } from './db.js';
+import { checked, checkedMaybe, getDb } from './db.js';
 import { sha256Hex } from './crypto.js';
 import type { Participant } from './participants.js';
 
@@ -69,7 +69,7 @@ function idempotencyKey(participantId: string, giveawayId: bigint): Promise<stri
 }
 
 export async function findEntry(participantId: string, giveawayId: bigint): Promise<Entry | null> {
-  const db = await getWriter();
+  const db = getDb();
   const row = checkedMaybe(
     'entry.find',
     await db
@@ -94,7 +94,7 @@ export async function openEntry(participant: Participant, giveawayId: bigint): P
   const existing = await findEntry(participant.id, giveawayId);
   if (existing !== null) return existing;
 
-  const db = await getWriter();
+  const db = getDb();
   const inserted = await db
     .from('bridge_v2_entries')
     .insert({
@@ -131,7 +131,7 @@ export async function advance(
   to: EntryStatus,
   extra: Record<string, string | null> = {},
 ): Promise<boolean> {
-  const db = await getWriter();
+  const db = getDb();
   const updated = await db
     .from('bridge_v2_entries')
     .update({ status: to, updated_at: new Date().toISOString(), ...extra })
@@ -146,7 +146,7 @@ export async function advance(
 
 /** Entries waiting for a root, for one campaign. Used to batch a publication. */
 export async function listVerified(giveawayId: bigint, limit: number): Promise<Entry[]> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'entry.list_verified',
     await db
@@ -162,7 +162,7 @@ export async function listVerified(giveawayId: bigint, limit: number): Promise<E
 
 /** Campaigns with work waiting, so the processor never scans the id space (C10 of the contract spec). */
 export async function campaignsWithVerified(limit: number): Promise<bigint[]> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'entry.campaigns_pending',
     await db
@@ -177,7 +177,7 @@ export async function campaignsWithVerified(limit: number): Promise<bigint[]> {
 
 /** Entries admitted to a root and waiting to be funded and submitted. */
 export async function listEligible(limit: number): Promise<Entry[]> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'entry.list_eligible',
     await db
@@ -199,7 +199,7 @@ export async function listEligible(limit: number): Promise<Entry[]> {
  * the reconciliation.
  */
 export async function listSubmitted(limit: number): Promise<Entry[]> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'entry.list_submitted',
     await db
@@ -214,7 +214,7 @@ export async function listSubmitted(limit: number): Promise<Entry[]> {
 
 /** Entries that reached the chain, for the H7 sweep. */
 export async function listConfirmed(limit: number): Promise<Entry[]> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'entry.list_confirmed',
     await db

@@ -9,7 +9,7 @@ import {
   SPEND_CAPS,
   VRF_LOW_LINK_JUELS,
 } from '../../../../lib/bridge-v2/config.js';
-import { checked, getWriter } from '../../../../lib/bridge-v2/db.js';
+import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { sweepConfirmed } from '../../../../lib/bridge-v2/processor.js';
 import { funderAddress, poolSize } from '../../../../lib/bridge-v2/funders.js';
 import {
@@ -53,7 +53,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
   // cron run rather than by a participant hitting a 500.
   assertEnv();
 
-  const db = await getWriter();
+  const db = getDb();
   const cleaned = checked(
     'cleanup.run',
     await db.rpc('bridge_v2_cleanup', {

@@ -17,7 +17,7 @@
  */
 
 import type { Hex } from 'viem';
-import { checked, getWriter } from './db.js';
+import { checked, getDb } from './db.js';
 import { buildTree, proofFor, verifyProof } from './merkle.js';
 import { publishEligibilityRoot, rootsCount, waitForReceipt } from './chain.js';
 import type { Logger } from './log.js';
@@ -51,7 +51,7 @@ export async function publishBatch(
 
   const txHash = await publishEligibilityRoot(giveawayId, tree.root);
 
-  const db = await getWriter();
+  const db = getDb();
   const inserted = checked(
     'eligibility.root_insert',
     await db
@@ -120,7 +120,7 @@ export async function proofForAddress(
   address: `0x${string}`,
   rootIndex: bigint,
 ): Promise<EntryProof | null> {
-  const db = await getWriter();
+  const db = getDb();
 
   const rootRow = checked(
     'eligibility.root_select',

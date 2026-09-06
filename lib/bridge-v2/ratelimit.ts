@@ -12,7 +12,7 @@
  */
 
 import { RATE_LIMITS, type RateAxis } from './config.js';
-import { getWriter, checked } from './db.js';
+import { getDb, checked } from './db.js';
 import { sha256Hex } from './crypto.js';
 
 export interface AxisCheck {
@@ -43,7 +43,7 @@ interface HitRow {
  * most specific first.
  */
 export async function enforce(checks: readonly AxisCheck[]): Promise<RateVerdict> {
-  const db = await getWriter();
+  const db = getDb();
 
   for (const check of checks) {
     const limit = RATE_LIMITS[check.axis];

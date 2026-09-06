@@ -19,7 +19,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { Hex, TransactionSerializable } from 'viem';
 import { FUNDER_LEASE_SECONDS } from './config.js';
 import { requireEnv } from './env.js';
-import { checked, getWriter } from './db.js';
+import { checked, getDb } from './db.js';
 
 export interface FunderLease {
   readonly index: number;
@@ -75,7 +75,7 @@ export function poolSize(): number {
  * as such in R3 — the funding model makes some correlation inherent.
  */
 export async function acquireFunder(): Promise<FunderLease | null> {
-  const db = await getWriter();
+  const db = getDb();
   const rows = checked(
     'funder.acquire',
     await db.rpc('bridge_v2_acquire_funder', { p_lease_seconds: FUNDER_LEASE_SECONDS }),
@@ -100,7 +100,7 @@ export async function acquireFunder(): Promise<FunderLease | null> {
  * holds is exactly the nonce collision this exists to prevent.
  */
 export async function renewLease(lease: FunderLease): Promise<boolean> {
-  const db = await getWriter();
+  const db = getDb();
   const renewed = checked(
     'funder.renew',
     await db.rpc('bridge_v2_renew_funder_lease', {
@@ -121,7 +121,7 @@ export async function renewLease(lease: FunderLease): Promise<boolean> {
  * replacement rather than a new transaction.
  */
 export async function releaseFunder(lease: FunderLease, nextNonce: number): Promise<boolean> {
-  const db = await getWriter();
+  const db = getDb();
   const released = checked(
     'funder.release',
     await db.rpc('bridge_v2_release_funder', {
@@ -135,7 +135,7 @@ export async function releaseFunder(lease: FunderLease, nextNonce: number): Prom
 
 /** H8: a funder that cannot be used is taken out of rotation, visibly. */
 export async function disableFunder(index: number): Promise<boolean> {
-  const db = await getWriter();
+  const db = getDb();
   const disabled = checked(
     'funder.disable',
     await db.rpc('bridge_v2_disable_funder', { p_funder_index: index }),

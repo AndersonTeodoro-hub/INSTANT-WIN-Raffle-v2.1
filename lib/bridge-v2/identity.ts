@@ -11,7 +11,7 @@
  * stops a code request storm spread across a thousand aliases of one inbox.
  */
 
-import { getReader, checked } from './db.js';
+import { getDb, checked } from './db.js';
 import { HTTP_TIMEOUT_MS } from './config.js';
 
 /**
@@ -69,7 +69,7 @@ export type EmailVerdict = 'OK' | 'DISPOSABLE' | 'NO_MX';
  * compiled into the bundle is a list that is out of date the day after release.
  */
 async function isDisposable(domain: string): Promise<boolean> {
-  const db = await getReader();
+  const db = getDb();
   const rows = checked(
     'disposable_domains.select',
     await db.from('bridge_v2_disposable_domains').select('domain').eq('domain', domain).limit(1),

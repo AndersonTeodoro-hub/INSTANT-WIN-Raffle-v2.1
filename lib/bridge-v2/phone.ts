@@ -17,7 +17,7 @@
 
 import { PHONE_COOLDOWN_DAYS } from './config.js';
 import { keyedHash } from './crypto.js';
-import { checked, getWriter } from './db.js';
+import { checked, getDb } from './db.js';
 
 /** C5. The only function that turns a number into something storable. */
 export function hashPhone(normalisedNumber: string): Promise<string> {
@@ -69,7 +69,7 @@ export async function bindPhoneAndVerify(
   giveawayId: bigint,
   telegramIdHash: string,
 ): Promise<BindOutcome> {
-  const db = await getWriter();
+  const db = getDb();
   const outcome = checked(
     'phone.bind_and_verify',
     await db.rpc('bridge_v2_bind_phone_and_verify', {
@@ -94,7 +94,7 @@ export async function bindPhoneAndVerify(
  * created, because this module does not know what is active.
  */
 export async function releasePhone(participantId: string): Promise<number> {
-  const db = await getWriter();
+  const db = getDb();
   const released = checked(
     'phone.release',
     await db.rpc('bridge_v2_release_phone', {
