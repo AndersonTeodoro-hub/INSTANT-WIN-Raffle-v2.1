@@ -263,10 +263,17 @@ CREATE INDEX IF NOT EXISTS bridge_v2_eligibility_leaves_addr_idx ON bridge_v2_el
 -- -----------------------------------------------------------------------------
 -- rate_limits — B1 to B4, counted atomically by the functions in 0005
 -- -----------------------------------------------------------------------------
--- One row per (axis, key, window). The key is hashed, so an IP, an email or a
--- phone never appears in clear in this table (K4).
--- B4: strikes drives a growing penalty_until, so a repeat offender waits longer
--- rather than failing instantly.
+-- One row per (axis, key, window). The key is a keyed hash, so an IP, an email
+-- or a phone never appears in clear in this table and none of them is
+-- recoverable from it by dictionary either (K4).
+--
+-- The count lives here and NOTHING ELSE DOES. A window row is created by the
+-- first request of its window and disappears with it, so anything stored on it
+-- is forgotten at the window boundary — which is precisely what B4 says must not
+-- happen to a penalty. strikes and penalty_until therefore live in
+-- bridge_v2_rate_penalties below, keyed by (axis, key_hash) and by nothing else.
+-- The two columns are kept on this table only so an existing installation is not
+-- rewritten; nothing reads them any more.
 CREATE TABLE IF NOT EXISTS bridge_v2_rate_limits (
   axis          text        NOT NULL,
   key_hash      text        NOT NULL,
@@ -279,6 +286,59 @@ CREATE TABLE IF NOT EXISTS bridge_v2_rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS bridge_v2_rate_limits_window_idx ON bridge_v2_rate_limits (window_start);
+
+-- -----------------------------------------------------------------------------
+-- rate_penalties — B4, and the reason it is not a column on the table above
+-- -----------------------------------------------------------------------------
+-- B4 asks that repeated attempts on one axis cost progressively more time. A
+-- penalty recorded against a window is a penalty that ends when the window does:
+-- with a sixty-second window an attacker who earned an hour of penalty waited
+-- sixty seconds and met a fresh row with zero strikes. The escalation existed on
+-- paper and never survived one window.
+--
+-- Keyed by (axis, key_hash) and by nothing else, so it outlives every window.
+-- last_strike_at is what lets a strike count decay (the cleanup in 0005): the
+-- growing cost is aimed at somebody attacking now, not at somebody who mistyped
+-- a code last month.
+CREATE TABLE IF NOT EXISTS bridge_v2_rate_penalties (
+  axis           text        NOT NULL,
+  key_hash       text        NOT NULL,
+  strikes        integer     NOT NULL DEFAULT 0,
+  penalty_until  timestamptz,
+  last_strike_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (axis, key_hash)
+);
+
+CREATE INDEX IF NOT EXISTS bridge_v2_rate_penalties_strike_idx
+  ON bridge_v2_rate_penalties (last_strike_at);
+
+COMMENT ON TABLE bridge_v2_rate_penalties IS 'B4: escalating cost that survives the window boundary. Never keyed by window.';
+
+-- -----------------------------------------------------------------------------
+-- locks — G3 and G6, applied to a scheduled run rather than to a funder
+-- -----------------------------------------------------------------------------
+-- A cron that runs every minute and does work that can take longer than a minute
+-- overlaps itself. Two overlapping runs of the pipeline read the same ELIGIBLE
+-- rows, take different funders, and read the same account nonce for the role key
+-- and for a derived wallet — which is G6 broken from the outside, by scheduling,
+-- with every individual code path still correct.
+--
+-- The lease is a row rather than pg_try_advisory_lock because PostgREST pools
+-- connections: a session-scoped lock is released the moment the statement that
+-- took it returns, which is before the run it was meant to protect has started.
+--
+-- expires_at is what makes a killed run recoverable. A function the platform
+-- stops does not release anything, so the lock has to be able to expire on its
+-- own; it is set from the function's own maxDuration, so it cannot lapse while
+-- the run holding it is still allowed to be alive.
+CREATE TABLE IF NOT EXISTS bridge_v2_locks (
+  name        text        PRIMARY KEY,
+  holder      uuid        NOT NULL,
+  acquired_at timestamptz NOT NULL DEFAULT now(),
+  expires_at  timestamptz NOT NULL
+);
+
+COMMENT ON TABLE bridge_v2_locks IS 'G3/G6: one scheduled run at a time. Expiry bounded by the function maxDuration.';
 
 -- -----------------------------------------------------------------------------
 -- funders — G3, G6 and F7
@@ -352,14 +412,23 @@ CREATE TABLE IF NOT EXISTS bridge_v2_custody (
   claim_tx_hash            text,
   delivered_at             timestamptz,
   delivery_tx_hash         text,
+  -- OWNER DECISION D2, 06/09/2026. An expired temporary custody with no
+  -- destination is retained and nothing automatic happens to the value; the only
+  -- action is one alert, once. Written the first time the expiry is observed, so
+  -- the alert is a fact about the custody and not about how many times a cron
+  -- happened to look at it. Without it the scheduled pass raised the same alert
+  -- every minute for thirty days, which is an alerting channel that trains its
+  -- reader to ignore it.
+  custody_expired_alert_at timestamptz,
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claimed_at       timestamptz;
-ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claim_tx_hash    text;
-ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivered_at     timestamptz;
-ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivery_tx_hash text;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claimed_at               timestamptz;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS claim_tx_hash            text;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivered_at             timestamptz;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS delivery_tx_hash         text;
+ALTER TABLE bridge_v2_custody ADD COLUMN IF NOT EXISTS custody_expired_alert_at timestamptz;
 
 -- The prize queue: undelivered custody rows, oldest touched first.
 CREATE INDEX IF NOT EXISTS bridge_v2_custody_pending_idx
@@ -406,6 +475,8 @@ ALTER TABLE bridge_v2_entries            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_eligibility_roots  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_eligibility_leaves ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_rate_limits        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bridge_v2_rate_penalties     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bridge_v2_locks              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_funders            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_external_spend     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_disposable_domains ENABLE ROW LEVEL SECURITY;

@@ -5,8 +5,10 @@ import {
   processEligibleEntries,
   processPrizes,
   publishPendingRoots,
+  reconcileFunding,
   reconcileSubmitted,
 } from '../../../../lib/bridge-v2/processor.js';
+import { acquireRunLock, releaseRunLock, runDeadline } from '../../../../lib/bridge-v2/runlock.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/process
@@ -38,19 +40,54 @@ const route = handle('cron/process', async ({ request, log }) => {
     return refuse(401, 'Unauthorized.');
   }
 
-  // Ordered so that work moves one stage per run in the worst case, and several
-  // when everything is healthy. Reconciliation runs first so an entry that has
-  // already landed is not looked at again by the funding stage.
-  const reconciled = await reconcileSubmitted(log);
-  const roots = await publishPendingRoots(log);
-  const processed = await processEligibleEntries(log);
-  // Section 7, last because it is the only stage whose input is produced by a
-  // third party rather than by the stage before it: a campaign settles when its
-  // creator and Chainlink say so, not when this pipeline gets there.
-  const prizes = await processPrizes(log);
+  // G6, as a property of the run. This cron fires every minute over work whose
+  // slowest unit is two bounded receipt waits, so runs overlap by construction —
+  // and two overlapping runs list the same ELIGIBLE rows, read the same account
+  // nonce for the role key and for a derived wallet, and pay for the same entry
+  // twice. Every signing path below is correct on its own; what made them unsafe
+  // was being started twice at once, which is a fact about the schedule and can
+  // only be fixed here.
+  //
+  // A run that finds the lock held does nothing and says so. That is the normal
+  // outcome several times an hour, not an error.
+  const lock = await acquireRunLock('cron/process');
+  if (lock === null) {
+    await log.event('route.rejected', { reason: 'run_in_progress' });
+    return ok({ skipped: 'run_in_progress' });
+  }
 
-  await log.event('route.ok', { reconciled, roots, processed, prizes });
-  return ok({ reconciled, roots, processed, prizes });
+  // G4. The platform kills a function at maxDuration wherever it happens to be,
+  // and where it happens to be may be between a broadcast transaction and the
+  // row that records its hash — the V1's lost tx_hash, reintroduced by a
+  // scheduler instead of by a missing timeout. Each stage checks this before
+  // starting another unit of work, so a run stops between units and leaves
+  // nothing half-written.
+  const deadline = runDeadline();
+
+  try {
+    // Ordered so that work moves one stage per run in the worst case, and
+    // several when everything is healthy. Reconciliation runs first so an entry
+    // that has already landed is not looked at again by the funding stage.
+    const reconciled = await reconcileSubmitted(log, deadline);
+    // I8: entries left in FUNDING by a run that no longer exists. Before the
+    // funding stage, so an entry recovered here is available to it in the same
+    // run rather than in the next one.
+    const recovered = await reconcileFunding(log, deadline);
+    const roots = await publishPendingRoots(log, deadline);
+    const processed = await processEligibleEntries(log, deadline);
+    // Section 7, last because it is the only stage whose input is produced by a
+    // third party rather than by the stage before it: a campaign settles when
+    // its creator and Chainlink say so, not when this pipeline gets there.
+    const prizes = await processPrizes(log, deadline);
+
+    await log.event('route.ok', { reconciled, recovered, roots, processed, prizes });
+    return ok({ reconciled, recovered, roots, processed, prizes });
+  } finally {
+    // Released whatever happened, including on the throw the envelope turns into
+    // a 500. A lock that cannot be released expires on its own, which is what
+    // covers the one case this finally cannot: the platform killing the process.
+    await releaseRunLock(lock);
+  }
 });
 
 /**

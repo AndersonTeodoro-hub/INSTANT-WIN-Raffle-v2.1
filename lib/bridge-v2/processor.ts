@@ -23,12 +23,20 @@ import {
   campaignsWithVerified,
   listConfirmed,
   listEligible,
+  listStale,
   listSubmitted,
   listVerified,
   markSwept,
   touch,
   type Entry,
 } from './entries.js';
+import {
+  ENTRY_WORST_CASE_MS,
+  FUNDING_STALE_MS,
+  RECEIPT_TIMEOUT_MS,
+  RPC_TIMEOUT_MS,
+} from './config.js';
+import type { RunDeadline } from './runlock.js';
 import { proofForAddress, publishBatch } from './eligibility.js';
 import {
   ChainError,
@@ -50,10 +58,14 @@ import {
 } from './chain.js';
 import {
   beginCustody,
+  claimCustodyExpiredAlert,
   custodyExpiryFrom,
+  largestWinnerShare,
   listPendingPrizes,
   markDelivered,
+  policyFor,
   touchCustody,
+  updatePolicy,
   type PendingPrize,
 } from './custody.js';
 import { GIVEAWAY_MANAGER_V2 } from './config.js';
@@ -79,24 +91,36 @@ const ENTRY_BATCH = 25;
  * no slots left admits nobody, because admitting an address that can never enter
  * would put it in a root for ever with no way to use it.
  *
- * The campaign must also still be OPEN — the contract only accepts roots while
- * it is (4.2), so publishing later would revert and waste the gas.
+ * The campaign must also still be accepting entries. OPEN is not that condition
+ * on its own: enter() also requires block.timestamp < effectiveEndTime, and a
+ * campaign stays OPEN past its end until somebody calls the permissionless
+ * closeGiveaway. Publishing a root in that gap costs the role key a transaction
+ * for an admission nobody can use, and then promotes the entries to ELIGIBLE so
+ * the funding stage pays for a revert on each of them.
  */
-export async function publishPendingRoots(log: Logger): Promise<number> {
+export async function publishPendingRoots(log: Logger, deadline: RunDeadline): Promise<number> {
   let published = 0;
 
   for (const giveawayId of await campaignsWithVerified(CAMPAIGN_BATCH)) {
+    // G4: one publication is a manager transaction plus a bounded receipt wait.
+    // Starting another with less than that left is starting work the platform
+    // will interrupt.
+    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS)) break;
+
     const pending = await listVerified(giveawayId, ROOT_BATCH);
     if (pending.length === 0) continue;
 
     const campaign = await readGiveaway(giveawayId);
-    if (!campaign.isOpen) {
+    if (!campaign.acceptsEntries) {
       for (const entry of pending) {
         await advance(entry.id, 'VERIFIED', 'FAILED');
       }
       await log.event('entry.failed', {
         giveaway_id: giveawayId.toString(),
-        reason: 'campaign_not_open',
+        // The two are distinguished because they mean different things to an
+        // operator: one is a campaign that ended, the other is one that was
+        // cancelled or never opened.
+        reason: campaign.isOpen ? 'entries_closed' : 'campaign_not_open',
         count: pending.length,
       });
       continue;
@@ -135,18 +159,39 @@ export async function publishPendingRoots(log: Logger): Promise<number> {
 /**
  * Funds one derived wallet and submits its entry.
  *
- * The order matters and is the correction to several V1 findings at once.
+ * THE ORDER IS THE WHOLE OF IT, and it was wrong in a way that only showed up
+ * under failure. Four chain reads, a budget claim, a funder acquisition and a
+ * gas quote all ran while the entry was still ELIGIBLE, and the quote ran
+ * outside the try. A quote throws for ordinary reasons — the RPC is slow, the
+ * campaign just closed, the fee estimate came back unusable — and when it did,
+ * the entry was left ELIGIBLE with its updated_at untouched. listEligible orders
+ * by updated_at, so that entry was the first row of the next run, and of the run
+ * after that, for as long as the condition lasted. One participant's bad minute
+ * became every participant's, because nothing behind them was ever reached. The
+ * throw also escaped processEligibleEntries, which had no per-entry catch, so a
+ * single entry aborted the run's remaining stages as well.
  *
- * G5 first: if the contract already says this address entered, the work is done
- * and repeating it would fund a wallet for a transaction that must revert.
+ * Now the state moves first and everything else happens inside the try. FUNDING
+ * is a claim on the entry, and taking it rewrites updated_at, which by itself
+ * sends the entry to the back of the queue whatever happens next. Every exit
+ * below either advances the entry or returns it to ELIGIBLE through a write, so
+ * there is no path that leaves a row exactly as it found it.
  *
- * H6 next: slots are read before gas moves. H5 follows from it — a creator who
- * writes an expensive enter() cannot drain the pool, because the number of times
- * the bridge is willing to pay is the number of slots they bought.
+ * The reads that decide whether to spend anything at all still come first,
+ * because they are cheap, they are terminal, and none of them costs gas:
  *
- * G3 then: the funder lease is renewed after the funding transaction and before
- * the entry, so a slow confirmation cannot let the lease lapse while this
- * operation is still using the nonce.
+ * G5: if the contract already says this address entered, the work is done and
+ * repeating it would fund a wallet for a transaction that must revert.
+ *
+ * H5/H6: the slot ledger, and the campaign's real deadline. Slots bound what a
+ * hostile creator can make the pool spend; effectiveEndTime is the other half of
+ * the condition enter() actually checks, and without it the bridge funded
+ * entries into campaigns whose entry window had closed while their status was
+ * still OPEN.
+ *
+ * G3: the funder lease is renewed after the funding transaction and before the
+ * entry, so a slow confirmation cannot let the lease lapse while this operation
+ * is still using the nonce.
  */
 async function processEligible(entry: Entry, log: Logger): Promise<void> {
   if (entry.rootIndex === null) {
@@ -157,6 +202,18 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
   if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
     await advance(entry.id, 'ELIGIBLE', 'CONFIRMED');
     await log.event('entry.confirmed', { reason: 'already_on_chain' });
+    return;
+  }
+
+  // H5/H6. enter() checks the status AND the effective end (contract line 709),
+  // and a campaign stays OPEN past its end until somebody calls closeGiveaway.
+  // Funding an entry inside that gap buys a certain EntriesClosed revert.
+  const campaign = await readGiveaway(entry.giveawayId);
+  if (!campaign.acceptsEntries) {
+    await advance(entry.id, 'ELIGIBLE', 'FAILED');
+    await log.event('entry.failed', {
+      reason: campaign.isOpen ? 'entries_closed' : 'campaign_not_open',
+    });
     return;
   }
 
@@ -180,11 +237,23 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
     return;
   }
 
-  // B8: the gas budget is claimed before any of it is spent.
-  if (!(await claimSpend('chain', 1, log))) return;
+  // The claim on the entry, taken before anything that can fail transiently. A
+  // false here means another run took it, which under the pipeline lock should
+  // not happen and is still the only safe reading of it.
+  if (!(await advance(entry.id, 'ELIGIBLE', 'FUNDING'))) return;
+
+  // B8: the gas budget is claimed before any of it is spent. Inside the claim,
+  // so a refusal returns the entry to ELIGIBLE — at the back of the queue,
+  // because the transition wrote updated_at — rather than leaving it FUNDING
+  // with nothing holding it.
+  if (!(await claimSpend('chain', 1, log))) {
+    await advance(entry.id, 'FUNDING', 'ELIGIBLE');
+    return;
+  }
 
   const lease = await acquireFunder();
   if (lease === null) {
+    await advance(entry.id, 'FUNDING', 'ELIGIBLE');
     await log.event('funder.exhausted');
     await alert(log, 'no funder available');
     return;
@@ -192,14 +261,16 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
 
   let nextNonce = lease.nextNonce;
   try {
+    // Inside the try, and after the transition. This is the call that reverts
+    // when the campaign closed a block ago, when the proof does not verify, or
+    // when the RPC is having a bad minute — every one of them a reason to put
+    // the entry back, and none of them a reason to stop the run.
     const quote = await quoteEntryCost(
       entry.giveawayId,
       entry.walletAddress,
       proof.rootIndex,
       proof.proof,
     );
-
-    if (!(await advance(entry.id, 'ELIGIBLE', 'FUNDING'))) return;
 
     const fundingHash = await fundDerivedWallet(
       lease,
@@ -241,7 +312,18 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
 
     // K3: the hash is written before the wait, so a function that dies here
     // leaves a reconcilable record instead of a lost transaction.
-    await advance(entry.id, 'FUNDING', 'SUBMITTED', { tx_hash: hash });
+    //
+    // G2: and the write is checked, because it is the ONLY record that this
+    // transaction was ever broadcast. Ignoring its result meant a failed write
+    // left the entry in FUNDING with a live transaction against it and no hash
+    // anywhere — a state nothing listed and nothing could reconcile. The throw
+    // reaches the catch below, which returns the entry to ELIGIBLE; hasEntered
+    // at the top of the next attempt is what makes that safe, since it reads the
+    // fact this row failed to record.
+    if (!(await advance(entry.id, 'FUNDING', 'SUBMITTED', { tx_hash: hash }))) {
+      await log.event('entry.failed', { reason: 'submitted_not_recorded' });
+      return;
+    }
     await log.event('entry.submitted', { giveaway_id: entry.giveawayId.toString() });
 
     const receipt = await waitForReceipt(hash);
@@ -272,11 +354,103 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
   }
 }
 
-/** Runs the funding and entry step for a bounded number of entries. */
-export async function processEligibleEntries(log: Logger): Promise<number> {
+/**
+ * Runs the funding and entry step for a bounded number of entries.
+ *
+ * Two guarantees live here rather than in the function above, because both are
+ * about the run and not about the entry.
+ *
+ * No transient failure aborts the run. The catch is per entry: an RPC timeout,
+ * a database error, a fee estimate that came back nonsense — each of those ends
+ * one entry's attempt and the loop moves to the next. Without it the first throw
+ * escaped to the cron handler, which then skipped the prize stage entirely,
+ * so one unlucky entry stopped the delivery of somebody else's prize.
+ *
+ * No entry holds the head of the queue. Whatever happened, the row is written
+ * before the loop moves on — by the transitions inside processEligible on every
+ * path it takes, and by the touch below on the path where it threw before any of
+ * them. listEligible orders by updated_at, so a row that is never written is a
+ * row that is first for ever.
+ *
+ * G4: the deadline is checked between entries, so a run stops between units of
+ * work rather than inside one. A killed run is what leaves an entry in FUNDING
+ * and a broadcast transaction with no hash recorded anywhere.
+ */
+export async function processEligibleEntries(log: Logger, deadline: RunDeadline): Promise<number> {
   const entries = await listEligible(ENTRY_BATCH);
-  for (const entry of entries) await processEligible(entry, log);
-  return entries.length;
+  let attempted = 0;
+
+  for (const entry of entries) {
+    if (!deadline.hasTimeFor(ENTRY_WORST_CASE_MS)) break;
+    attempted += 1;
+
+    try {
+      await processEligible(entry, log);
+    } catch (error) {
+      await log.failure('entry.failed', error);
+      try {
+        // The entry is wherever the throw left it — ELIGIBLE if it failed before
+        // the claim, FUNDING if after. Either way it must not be the head of the
+        // queue again, and FUNDING has reconcileFunding to bring it back.
+        await touch(entry.id);
+      } catch {
+        // Nothing further to try: the database that failed the write above is
+        // the database this would use. The failure is already recorded.
+      }
+    }
+  }
+
+  return attempted;
+}
+
+/**
+ * I8: brings back entries left in FUNDING by a run that no longer exists.
+ *
+ * FUNDING is the only state with no query behind it, and that was survivable
+ * exactly as long as the invocation holding it always reached one of its own
+ * exits. It does not: the platform kills a function at its duration limit
+ * wherever it happens to be, and a container can simply go away. What was left
+ * behind was an entry in a state nothing listed, for a participant who had
+ * verified a phone number and been given a slot — a terminal state reached by
+ * accident, which is what I8 forbids.
+ *
+ * The chain decides which way it goes. hasEntered is the fact that matters and
+ * is true whether or not this side ever saw a receipt; anything else goes back
+ * to ELIGIBLE, where the first thing the next attempt does is read hasEntered
+ * again. The gas already in the wallet is not lost — the sweep recovers whatever
+ * a successful entry did not spend.
+ *
+ * The staleness threshold is what keeps this from racing a live run: FUNDING is
+ * only held inside a scheduled run, a run cannot outlive its maxDuration, and
+ * one run at a time holds the pipeline lock.
+ */
+export async function reconcileFunding(log: Logger, deadline: RunDeadline): Promise<number> {
+  const entries = await listStale('FUNDING', FUNDING_STALE_MS, ENTRY_BATCH);
+  let recovered = 0;
+
+  for (const entry of entries) {
+    if (!deadline.hasTimeFor(2 * RPC_TIMEOUT_MS)) break;
+
+    try {
+      if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
+        await advance(entry.id, 'FUNDING', 'CONFIRMED');
+        await log.event('entry.confirmed', { reason: 'recovered_from_funding' });
+      } else {
+        await advance(entry.id, 'FUNDING', 'ELIGIBLE');
+        await log.event('entry.failed', { reason: 'funding_abandoned' });
+      }
+      recovered += 1;
+    } catch (error) {
+      await log.failure('entry.failed', error);
+      try {
+        await touch(entry.id);
+      } catch {
+        // As above: the write that would record this is the one that failed.
+      }
+    }
+  }
+
+  return recovered;
 }
 
 /**
@@ -288,10 +462,15 @@ export async function processEligibleEntries(log: Logger): Promise<number> {
  * receipt being awaited again, because hasEntered is the fact that actually
  * matters and it is true whether or not this process ever saw the receipt.
  */
-export async function reconcileSubmitted(log: Logger): Promise<number> {
+export async function reconcileSubmitted(log: Logger, deadline: RunDeadline): Promise<number> {
   const entries = await listSubmitted(ENTRY_BATCH);
+  let seen = 0;
 
   for (const entry of entries) {
+    // G4: one of these can wait a full receipt timeout.
+    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + RPC_TIMEOUT_MS)) break;
+    seen += 1;
+
     if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
       await advance(entry.id, 'SUBMITTED', 'CONFIRMED');
       await log.event('entry.confirmed', { reason: 'reconciled' });
@@ -316,7 +495,7 @@ export async function reconcileSubmitted(log: Logger): Promise<number> {
     await touch(entry.id);
   }
 
-  return entries.length;
+  return seen;
 }
 
 /**
@@ -331,11 +510,18 @@ export async function reconcileSubmitted(log: Logger): Promise<number> {
  * from. Nothing here can send anywhere else: the destination is not a parameter
  * of any route (H2).
  */
-export async function sweepConfirmed(log: Logger, destination: `0x${string}`): Promise<number> {
+export async function sweepConfirmed(
+  log: Logger,
+  destination: `0x${string}`,
+  deadline: RunDeadline,
+): Promise<number> {
   const entries = await listConfirmed(ENTRY_BATCH);
   let swept = 0;
 
   for (const entry of entries) {
+    // G4: a sweep is four reads and a broadcast, with no receipt wait.
+    if (!deadline.hasTimeFor(5 * RPC_TIMEOUT_MS)) break;
+
     const participant = await getParticipant(entry.participantId);
     if (participant === null) {
       // No participant row means no derivation index, so this wallet can never
@@ -499,6 +685,31 @@ async function processPrize(
   // one is an address they have been shown and have not yet agreed to.
   const destination = custody.destinationConfirmedAt === null ? null : custody.destinationAddress;
 
+  // -------------------------------------------------------------- E2 under D1
+  // The rule recorded at entry time was provisional twice over: the share came
+  // from a winnersCount the contract had not yet clamped, and it was compared
+  // against a USDC threshold in the base units of whatever token the creator
+  // chose. Both are settled now — the campaign has closed, so winnersCount is
+  // final, and feeToken names the token the prize is actually paid in.
+  //
+  // claimable() is the contract's own answer to "what is this wallet owed", and
+  // it is the number the threshold is about. It reads zero once a claim has
+  // landed, so for a prize already in the wallet the largest share the campaign
+  // can pay stands in — which errs strict, and only ever strict.
+  const claimableNow = await claimableFor(giveawayId, walletAddress);
+  const winnerShare =
+    claimableNow > 0n
+      ? claimableNow
+      : largestWinnerShare(campaign.prizeAmount, campaign.winnersCount);
+  const policy = policyFor(campaign.prizeKind, winnerShare, campaign.feeToken);
+  const requiresOwnWallet = policy.requiresOwnWallet;
+
+  // Written before anything moves, so the branch the transaction takes is the
+  // branch the row records. A run that dies after this reads the same answer.
+  if (requiresOwnWallet !== custody.requiresOwnWallet) {
+    await updatePolicy(custody.entryId, requiresOwnWallet);
+  }
+
   // The contract's own window, read from the contract rather than copied here.
   // Past it claimPrize reverts with ClaimExpired and the creator may reclaim, so
   // there is nothing left for this side to attempt.
@@ -515,7 +726,7 @@ async function processPrize(
     await beginCustody(
       custody.entryId,
       custody.claimTxHash,
-      custody.requiresOwnWallet ? null : custodyExpiryFrom(new Date()),
+      requiresOwnWallet ? null : custodyExpiryFrom(new Date()),
     );
     await log.event('prize.claimed', {
       giveaway_id: giveawayId.toString(),
@@ -529,16 +740,20 @@ async function processPrize(
       return false;
     }
 
-    // E2: a prize that must go to a wallet the winner owns is not claimed until
-    // there is one to send it to.
-    if (custody.requiresOwnWallet && destination === null) {
+    // E2 under D1: a prize that must go to a wallet the winner owns is not
+    // claimed until there is one to send it to. The flag is the one computed
+    // above from what the contract says this winner is owed, not the provisional
+    // one written at entry time.
+    if (requiresOwnWallet && destination === null) {
       await touchCustody(custody.entryId);
       return false;
     }
 
-    if ((await claimableFor(giveawayId, walletAddress)) <= 0n) {
+    if (claimableNow <= 0n) {
       // Not a winner, or the prize is already collected. Neither is an error,
-      // and neither becomes one by being looked at again.
+      // and neither becomes one by being looked at again. Read once, above,
+      // because it is the same number the policy was decided from and a second
+      // read would only be a second chance for the RPC to answer differently.
       await touchCustody(custody.entryId);
       return false;
     }
@@ -575,7 +790,7 @@ async function processPrize(
     await beginCustody(
       custody.entryId,
       claimHash,
-      custody.requiresOwnWallet ? null : custodyExpiryFrom(new Date()),
+      requiresOwnWallet ? null : custodyExpiryFrom(new Date()),
     );
     await log.event('prize.claimed', {
       giveaway_id: giveawayId.toString(),
@@ -585,13 +800,30 @@ async function processPrize(
 
   // ------------------------------------------------------------- the delivery
   if (destination === null) {
-    // E3: temporary custody is bounded. Past the expiry with no destination
-    // given, somebody's money is sitting in a wallet the specification says is
-    // not a vault, and that is worth waking somebody up for.
+    // E3, and OWNER DECISION D2 of 06/09/2026.
+    //
+    // Past the expiry with no destination given, somebody's money is sitting in
+    // a wallet the specification says is not a vault. D2 settles what happens
+    // next: the value stays where it is, the bridge takes no automatic action on
+    // it, and one alert is raised — once, for this custody, ever.
+    //
+    // Once is the part that needed a write. The condition "the expiry is in the
+    // past" stays true for as long as the prize is unclaimed, so alerting on it
+    // meant one message a minute about one prize for as long as it sat there.
+    // The claim below is conditional on the column still being null and the
+    // database decides which pass wins, so the alert belongs to the custody and
+    // not to the schedule.
     const expiry = custody.custodyExpiresAt;
-    if (expiry !== null && new Date(expiry).getTime() <= Date.now()) {
+    if (
+      expiry !== null &&
+      new Date(expiry).getTime() <= Date.now() &&
+      custody.custodyExpiredAlertAt === null &&
+      (await claimCustodyExpiredAlert(custody.entryId))
+    ) {
       await log.event('prize.custody_expired', { giveaway_id: giveawayId.toString() });
-      await alert(log, 'temporary custody expired with no destination');
+      await alert(log, 'temporary custody expired with no destination', {
+        giveaway_id: giveawayId.toString(),
+      });
     }
     await touchCustody(custody.entryId);
     return false;
@@ -647,7 +879,7 @@ async function processPrize(
  * advances and a prize waiting on a destination does not shadow the ones behind
  * it.
  */
-export async function processPrizes(log: Logger): Promise<number> {
+export async function processPrizes(log: Logger, deadline: RunDeadline): Promise<number> {
   const pending = await listPendingPrizes(PRIZE_BATCH);
   if (pending.length === 0) return 0;
 
@@ -658,11 +890,19 @@ export async function processPrizes(log: Logger): Promise<number> {
 
   let delivered = 0;
   for (const prize of pending) {
+    // G4: a prize can be a claim and a delivery, each with its own funding and
+    // its own receipt wait, so it is the most expensive unit the pipeline runs.
+    if (!deadline.hasTimeFor(2 * ENTRY_WORST_CASE_MS)) break;
+
     try {
       if (await processPrize(prize, log, deadlineSeconds)) delivered += 1;
     } catch (error) {
       await log.failure('prize.failed', error);
-      await touchCustody(prize.custody.entryId);
+      try {
+        await touchCustody(prize.custody.entryId);
+      } catch {
+        // The database that failed above is the one this would use.
+      }
     }
   }
   return delivered;

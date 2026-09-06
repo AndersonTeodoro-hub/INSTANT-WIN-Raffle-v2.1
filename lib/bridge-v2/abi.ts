@@ -254,25 +254,6 @@ export const GIVEAWAY_MANAGER_V2_ABI = [
   },
   {
     "type": "function",
-    "name": "getParticipantsCount",
-    "inputs": [
-      {
-        "name": "giveawayId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "hasEntered",
     "inputs": [
       {
@@ -676,3 +657,119 @@ export const ERC721_PRIZE_MODULE_ABI = [
     "stateMutability": "view"
   }
 ] as const;
+
+/**
+ * ERC-1155, and why prizeKind alone was never enough to build a delivery.
+ *
+ * PrizeKind has two values and there are three prize shapes. ERC721PrizeModule
+ * and ERC1155PrizeModule both answer PrizeKind.NFT — the core freezes that value
+ * from whichever module a campaign was created with and never looks further —
+ * so a campaign whose prize is an ERC-1155 arrived here indistinguishable from
+ * an ERC-721 one and was handed to the ERC-721 path: itemsOf on a module that
+ * has no itemsOf, ownerOf on a collection that has no ownerOf, and a three-
+ * argument safeTransferFrom that does not exist in the ERC-1155 standard. Every
+ * one of those reverts, so nothing was stolen and nothing was delivered either:
+ * the prize sat in a derived wallet, which is the one place E1 says value may
+ * never rest, and the thirty-day custody clock ran out around it.
+ *
+ * Both modules are registered in the core for prizeKind NFT, so this is not a
+ * hypothetical shape.
+ */
+export const ERC1155_ABI = [
+  {
+    "type": "function",
+    "name": "balanceOf",
+    "inputs": [
+      { "name": "account", "type": "address", "internalType": "address" },
+      { "name": "id", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    // The standard has one transfer and it carries an amount and a data field.
+    // There is no three-argument form to fall back on and no unsafe variant, so
+    // the ERC-721 encoding of a delivery is not a near miss on this collection —
+    // it is a selector the contract does not implement.
+    "type": "function",
+    "name": "safeTransferFrom",
+    "inputs": [
+      { "name": "from", "type": "address", "internalType": "address" },
+      { "name": "to", "type": "address", "internalType": "address" },
+      { "name": "id", "type": "uint256", "internalType": "uint256" },
+      { "name": "amount", "type": "uint256", "internalType": "uint256" },
+      { "name": "data", "type": "bytes", "internalType": "bytes" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  }
+] as const;
+
+/**
+ * The two views of ERC1155PrizeModule the bridge needs, plus the one that tells
+ * it which module it is talking to.
+ *
+ * custodyOf has the same decoded shape as the ERC-721 module's — an address and
+ * a count — so it cannot be the discriminator. lotsOf can: section 8.3 pairs the
+ * n-th winner with the n-th deposited UNIT, and units are deposited in lots of
+ * (id, total), so the token id a winner is owed is the id of the lot their
+ * flattened position falls in. That walk is the module's own _lotIndexOf, done
+ * on this side because the module exposes the lots and not the mapping.
+ *
+ * supportsInterface is the discriminator. ERC1155PrizeModule declares it, for
+ * IERC1155Receiver; ERC721PrizeModule declares no supportsInterface at all, and
+ * PrizeModuleBase adds none, so the call reverts there. A revert read as "not
+ * this module" is the standard ERC-165 probe and is what OpenZeppelin's own
+ * checker does.
+ *
+ * The module address is not configured anywhere: it comes from
+ * getGiveaway().prizeModule, which the core bound at creation and never
+ * reassigns.
+ */
+export const ERC1155_PRIZE_MODULE_ABI = [
+  {
+    "type": "function",
+    "name": "custodyOf",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      { "name": "collection", "type": "address", "internalType": "contract IERC1155" },
+      { "name": "unitCount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lotsOf",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct ERC1155PrizeModule.Lot[]",
+        "components": [
+          { "name": "id", "type": "uint256", "internalType": "uint256" },
+          { "name": "total", "type": "uint256", "internalType": "uint256" },
+          { "name": "remaining", "type": "uint256", "internalType": "uint256" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "supportsInterface",
+    "inputs": [{ "name": "interfaceId", "type": "bytes4", "internalType": "bytes4" }],
+    "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
+    "stateMutability": "pure"
+  }
+] as const;
+
+/**
+ * IERC1155Receiver's ERC-165 interface id.
+ *
+ * The XOR of onERC1155Received and onERC1155BatchReceived, as the standard
+ * defines it, and the value ERC1155PrizeModule.supportsInterface answers true
+ * for. A literal here rather than computed: it is a constant of the standard,
+ * and computing it would mean carrying the two selectors instead.
+ */
+export const ERC1155_RECEIVER_INTERFACE_ID = '0x4e2312e0' as const;

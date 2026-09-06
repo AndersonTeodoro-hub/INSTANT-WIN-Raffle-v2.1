@@ -21,7 +21,12 @@
  * the value arrives.
  */
 
-import { CUSTODY_TEMPORARY_DAYS, CUSTODY_OWN_WALLET_THRESHOLD, DB_TIMEOUT_MS } from './config.js';
+import {
+  CUSTODY_TEMPORARY_DAYS,
+  CUSTODY_OWN_WALLET_THRESHOLD,
+  DB_TIMEOUT_MS,
+  USDC,
+} from './config.js';
 import { PrizeKind } from './abi.js';
 import { checked, checkedMaybe, getDb } from './db.js';
 
@@ -33,32 +38,67 @@ export interface CustodyPolicy {
 }
 
 /**
- * Applies E2 to one campaign.
+ * The largest single share a campaign can pay one winner.
  *
- * The share is what a single winner receives, not the whole prize: the threshold
- * is about what one person is owed, and a large prize split many ways can leave
- * each winner well under the line.
+ * The contract's own arithmetic, from GiveawayManagerV2.claimable: the share is
+ * prizeAmount / winnersCount and the indivisible remainder goes to the first
+ * derived winner, so slot 1 is owed share + remainder and nobody is owed more.
  *
- * winnersCount is clamped to the entrant count by the contract at close, so the
- * share computed here before the close is the smallest the winner could receive.
- * Erring that way is deliberate — it can only move a prize into the stricter
- * branch, never out of it.
+ * Used only where the real figure is not available — before a campaign settles,
+ * and after a prize has been claimed, when claimable() has gone back to zero.
+ * Taking the maximum rather than the mean errs towards the stricter branch,
+ * which is the only direction it is safe to err in: it can require a wallet the
+ * winner owns for a prize that turned out to be small, never leave a large one
+ * in a derived wallet.
+ */
+export function largestWinnerShare(prizeAmount: bigint, winnersCount: number): bigint {
+  const winners = winnersCount > 0 ? BigInt(winnersCount) : 1n;
+  const share = prizeAmount / winners;
+  return share + (prizeAmount - share * winners);
+}
+
+/**
+ * Applies E2, under owner decision D1 of 06/09/2026.
+ *
+ * TWO THINGS CHANGED HERE AND BOTH WERE WRONG BEFORE.
+ *
+ * The token. The threshold is a hundred USDC, in USDC base units, and it was
+ * being compared against an amount of whatever token the campaign creator chose.
+ * "100000000" means one hundred in a six-decimal token and a ten-millionth of
+ * one in an eighteen-decimal token, so an unbounded prize in a token nobody has
+ * heard of went to temporary custody while a modest prize in a token with few
+ * decimals did not. There is no conversion that fixes this — pricing an
+ * arbitrary ERC-20 needs an oracle, and the same reasoning E2 already applies to
+ * an NFT applies here: there is no number to trust. D1 settles it by scope
+ * rather than by arithmetic. Only USDC can rest in a derived wallet; every other
+ * token, like every NFT, needs a wallet the winner owns, whatever the amount.
+ *
+ * The value. The share was computed from winnersCount at entry time, and the
+ * contract clamps winnersCount down to the entrant count when it closes. A
+ * campaign created for ten winners that draws three pays each of them more than
+ * three times what was assumed here — the estimate erred towards the LENIENT
+ * branch, not the strict one, which is how a prize over the threshold ends up in
+ * temporary custody. What one winner is actually owed is claimable(), and that
+ * is what the prize path now passes in.
  */
 export function policyFor(
   prizeKind: number,
-  prizeAmount: bigint,
-  winnersCount: number,
+  winnerShare: bigint,
+  prizeToken: `0x${string}`,
 ): CustodyPolicy {
   if (prizeKind === PrizeKind.NFT) {
     return { prizeKind: 'NFT', requiresOwnWallet: true };
   }
 
-  const winners = winnersCount > 0 ? BigInt(winnersCount) : 1n;
-  const share = prizeAmount / winners;
+  // D1. The comparison below is only meaningful in one token's units, so any
+  // other token skips it entirely.
+  if (prizeToken.toLowerCase() !== (USDC as string).toLowerCase()) {
+    return { prizeKind: 'TOKEN', requiresOwnWallet: true };
+  }
 
   return {
     prizeKind: 'TOKEN',
-    requiresOwnWallet: share >= CUSTODY_OWN_WALLET_THRESHOLD,
+    requiresOwnWallet: winnerShare >= CUSTODY_OWN_WALLET_THRESHOLD,
   };
 }
 
@@ -102,6 +142,8 @@ export interface CustodyRecord {
   readonly claimTxHash: string | null;
   readonly deliveredAt: string | null;
   readonly deliveryTxHash: string | null;
+  /** D2: set the first and only time an expired custody was alerted on. */
+  readonly custodyExpiredAlertAt: string | null;
 }
 
 interface CustodyRow {
@@ -115,12 +157,13 @@ interface CustodyRow {
   claim_tx_hash: string | null;
   delivered_at: string | null;
   delivery_tx_hash: string | null;
+  custody_expired_alert_at: string | null;
 }
 
 const CUSTODY_COLUMNS =
   'entry_id, prize_kind, requires_own_wallet, destination_address, ' +
   'destination_confirmed_at, custody_expires_at, claimed_at, claim_tx_hash, ' +
-  'delivered_at, delivery_tx_hash';
+  'delivered_at, delivery_tx_hash, custody_expired_alert_at';
 
 function toCustody(row: CustodyRow): CustodyRecord {
   return {
@@ -134,7 +177,30 @@ function toCustody(row: CustodyRow): CustodyRecord {
     claimTxHash: row.claim_tx_hash,
     deliveredAt: row.delivered_at,
     deliveryTxHash: row.delivery_tx_hash,
+    custodyExpiredAlertAt: row.custody_expired_alert_at,
   };
+}
+
+/**
+ * Rewrites the E2 outcome once the real figure is known.
+ *
+ * The row written at entry time records the rule the participant was shown, from
+ * a share the contract had not yet fixed. When the campaign settles, claimable()
+ * says what this winner is actually owed, and that number decides. Written
+ * BEFORE the claim, so the branch taken by the transaction that moves the prize
+ * is the branch stored on the row — a run that dies between the two reads the
+ * same answer the next time.
+ */
+export async function updatePolicy(entryId: string, requiresOwnWallet: boolean): Promise<void> {
+  const db = getDb();
+  checked(
+    'custody.update_policy',
+    await db
+      .from('bridge_v2_custody')
+      .update({ requires_own_wallet: requiresOwnWallet, updated_at: new Date().toISOString() })
+      .eq('entry_id', entryId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
 }
 
 export async function readCustody(entryId: string): Promise<CustodyRecord | null> {
@@ -158,25 +224,34 @@ export async function readCustody(entryId: string): Promise<CustodyRecord | null
  * Proposing and confirming are separate writes on purpose. The requirement is
  * that the address is shown back to the participant before anything moves, and a
  * single call that stored and accepted in one go would leave nothing to show.
+ *
+ * G2: false means the row did not match, and only that. A database error throws.
+ * The two were being collapsed into the same false, and the caller turns false
+ * into a 409 telling the participant their request was refused — so a database
+ * that was simply unavailable was reported to them as a decision about their
+ * address, and the route returned 200-shaped refusals for an outage nobody was
+ * paged about. An error is not an answer.
  */
 export async function proposeDestination(
   entryId: string,
   destination: `0x${string}`,
 ): Promise<boolean> {
   const db = getDb();
-  const updated = await db
-    .from('bridge_v2_custody')
-    .update({
-      destination_address: destination,
-      destination_confirmed_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('entry_id', entryId)
-    .select('entry_id')
-    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
-    .maybeSingle();
-  if (updated.error) return false;
-  return updated.data !== null;
+  const updated = checkedMaybe(
+    'custody.propose_destination',
+    await db
+      .from('bridge_v2_custody')
+      .update({
+        destination_address: destination,
+        destination_confirmed_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('entry_id', entryId)
+      .select('entry_id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
 }
 
 /**
@@ -185,25 +260,32 @@ export async function proposeDestination(
  * The address is passed again and must match what is stored. A confirmation that
  * does not name the address it confirms would accept whatever happened to be in
  * the row, which is precisely what the second step exists to prevent.
+ *
+ * G2: false means the stored address is not this one. A database error throws,
+ * because the decision the caller makes from false — telling the participant to
+ * confirm the address they were shown — is only true if the row was actually
+ * read.
  */
 export async function confirmDestination(
   entryId: string,
   destination: `0x${string}`,
 ): Promise<boolean> {
   const db = getDb();
-  const updated = await db
-    .from('bridge_v2_custody')
-    .update({
-      destination_confirmed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('entry_id', entryId)
-    .eq('destination_address', destination)
-    .select('entry_id')
-    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
-    .maybeSingle();
-  if (updated.error) return false;
-  return updated.data !== null;
+  const updated = checkedMaybe(
+    'custody.confirm_destination',
+    await db
+      .from('bridge_v2_custody')
+      .update({
+        destination_confirmed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('entry_id', entryId)
+      .eq('destination_address', destination)
+      .select('entry_id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
 }
 
 // -----------------------------------------------------------------------------
@@ -271,6 +353,10 @@ export async function listPendingPrizes(limit: number): Promise<PendingPrize[]> 
  * The expiry is written here and nowhere else, because here is the first moment
  * at which there is a custody to expire. Conditional on claimed_at being null so
  * two passes that both saw an unmined claim cannot restart the clock.
+ *
+ * G2: false means the row was already claimed. A database error throws — the
+ * caller reads false as "somebody else recorded this claim", and swallowing an
+ * error into that answer says a prize is accounted for when nothing was written.
  */
 export async function beginCustody(
   entryId: string,
@@ -279,37 +365,80 @@ export async function beginCustody(
 ): Promise<boolean> {
   const db = getDb();
   const now = new Date().toISOString();
-  const updated = await db
-    .from('bridge_v2_custody')
-    .update({
-      claimed_at: now,
-      claim_tx_hash: claimTxHash,
-      custody_expires_at: expiresAt?.toISOString() ?? null,
-      updated_at: now,
-    })
-    .eq('entry_id', entryId)
-    .is('claimed_at', null)
-    .select('entry_id')
-    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
-    .maybeSingle();
-  if (updated.error) return false;
-  return updated.data !== null;
+  const updated = checkedMaybe(
+    'custody.begin',
+    await db
+      .from('bridge_v2_custody')
+      .update({
+        claimed_at: now,
+        claim_tx_hash: claimTxHash,
+        custody_expires_at: expiresAt?.toISOString() ?? null,
+        updated_at: now,
+      })
+      .eq('entry_id', entryId)
+      .is('claimed_at', null)
+      .select('entry_id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
 }
 
-/** The prize left the derived wallet for the address the winner confirmed (E4). */
+/**
+ * The prize left the derived wallet for the address the winner confirmed (E4).
+ *
+ * G2: false means it was already marked delivered. A database error throws,
+ * because false and "the write did not happen" are the difference between a
+ * prize that is done with and one the next pass has to finish.
+ */
 export async function markDelivered(entryId: string, txHash: string | null): Promise<boolean> {
   const db = getDb();
   const now = new Date().toISOString();
-  const updated = await db
-    .from('bridge_v2_custody')
-    .update({ delivered_at: now, delivery_tx_hash: txHash, updated_at: now })
-    .eq('entry_id', entryId)
-    .is('delivered_at', null)
-    .select('entry_id')
-    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
-    .maybeSingle();
-  if (updated.error) return false;
-  return updated.data !== null;
+  const updated = checkedMaybe(
+    'custody.mark_delivered',
+    await db
+      .from('bridge_v2_custody')
+      .update({ delivered_at: now, delivery_tx_hash: txHash, updated_at: now })
+      .eq('entry_id', entryId)
+      .is('delivered_at', null)
+      .select('entry_id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
+}
+
+/**
+ * OWNER DECISION D2, 06/09/2026: one alert per expired custody, never repeated.
+ *
+ * Returns true only for the pass that actually claimed the alert, because the
+ * write is conditional on the column still being null and the database decides
+ * which pass wins. Reading the column and then writing it would be the
+ * read-compare-write G1 forbids, and would let two passes both alert.
+ *
+ * The alternative — alerting whenever the expiry is in the past — fired once a
+ * minute for as long as the value sat there, which is thirty days of one message
+ * about one prize. That is not an alert; it is the noise that teaches its reader
+ * to filter the channel.
+ *
+ * Nothing else happens to the value. D2 says an expired custody with no
+ * destination is retained, and the bridge takes no automatic action on it.
+ */
+export async function claimCustodyExpiredAlert(entryId: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = checkedMaybe(
+    'custody.claim_expiry_alert',
+    await db
+      .from('bridge_v2_custody')
+      .update({ custody_expired_alert_at: now, updated_at: now })
+      .eq('entry_id', entryId)
+      .is('custody_expired_alert_at', null)
+      .select('entry_id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
 }
 
 /**

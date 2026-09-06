@@ -42,12 +42,25 @@ SET search_path = public, extensions;
 --
 -- B4: crossing the ceiling raises strikes and sets a penalty that grows with
 -- each strike, capped so that a mistake does not lock an axis out for a day.
+--
+-- THE PENALTY DOES NOT LIVE IN THE WINDOW ROW. It used to, and that made the
+-- escalation a fiction: a window row is created by the first request of its
+-- window and is gone with it, so an attacker who earned an hour of penalty on a
+-- sixty-second axis waited sixty seconds and met a fresh row with zero strikes.
+-- strikes and penalty_until are now read from and written to
+-- bridge_v2_rate_penalties, keyed by (axis, key_hash) and by nothing else, so
+-- crossing a window boundary changes nothing about what a caller already owes.
+--
+-- Strikes decay rather than accumulate for ever: a key whose last strike is
+-- older than p_strike_decay_seconds starts again at one. B4 is a cost imposed on
+-- somebody attacking now, not a permanent record of a mistyped code.
 CREATE OR REPLACE FUNCTION bridge_v2_rate_limit_hit(
-  p_axis             text,
-  p_key_hash         text,
-  p_window_seconds   integer,
-  p_max_count        integer,
-  p_penalty_seconds  integer
+  p_axis                 text,
+  p_key_hash             text,
+  p_window_seconds       integer,
+  p_max_count            integer,
+  p_penalty_seconds      integer,
+  p_strike_decay_seconds integer
 ) RETURNS TABLE (allowed boolean, retry_after_seconds integer)
 LANGUAGE plpgsql
 SET search_path = public, extensions
@@ -57,8 +70,27 @@ DECLARE
   v_count    integer;
   v_strikes  integer;
   v_penalty  timestamptz;
+  v_last     timestamptz;
   v_now      timestamptz := now();
 BEGIN
+  -- The standing penalty is read first and under a row lock, so two concurrent
+  -- callers cannot both observe the pre-strike value and both write strike n+1.
+  SELECT p.strikes, p.penalty_until, p.last_strike_at
+    INTO v_strikes, v_penalty, v_last
+    FROM bridge_v2_rate_penalties p
+   WHERE p.axis = p_axis AND p.key_hash = p_key_hash
+     FOR UPDATE;
+
+  v_strikes := COALESCE(v_strikes, 0);
+
+  -- An active penalty denies regardless of the count, and denies WITHOUT
+  -- spending a window slot: counting a request refused before it was looked at
+  -- would let a penalised caller keep filling their own window.
+  IF v_penalty IS NOT NULL AND v_penalty > v_now THEN
+    RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_now)))::integer);
+    RETURN;
+  END IF;
+
   v_window := to_timestamp(floor(extract(epoch from v_now) / p_window_seconds) * p_window_seconds);
 
   INSERT INTO bridge_v2_rate_limits (axis, key_hash, window_start, count, updated_at)
@@ -66,22 +98,25 @@ BEGIN
   ON CONFLICT (axis, key_hash, window_start) DO UPDATE
     SET count = bridge_v2_rate_limits.count + 1,
         updated_at = v_now
-  RETURNING count, strikes, penalty_until INTO v_count, v_strikes, v_penalty;
-
-  -- An active penalty denies regardless of the count: B4 makes the wait the
-  -- consequence, not an instant failure that costs the attacker nothing.
-  IF v_penalty IS NOT NULL AND v_penalty > v_now THEN
-    RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_now)))::integer);
-    RETURN;
-  END IF;
+  RETURNING count INTO v_count;
 
   IF v_count > p_max_count THEN
-    v_strikes := v_strikes + 1;
+    IF v_last IS NULL OR v_last < v_now - make_interval(secs => p_strike_decay_seconds) THEN
+      v_strikes := 1;
+    ELSE
+      v_strikes := v_strikes + 1;
+    END IF;
+
     -- Growth is exponential in strikes and capped at one hour.
     v_penalty := v_now + make_interval(secs => LEAST(3600, p_penalty_seconds * power(2, LEAST(v_strikes - 1, 6))::integer));
-    UPDATE bridge_v2_rate_limits
-       SET strikes = v_strikes, penalty_until = v_penalty, updated_at = v_now
-     WHERE axis = p_axis AND key_hash = p_key_hash AND window_start = v_window;
+
+    INSERT INTO bridge_v2_rate_penalties (axis, key_hash, strikes, penalty_until, last_strike_at)
+    VALUES (p_axis, p_key_hash, v_strikes, v_penalty, v_now)
+    ON CONFLICT (axis, key_hash) DO UPDATE
+      SET strikes        = v_strikes,
+          penalty_until  = v_penalty,
+          last_strike_at = v_now;
+
     RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_now)))::integer);
     RETURN;
   END IF;
@@ -90,7 +125,12 @@ BEGIN
 END;
 $fn$;
 
-COMMENT ON FUNCTION bridge_v2_rate_limit_hit IS 'B3/G1: increment and verdict in one atomic operation. Never read-compare-write.';
+COMMENT ON FUNCTION bridge_v2_rate_limit_hit IS 'B3/G1: increment and verdict in one atomic operation. B4: the penalty outlives the window.';
+
+-- The five-argument signature this function had while the penalty lived in the
+-- window row. Dropped rather than left in place: a caller reaching the old one
+-- would silently get the behaviour B4 says is wrong.
+DROP FUNCTION IF EXISTS bridge_v2_rate_limit_hit(text, text, integer, integer, integer);
 
 -- -----------------------------------------------------------------------------
 -- email code attempt — J4 and G1
@@ -576,7 +616,8 @@ COMMENT ON FUNCTION bridge_v2_claim_spend IS 'B8: ceiling claimed before the ext
 -- a separate deliberate path (D7), not a sweep.
 CREATE OR REPLACE FUNCTION bridge_v2_cleanup(
   p_ops_retention_days integer,
-  p_session_grace_days integer
+  p_session_grace_days integer,
+  p_penalty_decay_days integer
 ) RETURNS TABLE (table_name text, rows_removed integer)
 LANGUAGE plpgsql
 SET search_path = public, extensions
@@ -601,6 +642,22 @@ BEGIN
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN QUERY SELECT 'bridge_v2_rate_limits'::text, v_n;
 
+  -- B4 decay. Removed only once the strike count no longer means anything: the
+  -- penalty has run out AND the last strike is older than the decay window the
+  -- limiter itself applies. Deleting a row with a live penalty would hand the
+  -- caller an amnesty the requirement exists to deny.
+  DELETE FROM bridge_v2_rate_penalties
+   WHERE last_strike_at < now() - make_interval(days => p_penalty_decay_days)
+     AND (penalty_until IS NULL OR penalty_until < now());
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN QUERY SELECT 'bridge_v2_rate_penalties'::text, v_n;
+
+  -- A lock whose holder died. Expiry already makes it unheld; removing the row
+  -- keeps the table from being a permanent record of every run ever scheduled.
+  DELETE FROM bridge_v2_locks WHERE expires_at < now() - interval '1 day';
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN QUERY SELECT 'bridge_v2_locks'::text, v_n;
+
   DELETE FROM bridge_v2_external_spend WHERE window_start < now() - interval '30 days';
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN QUERY SELECT 'bridge_v2_external_spend'::text, v_n;
@@ -613,6 +670,65 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION bridge_v2_cleanup IS 'I10/K7/D7: bounded retention for every ephemeral table. Closes finding K6.';
+
+-- The two-argument signature, from before the penalty and lock tables existed.
+DROP FUNCTION IF EXISTS bridge_v2_cleanup(integer, integer);
+
+-- -----------------------------------------------------------------------------
+-- scheduled-run mutual exclusion — G3 and G6
+-- -----------------------------------------------------------------------------
+-- Every individual signing path in the bridge is correct on its own and still
+-- collides when two scheduled runs overlap: they list the same ELIGIBLE rows and
+-- read the same account nonce for the role key and for a derived wallet. A cron
+-- that fires every minute and does work that can take five overlaps itself by
+-- construction, so exclusion has to be a property of the run, not of the code
+-- inside it.
+--
+-- Acquisition is one statement. The ON CONFLICT branch is guarded by the expiry,
+-- so a live lock makes the UPDATE match nothing and the function returns no row —
+-- there is no window between reading who holds it and taking it.
+--
+-- A row rather than pg_try_advisory_lock: PostgREST pools connections and a
+-- session lock is gone the moment the statement returns, which is before the run
+-- it was meant to protect has done anything.
+CREATE OR REPLACE FUNCTION bridge_v2_try_lock(
+  p_name        text,
+  p_ttl_seconds integer
+) RETURNS uuid
+LANGUAGE sql
+SET search_path = public, extensions
+AS $fn$
+  INSERT INTO bridge_v2_locks (name, holder, acquired_at, expires_at)
+  VALUES (p_name, gen_random_uuid(), now(), now() + make_interval(secs => p_ttl_seconds))
+  ON CONFLICT (name) DO UPDATE
+    SET holder      = gen_random_uuid(),
+        acquired_at = now(),
+        expires_at  = now() + make_interval(secs => p_ttl_seconds)
+    WHERE bridge_v2_locks.expires_at <= now()
+  RETURNING holder;
+$fn$;
+
+COMMENT ON FUNCTION bridge_v2_try_lock IS 'G6: one scheduled run at a time. No row means somebody else is running.';
+
+-- Releases only if we still hold it. A run that overran its lease and had it
+-- taken by the next run must not be able to release that run's lock.
+CREATE OR REPLACE FUNCTION bridge_v2_release_lock(
+  p_name   text,
+  p_holder uuid
+) RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = public, extensions
+AS $fn$
+DECLARE
+  v_n integer;
+BEGIN
+  DELETE FROM bridge_v2_locks WHERE name = p_name AND holder = p_holder;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n > 0;
+END;
+$fn$;
+
+COMMENT ON FUNCTION bridge_v2_release_lock IS 'Releases only the lock this run took; an expired-and-retaken lock is left alone.';
 
 -- -----------------------------------------------------------------------------
 -- wallet index reservation — I9

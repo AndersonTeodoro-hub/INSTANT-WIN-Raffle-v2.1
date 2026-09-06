@@ -11,13 +11,20 @@
  * not limited is a free enumeration budget.
  */
 
-import { DB_TIMEOUT_MS, RATE_LIMITS, type RateAxis } from './config.js';
+import { DB_TIMEOUT_MS, RATE_LIMITS, STRIKE_DECAY_SECONDS, type RateAxis } from './config.js';
 import { getDb, checked } from './db.js';
-import { sha256Hex } from './crypto.js';
+import { keyedHash } from './crypto.js';
 
 export interface AxisCheck {
   readonly axis: RateAxis;
-  /** The raw value. It is hashed here and never leaves this module in clear (K4). */
+  /**
+   * The raw value. It is hashed here and never leaves this module in clear (K4).
+   *
+   * Under a key, not a bare digest. Several axes carry a value whose input space
+   * a laptop enumerates — an IP, a subnet, a phone number, an email drawn from a
+   * leaked list — so an unkeyed hash of one is a reversible record of it, and a
+   * table of those is exactly what K4 says may not be persisted.
+   */
   readonly value: string;
 }
 
@@ -47,7 +54,11 @@ export async function enforce(checks: readonly AxisCheck[]): Promise<RateVerdict
 
   for (const check of checks) {
     const limit = RATE_LIMITS[check.axis];
-    const keyHash = await sha256Hex(`${check.axis}:${check.value}`);
+    const keyHash = await keyedHash(
+      'BRIDGE_V2_SIGNAL_HMAC_KEY',
+      'ratelimit-key-v1',
+      `${check.axis}:${check.value}`,
+    );
 
     const rows = checked(
       'rate_limit.hit',
@@ -57,6 +68,10 @@ export async function enforce(checks: readonly AxisCheck[]): Promise<RateVerdict
         p_window_seconds: limit.windowSeconds,
         p_max_count: limit.max,
         p_penalty_seconds: limit.penaltySeconds,
+        // B4: the penalty and its strike count live in their own table, keyed by
+        // axis and key alone, so they survive the window boundary. This is how
+        // long a quiet key takes to forget them.
+        p_strike_decay_seconds: STRIKE_DECAY_SECONDS,
       }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
     ) as HitRow[] | null;
 

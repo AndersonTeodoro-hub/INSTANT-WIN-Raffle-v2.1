@@ -139,6 +139,17 @@ export async function openEntry(participant: Participant, giveawayId: bigint): P
  * G2: the result decides. A transition that matched no row means another
  * invocation moved the entry first, and carrying on would duplicate its work —
  * a second funding, or a second enter().
+ *
+ * AND A DATABASE ERROR IS NOT THAT. Both were being returned as false, and the
+ * two say opposite things to every caller: false-because-no-row means the work
+ * belongs to somebody else and this run should stop, while false-because-the-
+ * write-failed means the entry is still exactly where it was and nothing
+ * recorded what this run just did. The funding path reads the second as the
+ * first and returns quietly, having moved gas and having written nothing about
+ * it.
+ *
+ * So an error throws, and the callers that must survive one catch it per entry
+ * rather than per run.
  */
 export async function advance(
   entryId: string,
@@ -147,17 +158,19 @@ export async function advance(
   extra: Record<string, string | null> = {},
 ): Promise<boolean> {
   const db = getDb();
-  const updated = await db
-    .from('bridge_v2_entries')
-    .update({ status: to, updated_at: new Date().toISOString(), ...extra })
-    .eq('id', entryId)
-    .eq('status', from)
-    .select('id')
-    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
-    .maybeSingle();
+  const updated = checkedMaybe(
+    'entry.advance',
+    await db
+      .from('bridge_v2_entries')
+      .update({ status: to, updated_at: new Date().toISOString(), ...extra })
+      .eq('id', entryId)
+      .eq('status', from)
+      .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
 
-  if (updated.error) return false;
-  return updated.data !== null;
+  return updated !== null;
 }
 
 /** Entries waiting for a root, for one campaign. Used to batch a publication. */
@@ -225,6 +238,46 @@ export async function listSubmitted(limit: number): Promise<Entry[]> {
       .from('bridge_v2_entries')
       .select(COLUMNS)
       .eq('status', 'SUBMITTED')
+      .order('updated_at', { ascending: true })
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as EntryRow[] | null;
+  return Array.isArray(rows) ? rows.map(toEntry) : [];
+}
+
+/**
+ * Entries left in a state no run is holding any more. I8.
+ *
+ * FUNDING was written by one path and read by none. It is entered between the
+ * decision to fund and the broadcast of enter(), and it is left by the same
+ * invocation on every branch that invocation can reach — which is fine until the
+ * invocation itself stops existing. A function the platform kills at its
+ * duration limit, a container that goes away, a database error between the
+ * broadcast and the row: each leaves an entry in FUNDING, and no query listed
+ * FUNDING, so nothing ever looked at it again. The participant is verified, the
+ * campaign has their slot, and their entry is in a state whose only remaining
+ * property is that it is not any of the others. That is a terminal state reached
+ * by accident, which is exactly what I8 exists to forbid.
+ *
+ * The threshold is what makes this safe rather than a second race: FUNDING is
+ * only ever held inside a single scheduled run, a run cannot outlive its own
+ * maxDuration, and one run at a time holds the pipeline lock. Anything older
+ * than that plus a margin belongs to a run that has certainly stopped.
+ */
+export async function listStale(
+  status: EntryStatus,
+  olderThanMs: number,
+  limit: number,
+): Promise<Entry[]> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const rows = checked(
+    'entry.list_stale',
+    await db
+      .from('bridge_v2_entries')
+      .select(COLUMNS)
+      .eq('status', status)
+      .lt('updated_at', cutoff)
       .order('updated_at', { ascending: true })
       .limit(limit)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),

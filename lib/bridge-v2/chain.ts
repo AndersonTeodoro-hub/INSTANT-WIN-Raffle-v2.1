@@ -46,6 +46,9 @@ import {
 import { arbitrum } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
+  ERC1155_ABI,
+  ERC1155_PRIZE_MODULE_ABI,
+  ERC1155_RECEIVER_INTERFACE_ID,
   ERC20_ABI,
   ERC721_ABI,
   ERC721_PRIZE_MODULE_ABI,
@@ -94,6 +97,26 @@ export interface GiveawayView {
   /** SETTLED is the only state in which a prize can be claimed (section 7). */
   readonly isSettled: boolean;
   readonly endTime: bigint;
+  /**
+   * When entries really close, pause time included (contract C5).
+   *
+   * Not the same as endTime and not derivable from it on this side: the core
+   * adds the platform's accrued pause time to every campaign's end, and a pause
+   * in force keeps adding to it while it lasts. Read from the contract for the
+   * same reason CLAIM_DEADLINE is — a local copy of a number that decides
+   * whether a transaction reverts is a copy that will one day be wrong.
+   */
+  readonly effectiveEndTime: bigint;
+  /**
+   * Whether enter() would be accepted right now.
+   *
+   * OPEN alone was never the condition. GiveawayManagerV2.enter (line 705)
+   * checks the status AND `block.timestamp >= effectiveEndTime` (line 709), and
+   * a campaign stays OPEN past its end until somebody calls closeGiveaway — a
+   * permissionless call that may not happen for hours. Every entry funded in
+   * that gap was gas paid for a transaction that reverts with EntriesClosed.
+   */
+  readonly acceptsEntries: boolean;
   readonly prizeModule: `0x${string}`;
   readonly prizeKind: number;
   readonly prizeAmount: bigint;
@@ -113,12 +136,25 @@ export interface GiveawayView {
  * real answer instead of a decoded revert.
  */
 export async function readGiveaway(giveawayId: bigint): Promise<GiveawayView> {
-  const raw = await publicClient().readContract({
-    address: GIVEAWAY_MANAGER_V2,
-    abi: GIVEAWAY_MANAGER_V2_ABI,
-    functionName: 'getGiveaway',
-    args: [giveawayId],
-  });
+  const client = publicClient();
+  // Two reads rather than one because the second is not a field of the first.
+  // effectiveEndTime folds in the platform's accrued pause time, which lives on
+  // the contract and not on the campaign, so no arithmetic over getGiveaway
+  // produces it.
+  const [raw, effectiveEnd] = await Promise.all([
+    client.readContract({
+      address: GIVEAWAY_MANAGER_V2,
+      abi: GIVEAWAY_MANAGER_V2_ABI,
+      functionName: 'getGiveaway',
+      args: [giveawayId],
+    }),
+    client.readContract({
+      address: GIVEAWAY_MANAGER_V2,
+      abi: GIVEAWAY_MANAGER_V2_ABI,
+      functionName: 'effectiveEndTime',
+      args: [giveawayId],
+    }) as Promise<bigint>,
+  ]);
 
   const g = raw as unknown as {
     status: number;
@@ -132,11 +168,20 @@ export async function readGiveaway(giveawayId: bigint): Promise<GiveawayView> {
     settledAt: bigint;
   };
 
+  const isOpen = Number(g.status) === GiveawayStatus.OPEN;
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+
   return {
     status: Number(g.status),
-    isOpen: Number(g.status) === GiveawayStatus.OPEN,
+    isOpen,
     isSettled: Number(g.status) === GiveawayStatus.SETTLED,
     endTime: g.endTime,
+    effectiveEndTime: effectiveEnd,
+    // The contract's own comparison, in the contract's own direction: enter()
+    // reverts when block.timestamp >= effectiveEndTime, so this is strictly
+    // less. The clock is this side's rather than the chain's, which can differ
+    // by a block; that is why the estimate still runs before any gas moves.
+    acceptsEntries: isOpen && nowSeconds < effectiveEnd,
     prizeModule: g.prizeModule,
     prizeKind: Number(g.prizeKind),
     prizeAmount: g.prizeAmount,
@@ -366,9 +411,20 @@ async function quoteCall(
  * Signs and broadcasts one call as a derived wallet.
  *
  * enter(), claimPrize() and the prize delivery are the same transaction shape
- * with different calldata, so they are the same function. The nonce is read from
- * the chain rather than held anywhere: a derived wallet is used by one entry at a
- * time, which is not true of a funder, and G6 is about the pool.
+ * with different calldata, so they are the same function.
+ *
+ * G6, AND THE REASON THE BLOCK TAG IS NOT THE DEFAULT. A derived wallet is used
+ * by one entry at a time, so the pool's problem does not arise here — but "at a
+ * time" is a claim about the scheduler, and the scheduler was firing a new run
+ * every minute over work bounded at sixty seconds a receipt. A claim broadcast
+ * by one run and not yet mined is invisible at `latest`, so the next run read
+ * the same count and signed a second transaction on the same nonce: not a second
+ * claim but a replacement of the first, one of the two silently discarded.
+ *
+ * `pending` is what the account has actually committed to, mempool included, and
+ * it is safe to depend on here in a way it is not for a funder: the run lock
+ * means no other run is reading it at the same moment, which is precisely the
+ * concurrent pending read G6 forbids.
  */
 export async function submitAsDerived(
   walletIndex: number,
@@ -378,7 +434,10 @@ export async function submitAsDerived(
   plan: GasPlan,
   signAsDerived: (index: number, tx: TransactionSerializable) => Promise<Hex>,
 ): Promise<Hex> {
-  const nonce = await publicClient().getTransactionCount({ address: wallet });
+  const nonce = await publicClient().getTransactionCount({
+    address: wallet,
+    blockTag: 'pending',
+  });
 
   const transaction: TransactionSerializable = {
     chainId: CHAIN_ID,
@@ -415,7 +474,14 @@ export async function publishEligibilityRoot(giveawayId: bigint, root: Hex): Pro
   });
 
   const [nonce, fees, estimate] = await Promise.all([
-    client.getTransactionCount({ address: account.address }),
+    // G6, at `pending`. One run publishes a root per campaign in a loop and
+    // waits for each receipt, and that wait is bounded: a publication that has
+    // not been mined when the wait gives up is still in the mempool, still
+    // holding its nonce, and invisible at `latest`. The next campaign in the
+    // same loop then signed on the same number and replaced it — so the first
+    // campaign's root was never published, its entries stayed VERIFIED, and
+    // nothing on this side recorded why.
+    client.getTransactionCount({ address: account.address, blockTag: 'pending' }),
     currentFees(),
     client.estimateGas({ account: account.address, to: GIVEAWAY_MANAGER_V2, data }),
   ]);
@@ -571,7 +637,11 @@ export async function sweepRemainder(
   const [balance, fees, nonce, estimate] = await Promise.all([
     client.getBalance({ address: wallet }),
     currentFees(),
-    client.getTransactionCount({ address: wallet }),
+    // G6, at `pending`, for the same reason as the two above: the sweep runs on
+    // the maintenance schedule against a wallet whose last entry transaction may
+    // still be unmined, and a sweep signed on that transaction's nonce replaces
+    // the entry rather than following it.
+    client.getTransactionCount({ address: wallet, blockTag: 'pending' }),
     client.estimateGas({ account: wallet, to: destination }),
   ]);
 
@@ -690,21 +760,65 @@ export interface PrizeDelivery {
 }
 
 /**
+ * Whether a prize module is the ERC-1155 one.
+ *
+ * PrizeKind cannot answer this. Both NFT modules report PrizeKind.NFT and the
+ * core freezes that value at creation without recording which module produced
+ * it, so the kind says "not fungible" and stops there. The two modules do not
+ * share an item interface — one has itemsOf and a token id per position, the
+ * other has lotsOf and units of an id — and they do not share a transfer
+ * encoding either.
+ *
+ * ERC-165 is the discriminator. ERC1155PrizeModule declares supportsInterface
+ * for IERC1155Receiver; ERC721PrizeModule declares no supportsInterface at all,
+ * and neither does PrizeModuleBase, so the call reverts there rather than
+ * answering false. Both outcomes mean the same thing and are read the same way,
+ * which is what OpenZeppelin's own ERC-165 checker does.
+ */
+async function isErc1155Module(module: `0x${string}`): Promise<boolean> {
+  try {
+    return (await publicClient().readContract({
+      address: module,
+      abi: ERC1155_PRIZE_MODULE_ABI,
+      functionName: 'supportsInterface',
+      args: [ERC1155_RECEIVER_INTERFACE_ID],
+    })) as boolean;
+  } catch {
+    // A module without the function, not a module that is unreachable: every
+    // read here goes through the same bounded client, and an RPC that is down
+    // fails the reads that follow just as visibly.
+    return false;
+  }
+}
+
+/**
  * Builds the delivery that empties the derived wallet of the prize.
  *
  * E2 decides whether there is a destination at all; this decides what the
- * transaction has to be once there is one. Two shapes, because there are two
- * prize kinds, and both take their subject from the chain:
+ * transaction has to be once there is one. THREE shapes, not two — the prize
+ * kind has two values and the prize modules have three interfaces between them —
+ * and all three take their subject from the chain:
  *
  * TOKEN — the prize token is getGiveaway().feeToken, which the core bound at
  * creation. The amount is the balance the derived wallet actually holds rather
  * than the amount that was claimable, so a delivery retried after a failed
  * broadcast moves what is there instead of what was expected to be there.
  *
- * NFT — the core stores the winner's position, the module stores the items, and
- * section 8.3 pairs them: the n-th winner is owed the n-th deposited item. Both
- * reads come from addresses the core already published (prizeModule) so nothing
- * here is configurable.
+ * NFT, ERC-721 — the core stores the winner's position, the module stores the
+ * items, and section 8.3 pairs them: the n-th winner is owed the n-th deposited
+ * item.
+ *
+ * NFT, ERC-1155 — the same pairing over a different unit. The module stores lots
+ * of (id, total), the flattened positions of those lots are the prize positions,
+ * and the winner's position falls in exactly one lot whose id is what they are
+ * owed. This walk is the module's own _lotIndexOf, done on this side because the
+ * module publishes the lots rather than the mapping. It accumulates `total` and
+ * never `remaining`, which is what makes a position mean the same thing on the
+ * last claim as on the first.
+ *
+ * Every address comes from the core (prizeModule, feeToken) or from the module
+ * (the collection). Nothing here is configurable and nothing arrives from a
+ * request.
  *
  * Returns null when the wallet holds nothing to deliver, which is what a second
  * pass over an already-delivered prize looks like.
@@ -718,54 +832,9 @@ export async function prizeDelivery(
   const client = publicClient();
 
   if (campaign.prizeKind === PrizeKind.NFT) {
-    const [slot, items, custody] = await Promise.all([
-      client.readContract({
-        address: GIVEAWAY_MANAGER_V2,
-        abi: GIVEAWAY_MANAGER_V2_ABI,
-        functionName: 'winnerIndex',
-        args: [giveawayId, wallet],
-      }) as Promise<bigint>,
-      client.readContract({
-        address: campaign.prizeModule,
-        abi: ERC721_PRIZE_MODULE_ABI,
-        functionName: 'itemsOf',
-        args: [giveawayId],
-      }) as Promise<readonly bigint[]>,
-      client.readContract({
-        address: campaign.prizeModule,
-        abi: ERC721_PRIZE_MODULE_ABI,
-        functionName: 'custodyOf',
-        args: [giveawayId],
-      }) as Promise<readonly [`0x${string}`, bigint]>,
-    ]);
-
-    const tokenId = items[Number(slot)];
-    const collection = custody[0];
-    if (tokenId === undefined) return null;
-
-    // The module keeps its item list after delivering, so unlike a token balance
-    // the list alone cannot say whether the item has already gone. The owner
-    // can. Without this a delivery whose receipt was never seen would be retried
-    // for ever against a token the wallet no longer holds, and every retry is a
-    // revert the estimate refuses before it costs anything — but also a prize
-    // that is never marked delivered.
-    const owner = (await client.readContract({
-      address: collection,
-      abi: ERC721_ABI,
-      functionName: 'ownerOf',
-      args: [tokenId],
-    })) as `0x${string}`;
-    if (owner.toLowerCase() !== wallet.toLowerCase()) return null;
-
-    return {
-      to: collection,
-      amount: tokenId,
-      data: encodeFunctionData({
-        abi: ERC721_ABI,
-        functionName: 'safeTransferFrom',
-        args: [wallet, destination, tokenId],
-      }),
-    };
+    return (await isErc1155Module(campaign.prizeModule))
+      ? erc1155Delivery(giveawayId, campaign.prizeModule, wallet, destination)
+      : erc721Delivery(giveawayId, campaign.prizeModule, wallet, destination);
   }
 
   const balance = (await client.readContract({
@@ -783,6 +852,144 @@ export async function prizeDelivery(
       abi: ERC20_ABI,
       functionName: 'transfer',
       args: [destination, balance],
+    }),
+  };
+}
+
+/** The winner's flattened prize position, as the core hands it to the module. */
+async function winnerPosition(giveawayId: bigint, wallet: `0x${string}`): Promise<bigint> {
+  return (await publicClient().readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: GIVEAWAY_MANAGER_V2_ABI,
+    functionName: 'winnerIndex',
+    args: [giveawayId, wallet],
+  })) as bigint;
+}
+
+/** Section 8.3 over an ERC-721 module: position n is the n-th deposited item. */
+async function erc721Delivery(
+  giveawayId: bigint,
+  module: `0x${string}`,
+  wallet: `0x${string}`,
+  destination: `0x${string}`,
+): Promise<PrizeDelivery | null> {
+  const client = publicClient();
+  const [slot, items, custody] = await Promise.all([
+    winnerPosition(giveawayId, wallet),
+    client.readContract({
+      address: module,
+      abi: ERC721_PRIZE_MODULE_ABI,
+      functionName: 'itemsOf',
+      args: [giveawayId],
+    }) as Promise<readonly bigint[]>,
+    client.readContract({
+      address: module,
+      abi: ERC721_PRIZE_MODULE_ABI,
+      functionName: 'custodyOf',
+      args: [giveawayId],
+    }) as Promise<readonly [`0x${string}`, bigint]>,
+  ]);
+
+  const tokenId = items[Number(slot)];
+  const collection = custody[0];
+  if (tokenId === undefined) return null;
+
+  // The module keeps its item list after delivering, so unlike a token balance
+  // the list alone cannot say whether the item has already gone. The owner can.
+  // Without this a delivery whose receipt was never seen would be retried for
+  // ever against a token the wallet no longer holds, and every retry is a revert
+  // the estimate refuses before it costs anything — but also a prize that is
+  // never marked delivered.
+  const owner = (await client.readContract({
+    address: collection,
+    abi: ERC721_ABI,
+    functionName: 'ownerOf',
+    args: [tokenId],
+  })) as `0x${string}`;
+  if (owner.toLowerCase() !== wallet.toLowerCase()) return null;
+
+  return {
+    to: collection,
+    amount: tokenId,
+    data: encodeFunctionData({
+      abi: ERC721_ABI,
+      functionName: 'safeTransferFrom',
+      args: [wallet, destination, tokenId],
+    }),
+  };
+}
+
+/**
+ * Section 8.3 over an ERC-1155 module: position n falls in one lot, and that
+ * lot's id is the unit the winner is owed.
+ *
+ * The walk mirrors ERC1155PrizeModule._lotIndexOf exactly — accumulate each
+ * lot's `total`, and the first cursor the position is below is the lot. `total`
+ * and not `remaining`, deliberately: `remaining` falls as units are handed out,
+ * so walking it would move every later winner's position each time an earlier
+ * one claimed, and the module's own delivery would then disagree with what this
+ * side thinks it delivered.
+ *
+ * The holding check is balanceOf rather than an owner comparison, because units
+ * of one id are interchangeable and the wallet either has at least one or has
+ * none. Zero is the second pass over a delivery whose receipt was never seen.
+ */
+async function erc1155Delivery(
+  giveawayId: bigint,
+  module: `0x${string}`,
+  wallet: `0x${string}`,
+  destination: `0x${string}`,
+): Promise<PrizeDelivery | null> {
+  const client = publicClient();
+  const [slot, lots, custody] = await Promise.all([
+    winnerPosition(giveawayId, wallet),
+    client.readContract({
+      address: module,
+      abi: ERC1155_PRIZE_MODULE_ABI,
+      functionName: 'lotsOf',
+      args: [giveawayId],
+    }) as Promise<readonly { id: bigint; total: bigint; remaining: bigint }[]>,
+    client.readContract({
+      address: module,
+      abi: ERC1155_PRIZE_MODULE_ABI,
+      functionName: 'custodyOf',
+      args: [giveawayId],
+    }) as Promise<readonly [`0x${string}`, bigint]>,
+  ]);
+
+  let cursor = 0n;
+  let tokenId: bigint | null = null;
+  for (const lot of lots) {
+    cursor += lot.total;
+    if (slot < cursor) {
+      tokenId = lot.id;
+      break;
+    }
+  }
+  // A position past the last lot is what the module itself rejects with
+  // UnknownItem. There is nothing to build and nothing a retry would fix.
+  if (tokenId === null) return null;
+
+  const collection = custody[0];
+  const held = (await client.readContract({
+    address: collection,
+    abi: ERC1155_ABI,
+    functionName: 'balanceOf',
+    args: [wallet, tokenId],
+  })) as bigint;
+  if (held <= 0n) return null;
+
+  return {
+    to: collection,
+    amount: tokenId,
+    data: encodeFunctionData({
+      abi: ERC1155_ABI,
+      functionName: 'safeTransferFrom',
+      // One unit, because the core hands out one prize position per winner and
+      // the module refuses any other amount (InvalidAmount). Empty data: the
+      // destination is the address the winner confirmed, and there is nothing
+      // for a receiver hook to be told.
+      args: [wallet, destination, tokenId, 1n, '0x'],
     }),
   };
 }

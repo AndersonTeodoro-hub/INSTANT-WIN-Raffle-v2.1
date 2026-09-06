@@ -1,16 +1,26 @@
 /**
  * Correlation signals (C7) and the keys the rate limiter counts against (B2).
  *
- * Everything leaves this module hashed. K4 forbids a raw IP or user agent in a
- * log or a table, and B2 needs a stable key per axis, so the two requirements
- * meet at "hash it once, at the edge, and never carry the original further".
+ * Everything leaves this module hashed, and hashed UNDER A KEY. K4 forbids a raw
+ * IP or user agent in a log or a table, and B2 needs a stable key per axis, so
+ * the two requirements meet at "hash it once, at the edge, and never carry the
+ * original further".
+ *
+ * WHY THE HASH IS KEYED. A bare SHA-256 was not enough, and reading one as a
+ * pseudonym was the mistake. K4 asks for identifiers that are correlatable and
+ * not identifying; an unkeyed digest of an IPv4 address is both, because the
+ * whole input space is 2^32 and inverting the table is an afternoon on a laptop.
+ * The subnet is smaller still, and a device fingerprint is a short list of
+ * header values anyone can enumerate. Under HMAC with a root nobody outside the
+ * runtime holds, the stored value correlates exactly as well and identifies
+ * nobody without the key — which is the property the requirement actually names.
  *
  * These signals detect bursts: many registrations from one subnet, one client
  * fingerprint across many addresses, a cadence no human produces. C8 puts that
  * detection before the on-chain entry, because after it nothing can be undone.
  */
 
-import { sha256Hex } from './crypto.js';
+import { keyedHash } from './crypto.js';
 
 export interface RequestSignals {
   readonly ipHash: string;
@@ -68,9 +78,9 @@ function clientFingerprint(request: Request): string {
 export async function extractSignals(request: Request): Promise<RequestSignals> {
   const ip = clientIp(request);
   const [ipHash, subnetHash, clientHash] = await Promise.all([
-    sha256Hex(`ip:${ip}`),
-    sha256Hex(`subnet:${subnetOf(ip)}`),
-    sha256Hex(`client:${clientFingerprint(request)}`),
+    keyedHash('BRIDGE_V2_SIGNAL_HMAC_KEY', 'signal-ip-v1', ip),
+    keyedHash('BRIDGE_V2_SIGNAL_HMAC_KEY', 'signal-subnet-v1', subnetOf(ip)),
+    keyedHash('BRIDGE_V2_SIGNAL_HMAC_KEY', 'signal-client-v1', clientFingerprint(request)),
   ]);
   return { ipHash, subnetHash, clientHash };
 }

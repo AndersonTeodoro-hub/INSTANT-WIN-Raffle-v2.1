@@ -54,24 +54,60 @@ const route = handle('session/request-code', async ({ request, log }) => {
       .maybeSingle(),
   ) as { id: string } | null;
 
-  const verdict = await enforce([
+  // THE LIMITS ARE ENFORCED IN TWO GROUPS, AND THIS IS THE WHOLE OF D2 ON THIS
+  // ROUTE.
+  //
+  // The axes below say nothing about which address was named: a caller learns
+  // only that they themselves have asked too often, which they already knew. A
+  // 429 here is safe and is the honest answer.
+  const caller = await enforce([
     { axis: 'IP', value: signals.ipHash },
     { axis: 'SUBNET', value: signals.subnetHash },
     // C7: the device fingerprint, applied rather than only collected. A machine
     // registering account after account looks identical on every other axis
     // once it rotates addresses and moves through a residential proxy pool.
     { axis: 'CLIENT', value: signals.clientHash },
-    { axis: known === null ? 'UNKNOWN_EMAIL' : 'EMAIL', value: canonical },
     { axis: 'ROUTE_GLOBAL', value: 'session/request-code' },
   ]);
-  if (!verdict.allowed) {
-    await log.event('ratelimit.denied', { axis: verdict.deniedAxis ?? 'unknown' });
-    return refuse(429, 'Too many requests. Please wait and try again.', retryAfterHeaders(verdict));
+  if (!caller.allowed) {
+    await log.event('ratelimit.denied', { axis: caller.deniedAxis ?? 'unknown' });
+    return refuse(429, 'Too many requests. Please wait and try again.', retryAfterHeaders(caller));
   }
 
+  // The email axis is different in kind, because WHICH axis applies depends on
+  // whether the address is already registered, and the two have deliberately
+  // different ceilings — B5 limits an unknown address hard so the bridge cannot
+  // be aimed at a third party's inbox. Returning 429 from this check published
+  // that difference: the third request in a day got 429 for an address the
+  // platform had never seen and 200 for one it had, so anyone could test
+  // membership three requests at a time. The route's careful 202-for-everything
+  // was undone by its own rate limiter.
+  //
+  // The budget still applies exactly as before and no email is sent. What
+  // changes is that the refusal is silent: the same 202, the same body, and the
+  // same shape as the screening refusal immediately below it, which is the exit
+  // this route already used for everything it declines to explain.
+  //
+  // ITS POSITION IS PART OF THE FIX. D3 asks that what the body refuses to
+  // distinguish the latency does not give away either, and the check used to sit
+  // before the screening — so a denied request skipped a DNS round trip that an
+  // allowed one paid, which is a difference measured in seconds, not
+  // milliseconds, and no padding floor short of the timeout covers it. Screening
+  // first costs one cached MX lookup on a request that will be refused, and
+  // makes the two paths differ only by the work after this point.
+  //
   // C2 and C8: screening happens before anything is issued or sent, and its
   // outcome never reaches the client.
   const screening = await screenEmail(canonical);
+
+  const address = await enforce([
+    { axis: known === null ? 'UNKNOWN_EMAIL' : 'EMAIL', value: canonical },
+  ]);
+  if (!address.allowed) {
+    await log.event('ratelimit.denied', { axis: address.deniedAxis ?? 'unknown' });
+    return accepted();
+  }
+
   if (screening !== 'OK') {
     await log.event('sybil.rejected', { reason: screening });
     return accepted();

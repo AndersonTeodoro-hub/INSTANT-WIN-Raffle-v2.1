@@ -6,7 +6,7 @@ import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { getParticipant } from '../../../../lib/bridge-v2/participants.js';
 import { openEntry } from '../../../../lib/bridge-v2/entries.js';
 import { issueLinkCode } from '../../../../lib/bridge-v2/linkcodes.js';
-import { policyFor, recordPolicy } from '../../../../lib/bridge-v2/custody.js';
+import { largestWinnerShare, policyFor, recordPolicy } from '../../../../lib/bridge-v2/custody.js';
 import { readGiveaway, slotsRemaining } from '../../../../lib/bridge-v2/chain.js';
 import { requireEnv } from '../../../../lib/bridge-v2/env.js';
 
@@ -56,7 +56,13 @@ const route = handle('entry/start', async ({ request, log }) => {
   }
 
   const campaign = await readGiveaway(giveawayId);
-  if (!campaign.isOpen) return refuse(409, 'This event is not open for entries.');
+  // H5/H6: the condition enter() actually applies, not half of it. A campaign
+  // stays OPEN past its end until somebody calls the permissionless
+  // closeGiveaway, and enter() refuses on block.timestamp >= effectiveEndTime
+  // (GiveawayManagerV2 line 709) whatever the status says. Handing out a link in
+  // that gap sends the participant to a bot, asks them for a phone number, and
+  // ends in an entry the contract was always going to reject.
+  if (!campaign.acceptsEntries) return refuse(409, 'This event is not open for entries.');
   if ((await slotsRemaining(giveawayId)) <= 0n) {
     return refuse(409, 'This event is full.');
   }
@@ -71,10 +77,28 @@ const route = handle('entry/start', async ({ request, log }) => {
   }
 
   // E2 is recorded at entry time so the rule the participant is subject to is
-  // the rule that was in force when they entered, and is visible from the start.
+  // visible from the start. It is PROVISIONAL and says so here, because at this
+  // moment neither input is final: the contract clamps winnersCount down to the
+  // entrant count when the campaign closes, which can only raise what each
+  // winner receives. The prize path recomputes it from claimable() before
+  // anything moves and rewrites the row.
+  //
+  // The largest share the campaign could pay is used rather than the mean, so
+  // the provisional answer errs towards the stricter branch. The previous
+  // arithmetic erred the other way — it divided by a winner count that had not
+  // been clamped yet — which is the direction that leaves a prize over the
+  // threshold sitting in a derived wallet.
+  //
+  // D1: feeToken is what decides whether the threshold applies at all. For an
+  // NFT campaign the core sets it to USDC and the NFT branch runs first, so it
+  // is never consulted there.
   await recordPolicy(
     entry.id,
-    policyFor(campaign.prizeKind, campaign.prizeAmount, campaign.winnersCount),
+    policyFor(
+      campaign.prizeKind,
+      largestWinnerShare(campaign.prizeAmount, campaign.winnersCount),
+      campaign.feeToken,
+    ),
   );
 
   const code = await issueLinkCode(participant.id, giveawayId);

@@ -11,8 +11,9 @@
  *
  * F1 is the reason this list is long. The V1 used one BRIDGE_SEED for both
  * wallet derivation and code HMAC, so a leak of either use leaked both. V2 keeps
- * five independent roots: wallet derivation, code HMAC, phone HMAC, session
- * hashing, and funder signing. Compromising one compromises one.
+ * six independent roots: wallet derivation, code HMAC, phone HMAC, session
+ * hashing, correlation-signal hashing, and funder signing. Compromising one
+ * compromises one.
  */
 
 // The project has no @types/node — it is a browser project that also ships
@@ -32,11 +33,24 @@ export const REQUIRED_ENV = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_KEY',
 
-  // F1 — five independent roots.
+  // F1 — six independent roots.
   'BRIDGE_V2_WALLET_SEED',
   'BRIDGE_V2_CODE_HMAC_KEY',
   'BRIDGE_V2_PHONE_HMAC_KEY',
   'BRIDGE_V2_SESSION_HMAC_KEY',
+  // K4. The key under which an IP, a subnet, a device fingerprint and a
+  // canonical email become the correlation signals and rate-limit keys the
+  // bridge stores. It exists because those values were being reduced with a bare
+  // SHA-256, and a bare SHA-256 of an IPv4 address is not a pseudonym: the whole
+  // input space is 2^32 and a laptop enumerates it in seconds. The same is true
+  // of a phone-shaped string, and true in practice of an email, for which the
+  // dictionary is a leaked address list. K4 asks for identifiers that are
+  // correlatable and not identifying, and only a keyed hash is both.
+  //
+  // Its own root rather than a label under an existing one: this key is used on
+  // the hot path of every route, including unauthenticated ones, while the
+  // others are touched only where a code, a session or a number is handled.
+  'BRIDGE_V2_SIGNAL_HMAC_KEY',
   'BRIDGE_V2_FUNDER_KEYS',
   // The key that holds the on-chain bridge role, i.e. the address the contract
   // accepts for addEligibilityRoot. Kept as its own root for the same reason as

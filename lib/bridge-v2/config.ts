@@ -70,6 +70,18 @@ export const RATE_LIMITS = {
 
 export type RateAxis = keyof typeof RATE_LIMITS;
 
+/**
+ * B4: how long a key must stay quiet before its strike count starts again.
+ *
+ * The escalating cost lives in bridge_v2_rate_penalties, keyed by axis and key
+ * and by no window, which is what makes it survive a window boundary. Something
+ * has to make it end, or somebody who mistyped a code twice in March meets an
+ * hour of penalty in September. A week of silence is that something.
+ */
+export const STRIKE_DECAY_SECONDS = 7 * 24 * 60 * 60;
+/** The same number in days, for the retention pass that removes decayed rows. */
+export const PENALTY_DECAY_DAYS = 7 as const;
+
 // -----------------------------------------------------------------------------
 // B7, B8 — external spend ceilings
 // -----------------------------------------------------------------------------
@@ -109,8 +121,16 @@ export const LINK_CODE_TTL_MS = 15 * 60 * 1000;
 // E — custody thresholds
 // -----------------------------------------------------------------------------
 /**
- * E2: at or above this, the winner must supply their own wallet. Expressed in
- * USDC base units because that is what the contract deals in.
+ * E2: at or above this, the winner must supply their own wallet.
+ *
+ * OWNER DECISION D1, 06/09/2026: this number is only ever compared against an
+ * amount of USDC. Any other token, and every NFT, requires the winner's own
+ * wallet whatever the amount. That is what makes the constant meaningful — "100"
+ * in the base units of a token the campaign creator chose is not a hundred of
+ * anything, and the previous comparison did exactly that: an arbitrary ERC-20
+ * with eighteen decimals cleared this threshold at 0.0000000001 of a token, so
+ * an unlimited prize in a worthless token went to temporary custody, and a
+ * six-decimal token worth a thousand dollars a unit did not.
  */
 export const CUSTODY_OWN_WALLET_THRESHOLD = 100n * 10n ** BigInt(USDC_DECIMALS);
 /** E3: temporary custody never becomes indefinite. */
@@ -135,6 +155,59 @@ export const HTTP_TIMEOUT_MS = 8_000;
 export const DB_TIMEOUT_MS = 8_000;
 /** G3: lease length, and the point at which a live operation renews it. */
 export const FUNDER_LEASE_SECONDS = 90 as const;
+
+// -----------------------------------------------------------------------------
+// The scheduled run — G3, G4 and G6 as properties of the run, not of the code
+// -----------------------------------------------------------------------------
+/**
+ * The `maxDuration` the cron functions declare, and the ceiling the Pro plan
+ * allows for them.
+ *
+ * From Vercel's own documentation, "Functions > Configuring functions >
+ * Duration" (vercel.com/docs/functions/configuring-functions/duration): the
+ * default maximum duration is 300 seconds on every plan, and 300 seconds is also
+ * the Pro plan's limit for a function that is not using Fluid compute — Hobby
+ * caps at 300 with Fluid and 60 without, and Fluid on Pro raises the ceiling to
+ * 800. 300 is therefore the highest number that is correct for this project
+ * whichever way the account is configured, which is the property that matters
+ * for a value the runtime enforces by killing the process.
+ *
+ * It is here as well as in vercel.json because the run has to know it. A budget
+ * the code does not know is a budget the code cannot stay inside.
+ */
+export const CRON_MAX_DURATION_SECONDS = 300 as const;
+
+/**
+ * G4: when a run must stop starting new work.
+ *
+ * The platform kills a function at maxDuration wherever it happens to be, and
+ * where it happens to be may be between a broadcast transaction and the row that
+ * records its hash. The run therefore stops well before the ceiling, and the
+ * margin is the length of the slowest single unit of work it could start — one
+ * funding wait plus one submission wait, both bounded by RECEIPT_TIMEOUT_MS.
+ */
+export const RUN_BUDGET_MS = (CRON_MAX_DURATION_SECONDS - 20) * 1000;
+/** The worst case for one entry: fund, wait, submit, wait, plus the reads around them. */
+export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 3 * RPC_TIMEOUT_MS;
+
+/**
+ * G6: how long a scheduled run may hold the pipeline lock.
+ *
+ * Exactly the maximum the platform lets the run live, plus a second. Shorter and
+ * a live run's lock lapses under it, which is the funder lease bug of the V1
+ * moved up one level; longer and a killed run blocks the pipeline past the point
+ * where it can possibly still be running.
+ */
+export const RUN_LOCK_SECONDS = CRON_MAX_DURATION_SECONDS + 1;
+
+/**
+ * I8: how long an entry may sit in FUNDING before it is treated as abandoned.
+ *
+ * FUNDING is held only by a run that is inside processEligible, and a run cannot
+ * outlive maxDuration. Anything older than that plus a margin belongs to a run
+ * that no longer exists, and has no other path out.
+ */
+export const FUNDING_STALE_MS = (CRON_MAX_DURATION_SECONDS + 120) * 1000;
 
 /**
  * H3: absolute ceiling on what one entry may cost in gas, in wei. A compromised
