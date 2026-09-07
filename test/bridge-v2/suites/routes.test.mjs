@@ -23,12 +23,17 @@ import * as verify from '../../../api/bridge/v2/session/verify.ts';
 import * as revoke from '../../../api/bridge/v2/session/revoke.ts';
 import * as entryStart from '../../../api/bridge/v2/entry/start.ts';
 import * as entryStatus from '../../../api/bridge/v2/entry/status.ts';
+import * as entryAddress from '../../../api/bridge/v2/entry/address.ts';
+import * as entryResume from '../../../api/bridge/v2/entry/resume.ts';
 import * as destination from '../../../api/bridge/v2/prize/destination.ts';
 import * as privacyExport from '../../../api/bridge/v2/privacy/export.ts';
 import * as privacyErase from '../../../api/bridge/v2/privacy/erase.ts';
 import * as webhook from '../../../api/bridge/v2/telegram/webhook.ts';
 import * as cronProcess from '../../../api/bridge/v2/cron/process.ts';
 import * as cronMaintenance from '../../../api/bridge/v2/cron/maintenance.ts';
+import * as creatorStart from '../../../api/bridge/v2/creator/campaign/start.ts';
+import * as creatorSubmit from '../../../api/bridge/v2/creator/campaign/submit.ts';
+import * as creatorStatus from '../../../api/bridge/v2/creator/campaign/status.ts';
 
 suite('routes');
 
@@ -335,9 +340,25 @@ await test(['G2'], 'a code consumed by somebody else between compare and consume
 const SESSION_ROUTES = [
   ['entry/status', entryStatus, { giveawayId: '1' }],
   ['entry/start', entryStart, { giveawayId: '1' }],
+  ['entry/address', entryAddress, { giveawayId: '1', address: OWN_WALLET }],
+  ['entry/resume', entryResume, { giveawayId: '1' }],
   ['prize/destination', destination, { giveawayId: '1', address: OWN_WALLET }],
   ['privacy/export', privacyExport, undefined],
   ['privacy/erase', privacyErase, undefined],
+  [
+    'creator/campaign/start',
+    creatorStart,
+    {
+      module: OWN_WALLET,
+      prizeToken: WALLET,
+      prizeAmount: '1000000',
+      durationSeconds: 3600,
+      winnersCount: 1,
+      slotCap: 10,
+    },
+  ],
+  ['creator/campaign/submit', creatorSubmit, undefined],
+  ['creator/campaign/status', creatorStatus, undefined],
 ];
 
 await test(['A1', 'A6'], 'every stateful route answers 401 with no cookie', async () => {
@@ -696,6 +717,312 @@ await test(['I1'], 'a destination that is not an address is a 400', async () => 
     }),
   );
   assert.equal(response.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// entry/address — 07/09/2026 decision, path 2: declare your own address
+// ---------------------------------------------------------------------------
+
+function entryReady(overrides = {}) {
+  liveSession();
+  db.on('bridge_v2_entries:select', () => ({
+    data: {
+      id: 'entry-1',
+      participant_id: 'participant-1',
+      giveaway_id: '1',
+      status: 'AWAITING_CONTACT',
+      wallet_address: WALLET,
+      phone_hmac: null,
+      root_index: null,
+      tx_hash: null,
+      self_custody: false,
+      ...overrides,
+    },
+    error: null,
+  }));
+}
+
+await test(['C8'], 'declaring an own address updates the entry and marks it self-custody', async () => {
+  fresh();
+  entryReady();
+  let update;
+  db.on('bridge_v2_entries:update', (op) => {
+    update = op;
+    return { data: { id: 'entry-1' }, error: null };
+  });
+  const body = await (
+    await entryAddress.POST(
+      request(url('entry/address'), { body: { giveawayId: '1', address: OWN_WALLET }, cookie: SESSION_COOKIE }),
+    )
+  ).json();
+  assert.deepEqual(body, { ok: true, walletAddress: OWN_WALLET, selfCustody: true });
+  assert.equal(update.payload.wallet_address, OWN_WALLET);
+  assert.equal(update.payload.self_custody, true);
+  assert.ok(
+    update.filters.some(([op, col, val]) => op === 'in' && col === 'status' && val.includes('AWAITING_CONTACT')),
+    'the update did not gate on the pre-root statuses',
+  );
+});
+
+await test(['C8'], 'an address already used in this campaign is refused, not raised', async () => {
+  fresh();
+  entryReady();
+  db.on('bridge_v2_entries:update', () => ({ data: null, error: { code: '23505' } }));
+  const response = await entryAddress.POST(
+    request(url('entry/address'), { body: { giveawayId: '1', address: OWN_WALLET }, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 409);
+});
+
+await test(['C8'], 'an entry already past ELIGIBLE cannot change its address', async () => {
+  fresh();
+  entryReady({ status: 'ELIGIBLE', root_index: '2' });
+  db.on('bridge_v2_entries:update', () => ({ data: null, error: null }));
+  const response = await entryAddress.POST(
+    request(url('entry/address'), { body: { giveawayId: '1', address: OWN_WALLET }, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 409);
+});
+
+await test(['A6'], 'declaring an address for an entry that does not exist is a 404', async () => {
+  fresh();
+  liveSession();
+  db.on('bridge_v2_entries:select', () => ({ data: null, error: null }));
+  const response = await entryAddress.POST(
+    request(url('entry/address'), { body: { giveawayId: '1', address: OWN_WALLET }, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 404);
+});
+
+// ---------------------------------------------------------------------------
+// entry/resume — 07/09/2026 decision, path 3: resume a FAILED entry
+// ---------------------------------------------------------------------------
+
+await test([], 'resuming an entry that is not FAILED just reports its status', async () => {
+  fresh();
+  entryReady({ status: 'VERIFIED' });
+  const body = await (
+    await entryResume.POST(request(url('entry/resume'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }))
+  ).json();
+  assert.deepEqual(body, { ok: true, status: 'VERIFIED' });
+});
+
+await test([], 'a FAILED entry already on chain is resumed straight to CONFIRMED', async () => {
+  fresh();
+  entryReady({ status: 'FAILED' });
+  chain.set({ hasEntered: true });
+  let update;
+  db.on('bridge_v2_entries:update', (op) => {
+    update = op;
+    return { data: { id: 'entry-1' }, error: null };
+  });
+  const body = await (
+    await entryResume.POST(request(url('entry/resume'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }))
+  ).json();
+  assert.deepEqual(body, { ok: true, status: 'CONFIRMED' });
+  assert.equal(update.payload.status, 'CONFIRMED');
+});
+
+await test(['H5', 'H6'], 'a FAILED entry cannot resume into a closed or full campaign', async () => {
+  fresh();
+  entryReady({ status: 'FAILED' });
+  chain.set({ hasEntered: false, readGiveaway: { ...chain.behaviour.readGiveaway, acceptsEntries: false } });
+  const response = await entryResume.POST(
+    request(url('entry/resume'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 409);
+});
+
+await test(['C8'], 'a FAILED entry already inside a root resumes to ELIGIBLE, not VERIFIED', async () => {
+  fresh();
+  entryReady({ status: 'FAILED', root_index: '4' });
+  chain.set({ hasEntered: false });
+  let update;
+  db.on('bridge_v2_entries:update', (op) => {
+    update = op;
+    return { data: { id: 'entry-1' }, error: null };
+  });
+  const body = await (
+    await entryResume.POST(request(url('entry/resume'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }))
+  ).json();
+  assert.deepEqual(body, { ok: true, status: 'ELIGIBLE' });
+  assert.equal(update.payload.status, 'ELIGIBLE');
+});
+
+await test([], 'a FAILED entry never inside a root resumes to VERIFIED', async () => {
+  fresh();
+  entryReady({ status: 'FAILED', root_index: null });
+  chain.set({ hasEntered: false });
+  let update;
+  db.on('bridge_v2_entries:update', (op) => {
+    update = op;
+    return { data: { id: 'entry-1' }, error: null };
+  });
+  const body = await (
+    await entryResume.POST(request(url('entry/resume'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }))
+  ).json();
+  assert.deepEqual(body, { ok: true, status: 'VERIFIED' });
+  assert.equal(update.payload.status, 'VERIFIED');
+});
+
+// ---------------------------------------------------------------------------
+// creator/campaign — 07/09/2026 decision, path 2: a creator without a wallet
+// ---------------------------------------------------------------------------
+
+const CREATOR_BODY = {
+  module: OWN_WALLET,
+  prizeToken: WALLET,
+  prizeAmount: '1000000',
+  durationSeconds: 3600,
+  winnersCount: 1,
+  slotCap: 10,
+};
+
+function creatorReady() {
+  liveSession();
+  db.on('bridge_v2_phones:select', () => ({ data: { id: 'phone-1' }, error: null }));
+  db.on('bridge_v2_creators:select', () => ({
+    data: { id: 'creator-1', participant_id: 'participant-1', wallet_index: 5, wallet_address: OWN_WALLET },
+    error: null,
+  }));
+}
+
+await test([], 'a creator without a verified phone cannot draft a campaign', async () => {
+  fresh();
+  liveSession();
+  db.on('bridge_v2_phones:select', () => ({ data: null, error: null }));
+  const response = await creatorStart.POST(
+    request(url('creator/campaign/start'), { body: CREATOR_BODY, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 403);
+});
+
+await test([], 'an unregistered prize module is refused before anything is drafted', async () => {
+  fresh();
+  creatorReady();
+  chain.set({ isModuleRegistered: false });
+  const response = await creatorStart.POST(
+    request(url('creator/campaign/start'), { body: CREATOR_BODY, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 400);
+});
+
+await test([], 'an NFT prize module is refused for a creator without a wallet', async () => {
+  fresh();
+  creatorReady();
+  chain.set({ modulePrizeKind: 1 }); // PrizeKind.NFT
+  const response = await creatorStart.POST(
+    request(url('creator/campaign/start'), { body: CREATOR_BODY, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 400);
+});
+
+await test([], 'a creator with a campaign already in progress cannot draft a second one', async () => {
+  fresh();
+  creatorReady();
+  db.on('bridge_v2_creator_campaigns:select', () => ({
+    data: {
+      id: 'draft-1',
+      creator_id: 'creator-1',
+      status: 'PENDING_DEPOSIT',
+      module: CREATOR_BODY.module,
+      prize_token: CREATOR_BODY.prizeToken,
+      prize_amount: CREATOR_BODY.prizeAmount,
+      duration_seconds: String(CREATOR_BODY.durationSeconds),
+      winners_count: CREATOR_BODY.winnersCount,
+      slot_cap: CREATOR_BODY.slotCap,
+      fee_amount: '1000000',
+      slots_cost: '1000000',
+      giveaway_id: null,
+      tx_hash: null,
+    },
+    error: null,
+  }));
+  const response = await creatorStart.POST(
+    request(url('creator/campaign/start'), { body: CREATOR_BODY, cookie: SESSION_COOKIE }),
+  );
+  assert.equal(response.status, 409);
+});
+
+await test([], 'a valid draft hands back the deposit address and amounts', async () => {
+  fresh();
+  creatorReady();
+  db.on('bridge_v2_creator_campaigns:select', () => ({ data: null, error: null }));
+  db.on('bridge_v2_creator_campaigns:insert', () => ({
+    data: {
+      id: 'draft-1',
+      creator_id: 'creator-1',
+      status: 'PENDING_DEPOSIT',
+      module: CREATOR_BODY.module,
+      prize_token: CREATOR_BODY.prizeToken,
+      prize_amount: CREATOR_BODY.prizeAmount,
+      duration_seconds: String(CREATOR_BODY.durationSeconds),
+      winners_count: CREATOR_BODY.winnersCount,
+      slot_cap: CREATOR_BODY.slotCap,
+      fee_amount: '1000000',
+      slots_cost: '1000000',
+      giveaway_id: null,
+      tx_hash: null,
+    },
+    error: null,
+  }));
+  const body = await (
+    await creatorStart.POST(request(url('creator/campaign/start'), { body: CREATOR_BODY, cookie: SESSION_COOKIE }))
+  ).json();
+  assert.equal(body.ok, true);
+  assert.equal(body.depositAddress, OWN_WALLET);
+  assert.equal(body.prizeToken, CREATOR_BODY.prizeToken);
+});
+
+await test([], 'campaign status reports NONE for a participant who never created one', async () => {
+  fresh();
+  liveSession();
+  db.on('bridge_v2_creators:select', () => ({ data: null, error: null }));
+  const body = await (
+    await creatorStatus.POST(request(url('creator/campaign/status'), { cookie: SESSION_COOKIE }))
+  ).json();
+  assert.deepEqual(body, { ok: true, status: 'NONE' });
+});
+
+await test([], 'submitting with no campaign in progress is a 404', async () => {
+  fresh();
+  creatorReady();
+  db.on('bridge_v2_creator_campaigns:select', () => ({ data: null, error: null }));
+  const response = await creatorSubmit.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+  assert.equal(response.status, 404);
+});
+
+await test([], 'submitting before the deposit has arrived is refused, not signed', async () => {
+  fresh();
+  creatorReady();
+  db.on('bridge_v2_creator_campaigns:select', () => ({
+    data: {
+      id: 'draft-1',
+      creator_id: 'creator-1',
+      status: 'PENDING_DEPOSIT',
+      module: CREATOR_BODY.module,
+      prize_token: CREATOR_BODY.prizeToken,
+      prize_amount: '1000000',
+      duration_seconds: '3600',
+      winners_count: 1,
+      slot_cap: 10,
+      fee_amount: '1000000',
+      slots_cost: '1000000',
+      giveaway_id: null,
+      tx_hash: null,
+    },
+    error: null,
+  }));
+  db.on('rpc:bridge_v2_try_lock', () => ({ data: 'holder-1', error: null }));
+  db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
+  chain.set({ erc20BalanceOf: 0n });
+  const response = await creatorSubmit.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+  assert.equal(response.status, 409);
+  assert.equal(
+    chain.calls.some((call) => call.name === 'quoteApprove'),
+    false,
+    'a step was signed before the deposit was confirmed',
+  );
 });
 
 // ---------------------------------------------------------------------------

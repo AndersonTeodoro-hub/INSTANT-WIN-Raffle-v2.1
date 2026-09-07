@@ -339,6 +339,11 @@ interface PendingRow extends CustodyRow {
  * renders a numeric as a JSON number, which is an IEEE double: a uint256 id
  * would arrive already rounded, and BigInt() of a rounded double is a different
  * campaign or a thrown error.
+ *
+ * entry.self_custody excluded (07/09/2026 decision): claimPrize pays
+ * msg.sender, and for one of these entries msg.sender is an address the
+ * bridge holds no key for. The winner claims and receives their own prize;
+ * the bridge is never in that path and must never attempt to be.
  */
 export async function listPendingPrizes(limit: number): Promise<PendingPrize[]> {
   const db = getDb();
@@ -347,11 +352,12 @@ export async function listPendingPrizes(limit: number): Promise<PendingPrize[]> 
     await db
       .from('bridge_v2_custody')
       .select(
-        `${CUSTODY_COLUMNS}, entry:bridge_v2_entries!inner(participant_id, giveaway_id::text, wallet_address, status)`,
+        `${CUSTODY_COLUMNS}, entry:bridge_v2_entries!inner(participant_id, giveaway_id::text, wallet_address, status, self_custody)`,
       )
       .is('delivered_at', null)
       .is('no_prize_at', null)
       .eq('entry.status', 'CONFIRMED')
+      .eq('entry.self_custody', false)
       .order('updated_at', { ascending: true })
       .limit(limit)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),

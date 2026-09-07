@@ -38,6 +38,7 @@ export type OpsKind =
   | 'entry.submitted'
   | 'entry.confirmed'
   | 'entry.failed'
+  | 'entry.resumed'
   | 'root.published'
   | 'funder.acquired'
   | 'funder.exhausted'
@@ -51,6 +52,9 @@ export type OpsKind =
   | 'prize.failed'
   | 'sweep.done'
   | 'cleanup.done'
+  // 07/09/2026 decision: a creator without a wallet, creator/campaign/submit.ts.
+  | 'creator_campaign.confirmed'
+  | 'creator_campaign.failed'
   | 'alert';
 
 /**

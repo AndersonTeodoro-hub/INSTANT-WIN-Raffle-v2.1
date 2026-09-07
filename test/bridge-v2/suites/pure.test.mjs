@@ -909,6 +909,50 @@ await test(['H1'], 'the prize modules and the VRF coordinator are read-only to t
   }
 });
 
+// ---------------------------------------------------------------------------
+// 07/09/2026 decision — the creator-without-wallet signing surface is its
+// own ABI, kept separate so the two H1 tests above stay true of the
+// entry/prize surface they actually describe.
+// ---------------------------------------------------------------------------
+
+await test(['H1'], 'the creator campaign manager ABI carries exactly createGiveaway as mutable', () => {
+  const mutable = abi.CREATOR_CAMPAIGN_MANAGER_ABI
+    .filter((item) => item.type === 'function' && item.stateMutability === 'nonpayable')
+    .map((item) => item.name);
+  assert.deepEqual(mutable, ['createGiveaway']);
+});
+
+await test(['H1'], 'the creator approval ABI carries exactly approve as mutable', () => {
+  const mutable = abi.CREATOR_APPROVAL_ABI
+    .filter((item) => item.type === 'function' && item.stateMutability === 'nonpayable')
+    .map((item) => item.name);
+  assert.deepEqual(mutable, ['approve']);
+});
+
+await test(['H1'], 'the prize module kind check is read-only', () => {
+  for (const item of abi.PRIZE_MODULE_KIND_ABI) {
+    if (item.type !== 'function') continue;
+    assert.ok(item.stateMutability === 'view' || item.stateMutability === 'pure', `${item.name} is not read-only`);
+  }
+});
+
+await test([], 'parseUint256 accepts a positive value inside uint256 and nothing else', () => {
+  assert.equal(validate.parseUint256('1000000'), 1000000n);
+  assert.equal(validate.parseUint256(0), null);
+  assert.equal(validate.parseUint256(-1), null);
+  assert.equal(validate.parseUint256('not-a-number'), null);
+  assert.equal(validate.parseUint256('1' + '0'.repeat(80)), null);
+});
+
+await test([], 'parseIntInRange is inclusive on both ends and rejects the rest', () => {
+  assert.equal(validate.parseIntInRange(10, 10, 100), 10);
+  assert.equal(validate.parseIntInRange(100, 10, 100), 100);
+  assert.equal(validate.parseIntInRange(9, 10, 100), null);
+  assert.equal(validate.parseIntInRange(101, 10, 100), null);
+  assert.equal(validate.parseIntInRange(1.5, 1, 10), null);
+  assert.equal(validate.parseIntInRange('10', 1, 10), null);
+});
+
 await test(['H4'], 'an estimate outside its band is refused before anything is signed', () => {
   for (const band of Object.values(config.GAS_BANDS)) {
     assert.throws(() => planGas(band.min - 1n, 1n, 0n, band), /gas_estimate_out_of_band/);

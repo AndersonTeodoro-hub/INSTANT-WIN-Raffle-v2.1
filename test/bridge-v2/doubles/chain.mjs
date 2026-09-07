@@ -17,11 +17,13 @@
 
 import {
   ChainError,
+  encodeTokenPrizeData,
+  giveawayIdFromLogs,
   planGas,
   rootIndexFromLogs,
 } from '../../../lib/bridge-v2/chain.ts';
 
-export { ChainError, planGas, rootIndexFromLogs };
+export { ChainError, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs };
 
 export const calls = [];
 
@@ -63,6 +65,15 @@ const DEFAULTS = () => ({
   prizeDelivery: null,
   balanceOf: 0n,
   transactionCount: { latest: 0, pending: 0 },
+  // 07/09/2026 decision — creator-without-wallet campaigns.
+  isModuleRegistered: true,
+  modulePrizeKind: 0, // PrizeKind.TOKEN
+  currentCreationFee: 1_000_000n,
+  slotPrice: 100_000n,
+  erc20Allowance: 0n,
+  erc20BalanceOf: 0n,
+  quoteApprove: { plan: plan(60_000n), data: '0xapprove' },
+  quoteCreateGiveaway: { plan: plan(300_000n), data: '0xcreatecall' },
 });
 
 function plan(gasLimit) {
@@ -117,6 +128,15 @@ export const claimableFor = (...args) => answer('claimableFor', args);
 export const prizeAlreadyClaimed = (...args) => answer('prizeAlreadyClaimed', args);
 export const claimDeadlineSeconds = (...args) => answer('claimDeadlineSeconds', args);
 export const prizeDelivery = (...args) => answer('prizeDelivery', args);
+// 07/09/2026 decision — creator-without-wallet campaigns.
+export const isModuleRegistered = (...args) => answer('isModuleRegistered', args);
+export const modulePrizeKind = (...args) => answer('modulePrizeKind', args);
+export const currentCreationFee = (...args) => answer('currentCreationFee', args);
+export const slotPrice = (...args) => answer('slotPrice', args);
+export const erc20Allowance = (...args) => answer('erc20Allowance', args);
+export const erc20BalanceOf = (...args) => answer('erc20BalanceOf', args);
+export const quoteApprove = (...args) => answer('quoteApprove', args);
+export const quoteCreateGiveaway = (...args) => answer('quoteCreateGiveaway', args);
 
 /** roleAddress is synchronous in the real module. */
 export function roleAddress() {

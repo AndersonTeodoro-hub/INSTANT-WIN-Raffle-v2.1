@@ -32,7 +32,12 @@ import {
   touch,
   type Entry,
 } from './entries.js';
-import { FUNDING_STALE_MS, PHASE_RESERVATION_MS, SWEEP_WORST_CASE_MS } from './config.js';
+import {
+  FUNDING_STALE_MS,
+  PHASE_RESERVATION_MS,
+  SELF_CUSTODY_RECONCILE_MS,
+  SWEEP_WORST_CASE_MS,
+} from './config.js';
 import type { RunDeadline } from './runlock.js';
 import { proofForAddress, publishBatch } from './eligibility.js';
 import {
@@ -441,11 +446,21 @@ export async function processEligibleEntries(log: Logger, deadline: RunDeadline)
   let attempted = 0;
 
   for (const entry of entries) {
-    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.processEntries)) break;
+    // 07/09/2026 decision: a self_custody entry costs SELF_CUSTODY_RECONCILE_MS
+    // — no funding, no signing, just a chain read — while every other entry
+    // costs the full processEntries reservation. Checked per row, against
+    // whichever budget this row is actually about to spend, rather than one
+    // reservation guarding two different costs.
+    const reservation = entry.selfCustody ? SELF_CUSTODY_RECONCILE_MS : PHASE_RESERVATION_MS.processEntries;
+    if (!deadline.hasTimeFor(reservation)) break;
     attempted += 1;
 
     try {
-      await processEligible(entry, log);
+      if (entry.selfCustody) {
+        await reconcileSelfCustodyEntry(entry, log);
+      } else {
+        await processEligible(entry, log);
+      }
     } catch (error) {
       await log.failure('entry.failed', error);
       try {
@@ -461,6 +476,30 @@ export async function processEligibleEntries(log: Logger, deadline: RunDeadline)
   }
 
   return attempted;
+}
+
+/**
+ * 07/09/2026 decision: a self-custody entry confirms itself.
+ *
+ * Its address sits inside a published root, exactly like any other ELIGIBLE
+ * entry, but the bridge holds no key for it — the participant connected their
+ * own wallet, signs enter() with their own gas, and the platform never
+ * touches it. This does the one thing the bridge still can: ask the chain
+ * whether they have, and record CONFIRMED when they have. It never funds,
+ * never signs, and an entry it cannot yet confirm is simply asked again next
+ * run — there is no funding claim to hold, so there is nothing to put back on
+ * failure.
+ */
+async function reconcileSelfCustodyEntry(entry: Entry, log: Logger): Promise<void> {
+  if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
+    if (await advance(entry.id, 'ELIGIBLE', 'CONFIRMED')) {
+      await log.event('entry.confirmed', { reason: 'self_custody' });
+    }
+  } else {
+    // Nothing to do yet; only the queue position changes, so the next run
+    // does not read the same entry first for ever while others wait.
+    await touch(entry.id);
+  }
 }
 
 /**

@@ -22,11 +22,8 @@ export function parseEmail(value: unknown): string | null {
   return EMAIL_PATTERN.test(email) ? email : null;
 }
 
-/**
- * I2: a giveaway id must fit the uint256 the contract declares, and ids start at
- * one, so zero is rejected as well.
- */
-export function parseGiveawayId(value: unknown): bigint | null {
+/** A positive value that fits the uint256 the contract declares. */
+export function parseUint256(value: unknown): bigint | null {
   const raw =
     typeof value === 'number' && Number.isInteger(value) && value >= 0
       ? String(value)
@@ -34,9 +31,22 @@ export function parseGiveawayId(value: unknown): bigint | null {
         ? value.trim()
         : null;
   if (raw === null || !/^\d{1,78}$/.test(raw)) return null;
-  const id = BigInt(raw);
-  if (id <= 0n || id > UINT256_MAX) return null;
-  return id;
+  const amount = BigInt(raw);
+  if (amount <= 0n || amount > UINT256_MAX) return null;
+  return amount;
+}
+
+/** I2: a giveaway id must fit the uint256 the contract declares, and ids start
+ * at one, so zero is rejected as well. */
+export function parseGiveawayId(value: unknown): bigint | null {
+  return parseUint256(value);
+}
+
+/** A bounded integer, inclusive on both ends. Used for the createGiveaway
+ * parameters the contract itself bounds (winnersCount, slotCap). */
+export function parseIntInRange(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null;
+  return value >= min && value <= max ? value : null;
 }
 
 /**

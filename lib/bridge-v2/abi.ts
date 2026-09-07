@@ -6,10 +6,19 @@
  * written by hand. To change it, extract again; do not edit an entry in place.
  *
  * H1 keeps this list short on purpose. What the bridge signs against this
- * contract is enter(), addEligibilityRoot() under the role key, and claimPrize()
- * on behalf of a winning derived wallet — nothing else is here that can move
- * state. Everything else in the list is a view that decides whether one of those
- * three is allowed to happen.
+ * contract, through THIS ABI, is enter(), addEligibilityRoot() under the role
+ * key, and claimPrize() on behalf of a winning derived wallet — nothing else
+ * is here that can move state. Everything else in the list is a view that
+ * decides whether one of those three is allowed to happen.
+ *
+ * The owner's 07/09/2026 decision adds a fourth signed action, createGiveaway,
+ * for a creator with no wallet of their own — but as a second derived-wallet
+ * role entirely (bridge_v2_creators, never the entrant's own address) and
+ * through a SEPARATE constant, CREATOR_CAMPAIGN_MANAGER_ABI, further down this
+ * file. It stays out of the constant below on purpose: this file's own tests
+ * assert that GIVEAWAY_MANAGER_V2_ABI carries exactly the three
+ * state-changing functions the entry and prize pipelines use, and that
+ * assertion is worth keeping true of the surface it actually describes.
  *
  * claimPrize and its views are section 7 of the specification: a settled
  * campaign pays msg.sender, and msg.sender has to be the derived wallet that was
@@ -526,6 +535,120 @@ export const GIVEAWAY_MANAGER_V2_ABI = [
 ] as const;
 
 /**
+ * createGiveaway() and its views, kept OUT of GIVEAWAY_MANAGER_V2_ABI on
+ * purpose. H1's own tests assert that ABI carries exactly three
+ * state-changing functions (enter, addEligibilityRoot, claimPrize) — the
+ * entry and prize pipelines, which never touch this constant. The
+ * creator-without-wallet pipeline (07/09/2026 decision) is a genuinely
+ * separate signing surface, signed by a genuinely separate derived-wallet
+ * role (bridge_v2_creators, never a participant's own address; see
+ * chain.ts's "Creator-without-wallet campaigns" section) — so it gets its own
+ * ABI rather than widening the one those tests hold the entry/prize surface
+ * to.
+ */
+export const CREATOR_CAMPAIGN_MANAGER_ABI = [
+  {
+    "type": "function",
+    "name": "createGiveaway",
+    "inputs": [
+      { "name": "module", "type": "address", "internalType": "address" },
+      { "name": "prizeData", "type": "bytes", "internalType": "bytes" },
+      { "name": "prizeAmount", "type": "uint256", "internalType": "uint256" },
+      { "name": "declaredValue", "type": "uint256", "internalType": "uint256" },
+      { "name": "duration", "type": "uint256", "internalType": "uint256" },
+      { "name": "winnersCount", "type": "uint32", "internalType": "uint32" },
+      { "name": "slotCap", "type": "uint32", "internalType": "uint32" }
+    ],
+    "outputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "currentFee",
+    "inputs": [
+      { "name": "kind", "type": "uint8", "internalType": "enum PrizeKind" },
+      { "name": "amount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pricePerSlot",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isModuleRegistered",
+    "inputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "GiveawayCreated",
+    "inputs": [
+      { "name": "giveawayId", "type": "uint256", "indexed": true, "internalType": "uint256" },
+      { "name": "creator", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "prizeModule", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "prizeKind", "type": "uint8", "indexed": false, "internalType": "enum PrizeKind" },
+      { "name": "prizeToken", "type": "address", "indexed": false, "internalType": "address" },
+      { "name": "prizeAmount", "type": "uint256", "indexed": false, "internalType": "uint256" },
+      { "name": "declaredValue", "type": "uint256", "indexed": false, "internalType": "uint256" },
+      { "name": "feeToken", "type": "address", "indexed": false, "internalType": "contract IERC20" },
+      { "name": "feeAmount", "type": "uint256", "indexed": false, "internalType": "uint256" },
+      { "name": "endTime", "type": "uint64", "indexed": false, "internalType": "uint64" },
+      { "name": "winnersCount", "type": "uint32", "indexed": false, "internalType": "uint32" },
+      { "name": "slotCap", "type": "uint32", "indexed": false, "internalType": "uint32" },
+      { "name": "slotsPaid", "type": "uint256", "indexed": false, "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "ModuleNotRegistered",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidDuration",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidWinnersCount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSlotCap",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPrizeAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidDeclaredValue",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PrizeAmountMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PrizeTooSmall",
+    "inputs": []
+  }
+] as const;
+
+/**
  * GiveawayManagerV2.Status. Must match the enum in the contract.
  *
  * The bridge only ever admits an entry while a campaign is OPEN, which the
@@ -604,6 +727,59 @@ export const ERC20_ABI = [
     ],
     "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
     "stateMutability": "nonpayable"
+  }
+] as const;
+
+/**
+ * approve() and allowance(), kept OUT of ERC20_ABI on purpose. H1's own tests
+ * assert that no ABI the bridge carries can approve or move a third party's
+ * balance — true of ERC20_ABI, which the entry and prize pipelines use to
+ * read a balance and hand a prize on, and true of it still: this pass adds a
+ * genuinely new capability (a creator's derived wallet approving a spend of
+ * its OWN balance, never a third party's), and it gets its own constant
+ * rather than widening the one those tests hold the entry/prize surface to.
+ */
+export const CREATOR_APPROVAL_ABI = [
+  {
+    "type": "function",
+    "name": "approve",
+    "inputs": [
+      { "name": "spender", "type": "address", "internalType": "address" },
+      { "name": "amount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "allowance",
+    "inputs": [
+      { "name": "owner", "type": "address", "internalType": "address" },
+      { "name": "spender", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  }
+] as const;
+
+/**
+ * The one view every prize module shares (IPrizeModule.prizeKind), read before
+ * a creator-without-wallet campaign is drafted (07/09/2026 decision).
+ *
+ * DESVIO (0.4): this pass only funds a TOKEN-kind module on the creator's
+ * behalf — takeCustody's prizeData for an NFT module is a list of token ids
+ * the creator must already hold and approve individually, which is a second,
+ * larger unit of work than a single ERC-20 approval and is left for a later
+ * pass. A module that answers NFT here is refused with a clear 400, not
+ * silently miscoded.
+ */
+export const PRIZE_MODULE_KIND_ABI = [
+  {
+    "type": "function",
+    "name": "prizeKind",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint8", "internalType": "enum PrizeKind" }],
+    "stateMutability": "pure"
   }
 ] as const;
 
@@ -796,6 +972,8 @@ const REVERT_ABIS = [
   ERC1155_ABI,
   ERC721_PRIZE_MODULE_ABI,
   ERC1155_PRIZE_MODULE_ABI,
+  CREATOR_CAMPAIGN_MANAGER_ABI,
+  CREATOR_APPROVAL_ABI,
 ] as const;
 
 /**
