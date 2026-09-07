@@ -14,6 +14,7 @@ import {
 import { Button } from '../components/Button';
 import { ConnectWallet } from '../components/ConnectWallet';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
+import { LangSwitch } from '../components/LangSwitch';
 import { useEventsCopy } from './events.i18n';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -327,6 +328,7 @@ export const EventCreate: React.FC = () => {
           </Link>
           <div className="flex items-center gap-3">
             <PublicNavLinks />
+            <LangSwitch />
             <ConnectWallet />
           </div>
         </div>

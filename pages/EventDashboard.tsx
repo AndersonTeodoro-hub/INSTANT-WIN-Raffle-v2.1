@@ -8,6 +8,7 @@ import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2Pr
 import { Button } from '../components/Button';
 import { ConnectWallet } from '../components/ConnectWallet';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
+import { LangSwitch } from '../components/LangSwitch';
 import { useEventsCopy } from './events.i18n';
 
 const MAX_SCANNED = 200;
@@ -219,6 +220,7 @@ export const EventDashboard: React.FC = () => {
           </Link>
           <div className="flex items-center gap-3">
             <PublicNavLinks />
+            <LangSwitch />
             <ConnectWallet />
           </div>
         </div>

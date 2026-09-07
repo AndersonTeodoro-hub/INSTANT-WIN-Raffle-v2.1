@@ -51,6 +51,11 @@ export const PRELAUNCH = true;
 export const TELEGRAM_URL = 'https://t.me/instantwinprotocol';
 
 /**
+ * Contacto para investidores e parceiros (CTA final da /roadmap).
+ */
+export const INVESTOR_EMAIL = 'instantwin.official@gmail.com';
+
+/**
  * Formulário de early access para criadores de campanhas (/giveaways).
  *
  * PLACEHOLDER — substituir pelo link real do Google Form antes do deploy.

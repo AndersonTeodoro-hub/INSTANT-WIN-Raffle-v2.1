@@ -5,6 +5,7 @@ import { formatUnits } from 'viem';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status } from '../lib/giveaway-v2-abi';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
+import { LangSwitch } from '../components/LangSwitch';
 import { Button } from '../components/Button';
 import { useEventsCopy } from './events.i18n';
 import { Loader2 } from 'lucide-react';
@@ -142,6 +143,7 @@ export const EventCenter: React.FC = () => {
           </Link>
           <PublicNavLinks />
           <div className="flex items-center gap-2">
+            <LangSwitch />
             <Link to="/events/mine" className="hidden sm:inline-flex px-4 h-11 items-center text-sm font-bold text-gray-300 hover:text-white">
               {c.list.myEventsCta}
             </Link>

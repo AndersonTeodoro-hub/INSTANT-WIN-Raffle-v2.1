@@ -7,6 +7,7 @@ import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2PrizeKind } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
+import { LangSwitch } from '../components/LangSwitch';
 import { useEventsCopy } from './events.i18n';
 import {
   confirmDestination,
@@ -485,7 +486,10 @@ export const EventDetail: React.FC = () => {
           <Link to="/events" className="text-sm text-gray-400 hover:text-white">
             {c.detail.back}
           </Link>
-          <PublicNavLinks />
+          <div className="flex items-center gap-3">
+            <PublicNavLinks />
+            <LangSwitch />
+          </div>
         </div>
       </header>
 
