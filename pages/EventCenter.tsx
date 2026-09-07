@@ -8,9 +8,10 @@ import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { LangSwitch } from '../components/LangSwitch';
 import { Button } from '../components/Button';
 import { useEventsCopy } from './events.i18n';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
 
 const MAX_LISTED = 30;
+const ARBISCAN = 'https://arbiscan.io/address/';
 
 type GiveawayTuple = {
   creator: `0x${string}`;
@@ -159,7 +160,20 @@ export const EventCenter: React.FC = () => {
       <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-5xl py-10 sm:py-16">
         <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-4">{c.list.eyebrow}</p>
         <h1 className="font-display font-bold text-[clamp(2.2rem,8vw,3.5rem)] leading-[1.05] mb-4">{c.list.title}</h1>
-        <p className="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl mb-10">{c.list.intro}</p>
+        <p className="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl mb-6">{c.list.intro}</p>
+
+        <a
+          href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-10 flex items-center justify-between gap-3 min-h-[44px] max-w-2xl rounded-lg border border-dark-border bg-dark-card/60 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="uppercase tracking-widest text-gray-500 shrink-0">{c.list.contractLabel}</span>
+            <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
+          </span>
+          <ExternalLink className="w-4 h-4 shrink-0" />
+        </a>
 
         {isLoading && (
           <div className="flex items-center gap-3 text-gray-500">

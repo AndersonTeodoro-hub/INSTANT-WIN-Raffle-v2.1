@@ -109,8 +109,9 @@ const en: RoadmapCopy = {
  * levantada para revisão, não corrigida aqui: esta passagem não toca na landing.
  *
  * Vocabulário do sector fica em inglês nos três idiomas, como já ficava na
- * landing: pull-payment, on-chain, wallet, VRF, ERC-20, giveaway, airdrop,
- * onboarding, stablecoin, compliance, RWA, NFT, burn.
+ * landing: pull-payment, on-chain, wallet, VRF, ERC-20, airdrop, onboarding,
+ * stablecoin, compliance, RWA, NFT, burn. "Giveaway"/"giveaways" já não está
+ * nesta lista: passou a traduzir-se (sorteio/sorteios, sorteo/sorteos).
  *
  * "Claims" traduz-se (levantamentos) quando é o substantivo do dinheiro a sair,
  * porque é aí que a frase é um compromisso e tem de se ler sem ambiguidade.
@@ -119,7 +120,7 @@ const pt: RoadmapCopy = {
   meta: {
     title: 'Instant Win — Roadmap',
     description:
-      'Prova, não promessa. Uma lotaria comprovadamente justa em funcionamento na Arbitrum One, um Event Center on-chain para giveaways e airdrops, onboarding web2, e economia de token sob estruturação legal.',
+      'Prova, não promessa. Uma lotaria comprovadamente justa em funcionamento na Arbitrum One, um Event Center on-chain para sorteios e airdrops, onboarding web2, e economia de token sob estruturação legal.',
   },
   waitlist: { short: 'Lista de espera' },
   hero: {
@@ -184,7 +185,7 @@ const es: RoadmapCopy = {
   meta: {
     title: 'Instant Win — Roadmap',
     description:
-      'Prueba, no promesa. Una lotería demostrablemente justa en funcionamiento en Arbitrum One, un Event Center on-chain para giveaways y airdrops, onboarding web2, y economía de token bajo estructuración legal.',
+      'Prueba, no promesa. Una lotería demostrablemente justa en funcionamiento en Arbitrum One, un Event Center on-chain para sorteos y airdrops, onboarding web2, y economía de token bajo estructuración legal.',
   },
   waitlist: { short: 'Lista de espera' },
   hero: {
