@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "node --experimental-strip-types --import ./test/register-loader.mjs test/bridge.test.mjs",
+    "test:bridge-v2": "node --experimental-strip-types --import ./test/bridge-v2/register.mjs test/bridge-v2/run.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
