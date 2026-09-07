@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Check, ArrowRight, CalendarOff } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
@@ -20,6 +20,13 @@ const ARBISCAN = 'https://arbiscan.io/address/';
  * Âmbar não aparece em lado nenhum — nesta página não há valores de prémio.
  */
 const LIVE_STEP = 0;
+
+/**
+ * Quantos degraus iniciais entram no grupo "verificado on-chain" da síntese
+ * (Lotaria + Event Center: ambos têm contratos já implementados e verificados).
+ * Os restantes caem no grupo "pretendido, por esta ordem".
+ */
+const ONCHAIN_STEPS = 2;
 
 export const Roadmap: React.FC = () => {
   const c = useRoadmapCopy();
@@ -94,13 +101,60 @@ export const Roadmap: React.FC = () => {
           <p className="text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
         </section>
 
-        {/* Síntese visual das quatro fases — mesmo conteúdo da lista abaixo,
-            em formato de relance. */}
-        <img
-          src="/roadmap-overview.png"
-          alt={c.hero.overviewAlt}
-          className="w-full h-auto rounded-xl border border-dark-border mb-10 sm:mb-16"
-        />
+        {/* Síntese das quatro fases lado a lado — mesmo conteúdo da lista
+            abaixo, em formato de relance. Ícone + texto (não só cor) marcam
+            a distinção entre "verificado on-chain" e "pretendido nesta ordem",
+            para não depender de percepção de cor. */}
+        <section className="mb-10 sm:mb-16">
+          <ul role="list" className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+            {c.steps.map((step, i) => {
+              const onchain = i < ONCHAIN_STEPS;
+              return (
+                <li
+                  key={step.num}
+                  className={clsx(
+                    'rounded-lg border p-3 sm:p-4',
+                    onchain ? 'border-success/40 bg-success/5' : 'border-dark-border border-dashed bg-dark-card',
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    {onchain ? (
+                      <Check className="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
+                    ) : (
+                      <ArrowRight className="w-3.5 h-3.5 text-gray-500 shrink-0" aria-hidden="true" />
+                    )}
+                    <span
+                      className={clsx(
+                        'font-mono text-[10px] font-bold uppercase tracking-wider truncate',
+                        onchain ? 'text-success' : 'text-gray-500',
+                      )}
+                    >
+                      {step.status}
+                    </span>
+                  </div>
+                  <p className="font-display font-bold text-sm sm:text-base text-white leading-snug">
+                    {step.title}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] font-mono uppercase tracking-widest text-gray-600 mt-4">
+            <span className="flex items-center gap-1.5">
+              <Check className="w-3 h-3 text-success shrink-0" aria-hidden="true" />
+              {c.overview.onchainLabel}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <ArrowRight className="w-3 h-3 text-gray-500 shrink-0" aria-hidden="true" />
+              {c.overview.intendedLabel}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <CalendarOff className="w-3 h-3 text-gray-500 shrink-0" aria-hidden="true" />
+              {c.overview.note}
+            </span>
+          </div>
+        </section>
 
         {/* Os 4 degraus */}
         <ol className="space-y-4 sm:space-y-6 pb-4">
