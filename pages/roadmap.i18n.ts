@@ -33,7 +33,7 @@ interface Step {
 export interface RoadmapCopy {
   meta: { title: string; description: string };
   waitlist: { short: string };
-  hero: { eyebrow: string; title: string; intro: string };
+  hero: { eyebrow: string; title: string; intro: string; overviewAlt: string };
   steps: Step[];
   outro: { note: string; ctaLine1: string; ctaLine2: string; ctaButton: string; back: string };
 }
@@ -50,6 +50,8 @@ const en: RoadmapCopy = {
     title: 'Proof, Not Promise.',
     intro:
       'Every step below follows the same rule: nothing is announced as done until it is verifiable on-chain.',
+    overviewAlt:
+      'Diagram of the four roadmap phases: Lottery (live now), Event Center (building), Regulated company (next), and Platform instrument (only then).',
   },
   steps: [
     {
@@ -128,6 +130,8 @@ const pt: RoadmapCopy = {
     title: 'Prova, não promessa.',
     intro:
       'Cada passo abaixo segue a mesma regra: nada é anunciado como pronto até ser verificável on-chain.',
+    overviewAlt:
+      'Diagrama com as quatro fases do roadmap: Lotaria (ao vivo), Event Center (em construção), Empresa regulada (a seguir) e Instrumento da plataforma (só depois).',
   },
   steps: [
     {
@@ -193,6 +197,8 @@ const es: RoadmapCopy = {
     title: 'Prueba, no promesa.',
     intro:
       'Cada paso de abajo sigue la misma regla: nada se anuncia como listo hasta que sea verificable on-chain.',
+    overviewAlt:
+      'Diagrama con las cuatro fases del roadmap: Lotería (en vivo), Event Center (en construcción), Empresa regulada (siguiente) e Instrumento de la plataforma (solo después).',
   },
   steps: [
     {

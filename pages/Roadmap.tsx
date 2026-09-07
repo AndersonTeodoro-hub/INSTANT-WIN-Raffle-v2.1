@@ -94,6 +94,14 @@ export const Roadmap: React.FC = () => {
           <p className="text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
         </section>
 
+        {/* Síntese visual das quatro fases — mesmo conteúdo da lista abaixo,
+            em formato de relance. */}
+        <img
+          src="/roadmap-overview.png"
+          alt={c.hero.overviewAlt}
+          className="w-full h-auto rounded-xl border border-dark-border mb-10 sm:mb-16"
+        />
+
         {/* Os 4 degraus */}
         <ol className="space-y-4 sm:space-y-6 pb-4">
           {c.steps.map((step, i) => {
