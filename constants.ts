@@ -69,6 +69,13 @@ export const CONTRACTS = {
   // Deployado, ainda sem criação de campanhas aberta ao público: a página
   // /giveaways é um preview do fluxo, não uma interface de escrita.
   GIVEAWAY_MANAGER: '0x1F2aE94Fd04Ce15cb2A3a09B7b81eb9e16781cB0',
+  // GiveawayManagerV2 e módulos de prémio — Arbitrum One, verificados no
+  // Arbiscan. O Event Center (/events) fala com estes; o GiveawayManager V1
+  // acima deixa de ser usado por ele (SPEC-GIVEAWAY-V2 §11, addenda 07/09/2026).
+  GIVEAWAY_MANAGER_V2: '0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739',
+  ERC20_PRIZE_MODULE: '0x2247aeF54C66bD5149989f9c66522d3b439a4A7b',
+  ERC721_PRIZE_MODULE: '0xafe9E198816DEa24e7f74e9D666c0F250aD688BC',
+  ERC1155_PRIZE_MODULE: '0xeb54e328F9F38222FA91e29D6c0367342B8EFD50',
 } as const;
 
 /**
