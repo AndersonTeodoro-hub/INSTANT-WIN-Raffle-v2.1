@@ -14,6 +14,7 @@
  */
 
 import { installEnv, installFetchDouble, restoreFetch, results } from './harness.mjs';
+import { stopEngine } from './pg.mjs';
 
 installEnv();
 installFetchDouble();
@@ -21,6 +22,10 @@ installFetchDouble();
 const SUITES = [
   './suites/pure.test.mjs',
   './suites/sql.test.mjs',
+  // The same three migrations, applied to a real PostgreSQL cluster and called.
+  // sql.test.mjs decides what the text of a migration can decide; this one
+  // decides what only an engine can: concurrency, RLS and the privileges.
+  './suites/engine.test.mjs',
   './suites/source.test.mjs',
   './suites/routes.test.mjs',
   './suites/processor.test.mjs',
@@ -63,6 +68,9 @@ for (const path of SUITES) {
 }
 
 restoreFetch();
+// The cluster is a child process with open connections; without this the run
+// finishes its output and then hangs on an event loop that never empties.
+await stopEngine();
 
 // ---------------------------------------------------------------------------
 // output

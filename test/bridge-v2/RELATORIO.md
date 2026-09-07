@@ -54,11 +54,17 @@ Ambos são achados. Estão descritos na secção 2 e **não foram corrigidos**.
 
 ```js
 const TEST_PKS = [
-  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
-  '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
-  '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+  '<chave privada de 32 bytes, em claro>',
+  '<chave privada de 32 bytes, em claro>',
+  '<chave privada de 32 bytes, em claro>',
 ];
 ```
+
+> Os três valores estão redigidos acima **de propósito**. A regra 0.1 e F2 não têm
+> excepção para chaves conhecidas, e citá-las num relatório é escrevê-las num
+> ficheiro do projecto exactamente como escrevê-las no código: era isso que fazia
+> a própria suite F2 falhar contra este ficheiro. Quem precisar de as ver
+> lê-as em `test/bridge.test.mjs` no histórico do git.
 
 **O que a spec exige.** Regra 0.1 e F2: *"NUNCA escrever nenhuma chave, token, API
 key ou credencial em NENHUM ficheiro do projecto"*, e F2 estende-o explicitamente
