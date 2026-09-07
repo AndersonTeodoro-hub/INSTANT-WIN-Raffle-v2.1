@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --experimental-strip-types --import ./test/register-loader.mjs test/bridge.test.mjs",
+    "test:bridge-v2": "node --experimental-strip-types --import ./test/bridge-v2/register.mjs test/bridge-v2/run.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,6 +27,8 @@
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
     "autoprefixer": "^10.4.0",
+    "embedded-postgres": "^17.10.0-beta.17",
+    "pg": "^8.23.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.2.0",

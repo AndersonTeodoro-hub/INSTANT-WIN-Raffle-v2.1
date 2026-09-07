@@ -281,21 +281,21 @@ const en: GiveawaysCopy = {
  */
 const pt: GiveawaysCopy = {
   meta: {
-    title: 'Instant Win — Giveaways',
+    title: 'Instant Win — Sorteios',
     description:
-      'Giveaways comprovadamente justos na Arbitrum One. Entrada gratuita para os participantes, qualquer ERC-20 como prémio, vencedores sorteados por Chainlink VRF. Contrato deployado e verificado, criação de campanhas em preview.',
+      'Sorteios comprovadamente justos na Arbitrum One. Entrada gratuita para os participantes, qualquer ERC-20 como prémio, vencedores sorteados por Chainlink VRF. Contrato deployado e verificado, criação de campanhas em preview.',
   },
   waitlist: {
     short: 'Lista de espera',
     cta: 'Entrar na lista de espera',
-    headline: 'Quer entrar em giveaways, não organizá-los?',
+    headline: 'Quer entrar em sorteios, não organizá-los?',
     body: 'Uma única lista de espera cobre todo o Event Center. Entre nela e fica a saber primeiro quando as campanhas abrirem a participantes.',
   },
   hero: {
     eyebrow: 'Event Center · Módulo 02',
-    title: 'Giveaways, comprovadamente justos.',
+    title: 'Sorteios, comprovadamente justos.',
     intro:
-      'A maioria das plataformas de giveaways são produtos web2 com marca cripto: pedem-lhe que confie que o sorteio aconteceu. Aqui o sorteio é a prova. Um criador financia um prémio, quem entra participa de graça, e o Chainlink VRF escolhe os vencedores on-chain, onde qualquer pessoa pode verificar o resultado.',
+      'A maioria das plataformas de sorteios são produtos web2 com marca cripto: pedem-lhe que confie que o sorteio aconteceu. Aqui o sorteio é a prova. Um criador financia um prémio, quem entra participa de graça, e o Chainlink VRF escolhe os vencedores on-chain, onde qualquer pessoa pode verificar o resultado.',
     bullets: [
       {
         lead: 'Entrada gratuita para os participantes',
@@ -422,28 +422,28 @@ const pt: GiveawaysCopy = {
   participants: {
     eyebrow: 'Para participantes',
     title: 'Não vai organizar uma campanha?',
-    body: 'Entrar num giveaway será sempre gratuito. Há uma única lista de espera para todo o Event Center — a lotaria, os giveaways e tudo o que vier a seguir.',
+    body: 'Entrar num sorteio será sempre gratuito. Há uma única lista de espera para todo o Event Center — a lotaria, os sorteios e tudo o que vier a seguir.',
   },
   outro: { back: 'Voltar a instantwin' },
 };
 
 const es: GiveawaysCopy = {
   meta: {
-    title: 'Instant Win — Giveaways',
+    title: 'Instant Win — Sorteos',
     description:
-      'Giveaways demostrablemente justos en Arbitrum One. Entrada gratuita para los participantes, cualquier ERC-20 como premio, ganadores sorteados por Chainlink VRF. Contrato desplegado y verificado, creación de campañas en preview.',
+      'Sorteos demostrablemente justos en Arbitrum One. Entrada gratuita para los participantes, cualquier ERC-20 como premio, ganadores sorteados por Chainlink VRF. Contrato desplegado y verificado, creación de campañas en preview.',
   },
   waitlist: {
     short: 'Lista de espera',
     cta: 'Unirse a la lista de espera',
-    headline: '¿Quieres entrar en giveaways, no organizarlos?',
+    headline: '¿Quieres entrar en sorteos, no organizarlos?',
     body: 'Una sola lista de espera cubre todo el Event Center. Únete y te enteras primero cuando las campañas abran a participantes.',
   },
   hero: {
     eyebrow: 'Event Center · Módulo 02',
-    title: 'Giveaways, demostrablemente justos.',
+    title: 'Sorteos, demostrablemente justos.',
     intro:
-      'La mayoría de las plataformas de giveaways son productos web2 con marca cripto: se te pide confiar en que el sorteo ocurrió. Aquí el sorteo es la prueba. Un creador financia un premio, quien entra participa gratis, y Chainlink VRF elige a los ganadores on-chain, donde cualquiera puede verificar el resultado.',
+      'La mayoría de las plataformas de sorteos son productos web2 con marca cripto: se te pide confiar en que el sorteo ocurrió. Aquí el sorteo es la prueba. Un creador financia un premio, quien entra participa gratis, y Chainlink VRF elige a los ganadores on-chain, donde cualquiera puede verificar el resultado.',
     bullets: [
       {
         lead: 'Entrada gratuita para los participantes',
@@ -570,7 +570,7 @@ const es: GiveawaysCopy = {
   participants: {
     eyebrow: 'Para participantes',
     title: '¿No vas a organizar una campaña?',
-    body: 'Entrar en un giveaway siempre será gratis. Hay una sola lista de espera para todo el Event Center — la lotería, los giveaways y todo lo que venga después.',
+    body: 'Entrar en un sorteo siempre será gratis. Hay una sola lista de espera para todo el Event Center — la lotería, los sorteos y todo lo que venga después.',
   },
   outro: { back: 'Volver a instantwin' },
 };

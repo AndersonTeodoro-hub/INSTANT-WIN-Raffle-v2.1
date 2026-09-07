@@ -9,6 +9,10 @@ import { PublicFooterNav } from './components/PublicNav';
 import { Landing } from './pages/Landing';
 import { Roadmap } from './pages/Roadmap';
 import { Giveaways } from './pages/Giveaways';
+import { EventCenter } from './pages/EventCenter';
+import { EventDetail } from './pages/EventDetail';
+import { EventCreate } from './pages/EventCreate';
+import { EventDashboard } from './pages/EventDashboard';
 import { Dashboard } from './pages/Dashboard';
 import { Raffle } from './pages/Raffle';
 import { Username } from './pages/Username';
@@ -106,6 +110,12 @@ const App: React.FC = () => {
             {/* Páginas públicas, sem wallet e sem layout do jogo — como a landing. */}
             <Route path="/roadmap" element={<Roadmap />} />
             <Route path="/giveaways" element={<Giveaways />} />
+
+            {/* Event Center — GiveawayManagerV2 + Bridge V2, ao vivo. */}
+            <Route path="/events" element={<EventCenter />} />
+            <Route path="/events/create" element={<EventCreate />} />
+            <Route path="/events/mine" element={<EventDashboard />} />
+            <Route path="/events/:id" element={<EventDetail />} />
 
             <Route path="/play" element={<GameLayout />}>
               <Route index element={<Dashboard />} />

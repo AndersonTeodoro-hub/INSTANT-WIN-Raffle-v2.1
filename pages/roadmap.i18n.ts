@@ -32,10 +32,10 @@ interface Step {
 
 export interface RoadmapCopy {
   meta: { title: string; description: string };
-  waitlist: { short: string; cta: string };
-  hero: { eyebrow: string; title: string; intro: string };
+  waitlist: { short: string };
+  hero: { eyebrow: string; title: string; intro: string; overviewAlt: string };
   steps: Step[];
-  outro: { closing: string; back: string };
+  outro: { note: string; ctaLine1: string; ctaLine2: string; ctaButton: string; back: string };
 }
 
 const en: RoadmapCopy = {
@@ -44,12 +44,14 @@ const en: RoadmapCopy = {
     description:
       'Proof, not promise. A live provably fair lottery on Arbitrum One, an onchain Event Center for giveaways and airdrops, web2 onboarding, and token economics under legal structuring.',
   },
-  waitlist: { short: 'Waitlist', cta: 'Join the waitlist' },
+  waitlist: { short: 'Waitlist' },
   hero: {
     eyebrow: 'Roadmap',
     title: 'Proof, Not Promise.',
     intro:
       'Every step below follows the same rule: nothing is announced as done until it is verifiable on-chain.',
+    overviewAlt:
+      'Diagram of the four roadmap phases: Lottery (live now), Event Center (building), Regulated company (next), and Platform instrument (only then).',
   },
   steps: [
     {
@@ -58,68 +60,47 @@ const en: RoadmapCopy = {
       title: 'Provably Fair Lottery',
       body: [
         {
-          pre: 'An immutable, verified smart contract on Arbitrum One. Every draw powered by Chainlink VRF. Every prize claimable directly from the contract — pull-payment, claims can never be blocked, not even by us. 30-minute rounds, 85.7% effective payout.',
+          pre: '30-minute rounds on an immutable contract on Arbitrum One. Every draw by Chainlink VRF, every prize claimed straight from the contract. Verifiable on Arbiscan.',
         },
       ],
       verify: 'Verify it yourself',
     },
     {
       num: '02',
-      status: 'In design',
-      title: 'Onchain Event Center',
+      status: 'Building',
+      title: 'Event Center',
       body: [
         {
-          pre: 'The lottery is the proof of concept. The Event Center is the product: infrastructure for ',
-          strong: 'provably fair giveaways, airdrops and promotional campaigns',
-          post: ' — for brands, communities and web3 projects.',
+          pre: 'Campaigns anyone can create and anyone can enter, with the winner picked by VRF and the prize held by a verified contract until it is claimed. Prize modules for ERC-20, ERC-721 and ERC-1155 are already deployed and verified, so a campaign can distribute any tokenized asset, including the ones issued on Robinhood Chain. Entering needs no wallet and no crypto knowledge.',
         },
       ],
-      bulletsIntro: 'Design principles (frozen, implementation in progress):',
-      bullets: [
-        { lead: 'Free entry for participants', rest: ' — the creator funds the prize, entrants never pay' },
-        {
-          lead: 'Any ERC-20 prize',
-          rest: ' — stablecoins, project tokens, tokenized assets (RWA-ready via compliance-aligned eligibility lists); NFTs next',
-        },
-        {
-          lead: 'Built for real campaign scale',
-          rest: ' — from a small community giveaway to large-brand airdrops',
-        },
-        {
-          lead: 'Winner selection always by Chainlink VRF',
-          rest: ' — no admin can pick, change or block a winner',
-        },
-        {
-          lead: 'Same guarantees as the lottery',
-          rest: ' — immutable contract, pull-payment claims, nothing can ever be trapped',
-        },
-        { lead: 'Points for real engagement', rest: ' — participation earns platform points from day one' },
-      ],
-      note: 'Full technical specification will be published together with the verified contract.',
     },
     {
       num: '03',
-      status: 'The bridge',
-      title: 'Web2 Onboarding',
+      status: 'Next',
+      title: 'Regulated company',
       body: [
         {
-          pre: 'Campaigns open to people who have never touched a wallet: a simple sign-up form, a wallet created invisibly behind it, and a draw that still happens fully on-chain. The supermarket promotion, the product launch, the brand campaign — all provably fair, all verifiable, no crypto knowledge required.',
+          pre: 'To operate this at scale we intend to become a regulated company. The order is fixed and will not be skipped: a legal entity first, then licensing.',
         },
       ],
     },
     {
       num: '04',
-      status: 'Later',
-      title: 'Sustainable Token Economics',
+      status: 'Only then',
+      title: 'Platform instrument',
       body: [
         {
-          pre: 'Utility-based (event fees + burn per use), community-first distribution grounded in real measured engagement. Under legal structuring — no sale, no launch before the structure exists. Announced when real, not before.',
+          pre: 'Any token or shareholding instrument for the platform exists only inside that structure. Never before it.',
         },
       ],
     },
   ],
   outro: {
-    closing: 'Solo-built. Verifiable at every step.',
+    note: 'No dates. Each step depends on the one before it. What exists is published with the contract address next to it.',
+    ctaLine1: 'Building the rails for transparent, on-chain distribution of tokenized assets.',
+    ctaLine2: 'Early conversations with investors and partners are open.',
+    ctaButton: 'Talk to us',
     back: 'Back to instantwin',
   },
 };
@@ -130,8 +111,9 @@ const en: RoadmapCopy = {
  * levantada para revisão, não corrigida aqui: esta passagem não toca na landing.
  *
  * Vocabulário do sector fica em inglês nos três idiomas, como já ficava na
- * landing: pull-payment, on-chain, wallet, VRF, ERC-20, giveaway, airdrop,
- * onboarding, stablecoin, compliance, RWA, NFT, burn.
+ * landing: pull-payment, on-chain, wallet, VRF, ERC-20, airdrop, onboarding,
+ * stablecoin, compliance, RWA, NFT, burn. "Giveaway"/"giveaways" já não está
+ * nesta lista: passou a traduzir-se (sorteio/sorteios, sorteo/sorteos).
  *
  * "Claims" traduz-se (levantamentos) quando é o substantivo do dinheiro a sair,
  * porque é aí que a frase é um compromisso e tem de se ler sem ambiguidade.
@@ -140,14 +122,16 @@ const pt: RoadmapCopy = {
   meta: {
     title: 'Instant Win — Roadmap',
     description:
-      'Prova, não promessa. Uma lotaria comprovadamente justa em funcionamento na Arbitrum One, um Event Center on-chain para giveaways e airdrops, onboarding web2, e economia de token sob estruturação legal.',
+      'Prova, não promessa. Uma lotaria comprovadamente justa em funcionamento na Arbitrum One, um Event Center on-chain para sorteios e airdrops, onboarding web2, e economia de token sob estruturação legal.',
   },
-  waitlist: { short: 'Lista de espera', cta: 'Entrar na lista de espera' },
+  waitlist: { short: 'Lista de espera' },
   hero: {
     eyebrow: 'Roadmap',
     title: 'Prova, não promessa.',
     intro:
       'Cada passo abaixo segue a mesma regra: nada é anunciado como pronto até ser verificável on-chain.',
+    overviewAlt:
+      'Diagrama com as quatro fases do roadmap: Lotaria (ao vivo), Event Center (em construção), Empresa regulada (a seguir) e Instrumento da plataforma (só depois).',
   },
   steps: [
     {
@@ -156,68 +140,47 @@ const pt: RoadmapCopy = {
       title: 'Lotaria Comprovadamente Justa',
       body: [
         {
-          pre: 'Um smart contract imutável e verificado na Arbitrum One. Cada sorteio com tecnologia Chainlink VRF. Cada prémio pode ser levantado diretamente do contrato — pull-payment, os levantamentos nunca podem ser bloqueados, nem por nós. Rondas de 30 minutos, 85.7% de pagamento efetivo.',
+          pre: 'Rondas de 30 minutos num contrato imutável na Arbitrum One. Cada sorteio pelo Chainlink VRF, cada prémio levantado diretamente do contrato. Verificável no Arbiscan.',
         },
       ],
       verify: 'Verifique por si mesmo',
     },
     {
       num: '02',
-      status: 'Em design',
-      title: 'Event Center on-chain',
+      status: 'Em construção',
+      title: 'Event Center',
       body: [
         {
-          pre: 'A lotaria é a prova de conceito. O Event Center é o produto: infraestrutura para ',
-          strong: 'giveaways, airdrops e campanhas promocionais comprovadamente justos',
-          post: ' — para marcas, comunidades e projetos web3.',
+          pre: 'Campanhas que qualquer pessoa pode criar e qualquer pessoa pode participar, com o vencedor escolhido por VRF e o prémio guardado por um contrato verificado até ser levantado. Os módulos de prémio para ERC-20, ERC-721 e ERC-1155 já estão implementados e verificados, por isso uma campanha pode distribuir qualquer ativo tokenizado, incluindo os emitidos na Robinhood Chain. Participar não exige wallet nem conhecimentos de cripto.',
         },
       ],
-      bulletsIntro: 'Princípios de design (congelados, implementação em curso):',
-      bullets: [
-        { lead: 'Entrada gratuita para os participantes', rest: ' — o criador financia o prémio, quem entra nunca paga' },
-        {
-          lead: 'Qualquer prémio em ERC-20',
-          rest: ' — stablecoins, tokens de projeto, ativos tokenizados (prontos para RWA através de listas de elegibilidade alinhadas com compliance); NFTs a seguir',
-        },
-        {
-          lead: 'Construído para escala real de campanha',
-          rest: ' — de um pequeno giveaway de comunidade a airdrops de grandes marcas',
-        },
-        {
-          lead: 'Seleção de vencedores sempre por Chainlink VRF',
-          rest: ' — nenhum admin pode escolher, alterar ou bloquear um vencedor',
-        },
-        {
-          lead: 'As mesmas garantias da lotaria',
-          rest: ' — contrato imutável, levantamentos pull-payment, nada pode alguma vez ficar preso',
-        },
-        { lead: 'Pontos por envolvimento real', rest: ' — participar dá pontos da plataforma desde o primeiro dia' },
-      ],
-      note: 'A especificação técnica completa será publicada juntamente com o contrato verificado.',
     },
     {
       num: '03',
-      status: 'A ponte',
-      title: 'Onboarding Web2',
+      status: 'A seguir',
+      title: 'Empresa regulada',
       body: [
         {
-          pre: 'Campanhas abertas a pessoas que nunca tocaram numa wallet: um simples formulário de inscrição, uma wallet criada de forma invisível por trás dele, e um sorteio que continua a acontecer inteiramente on-chain. A promoção do supermercado, o lançamento de produto, a campanha de marca — tudo comprovadamente justo, tudo verificável, sem exigir conhecimentos de cripto.',
+          pre: 'Para operar isto à escala, pretendemos tornar-nos uma empresa regulada. A ordem é fixa e não será saltada: primeiro uma entidade legal, depois o licenciamento.',
         },
       ],
     },
     {
       num: '04',
-      status: 'Mais tarde',
-      title: 'Economia de Token Sustentável',
+      status: 'Só depois',
+      title: 'Instrumento da plataforma',
       body: [
         {
-          pre: 'Baseada em utilidade (taxas de eventos + burn por utilização), distribuição que põe a comunidade em primeiro lugar e assenta em envolvimento real medido. Sob estruturação legal — sem venda, sem lançamento antes de a estrutura existir. Anunciada quando for real, não antes.',
+          pre: 'Qualquer token ou instrumento de participação da plataforma existe apenas dentro dessa estrutura. Nunca antes dela.',
         },
       ],
     },
   ],
   outro: {
-    closing: 'Construído a solo. Verificável em cada passo.',
+    note: 'Sem datas. Cada passo depende do anterior. O que existe é publicado com o endereço do contrato ao lado.',
+    ctaLine1: 'A construir os trilhos para a distribuição transparente e on-chain de ativos tokenizados.',
+    ctaLine2: 'Estão abertas conversas iniciais com investidores e parceiros.',
+    ctaButton: 'Fale connosco',
     back: 'Voltar a instantwin',
   },
 };
@@ -226,14 +189,16 @@ const es: RoadmapCopy = {
   meta: {
     title: 'Instant Win — Roadmap',
     description:
-      'Prueba, no promesa. Una lotería demostrablemente justa en funcionamiento en Arbitrum One, un Event Center on-chain para giveaways y airdrops, onboarding web2, y economía de token bajo estructuración legal.',
+      'Prueba, no promesa. Una lotería demostrablemente justa en funcionamiento en Arbitrum One, un Event Center on-chain para sorteos y airdrops, onboarding web2, y economía de token bajo estructuración legal.',
   },
-  waitlist: { short: 'Lista de espera', cta: 'Unirse a la lista de espera' },
+  waitlist: { short: 'Lista de espera' },
   hero: {
     eyebrow: 'Roadmap',
     title: 'Prueba, no promesa.',
     intro:
       'Cada paso de abajo sigue la misma regla: nada se anuncia como listo hasta que sea verificable on-chain.',
+    overviewAlt:
+      'Diagrama con las cuatro fases del roadmap: Lotería (en vivo), Event Center (en construcción), Empresa regulada (siguiente) e Instrumento de la plataforma (solo después).',
   },
   steps: [
     {
@@ -242,68 +207,47 @@ const es: RoadmapCopy = {
       title: 'Lotería Demostrablemente Justa',
       body: [
         {
-          pre: 'Un smart contract inmutable y verificado en Arbitrum One. Cada sorteo con tecnología Chainlink VRF. Cada premio se puede reclamar directamente del contrato — pull-payment, los retiros nunca pueden bloquearse, ni siquiera por nosotros. Rondas de 30 minutos, 85.7% de pago efectivo.',
+          pre: 'Rondas de 30 minutos en un contrato inmutable en Arbitrum One. Cada sorteo mediante Chainlink VRF, cada premio reclamado directamente del contrato. Verificable en Arbiscan.',
         },
       ],
       verify: 'Verifícalo tú mismo',
     },
     {
       num: '02',
-      status: 'En diseño',
-      title: 'Event Center on-chain',
+      status: 'En construcción',
+      title: 'Event Center',
       body: [
         {
-          pre: 'La lotería es la prueba de concepto. El Event Center es el producto: infraestructura para ',
-          strong: 'giveaways, airdrops y campañas promocionales demostrablemente justos',
-          post: ' — para marcas, comunidades y proyectos web3.',
+          pre: 'Campañas que cualquiera puede crear y cualquiera puede participar, con el ganador elegido por VRF y el premio custodiado por un contrato verificado hasta que se reclama. Los módulos de premio para ERC-20, ERC-721 y ERC-1155 ya están desplegados y verificados, por lo que una campaña puede distribuir cualquier activo tokenizado, incluidos los emitidos en Robinhood Chain. Participar no requiere wallet ni conocimientos de cripto.',
         },
       ],
-      bulletsIntro: 'Principios de diseño (congelados, implementación en curso):',
-      bullets: [
-        { lead: 'Entrada gratuita para los participantes', rest: ' — el creador financia el premio, quien entra nunca paga' },
-        {
-          lead: 'Cualquier premio en ERC-20',
-          rest: ' — stablecoins, tokens de proyecto, activos tokenizados (listos para RWA mediante listas de elegibilidad alineadas con compliance); NFTs a continuación',
-        },
-        {
-          lead: 'Construido para escala real de campaña',
-          rest: ' — desde un pequeño giveaway de comunidad hasta airdrops de grandes marcas',
-        },
-        {
-          lead: 'Selección de ganadores siempre por Chainlink VRF',
-          rest: ' — ningún admin puede elegir, cambiar o bloquear a un ganador',
-        },
-        {
-          lead: 'Las mismas garantías que la lotería',
-          rest: ' — contrato inmutable, retiros pull-payment, nada puede quedar nunca atrapado',
-        },
-        { lead: 'Puntos por participación real', rest: ' — participar otorga puntos de la plataforma desde el primer día' },
-      ],
-      note: 'La especificación técnica completa se publicará junto con el contrato verificado.',
     },
     {
       num: '03',
-      status: 'El puente',
-      title: 'Onboarding Web2',
+      status: 'Siguiente',
+      title: 'Empresa regulada',
       body: [
         {
-          pre: 'Campañas abiertas a personas que nunca han tocado una wallet: un simple formulario de registro, una wallet creada de forma invisible detrás de él, y un sorteo que sigue ocurriendo enteramente on-chain. La promoción del supermercado, el lanzamiento de producto, la campaña de marca — todo demostrablemente justo, todo verificable, sin necesidad de conocimientos de cripto.',
+          pre: 'Para operar esto a escala, tenemos la intención de convertirnos en una empresa regulada. El orden es fijo y no se saltará: primero una entidad legal, después la licencia.',
         },
       ],
     },
     {
       num: '04',
-      status: 'Más adelante',
-      title: 'Economía de Token Sostenible',
+      status: 'Solo entonces',
+      title: 'Instrumento de la plataforma',
       body: [
         {
-          pre: 'Basada en utilidad (comisiones de eventos + burn por uso), distribución que pone a la comunidad primero y se apoya en participación real medida. Bajo estructuración legal — sin venta, sin lanzamiento antes de que la estructura exista. Anunciada cuando sea real, no antes.',
+          pre: 'Cualquier token o instrumento de participación de la plataforma existe únicamente dentro de esa estructura. Nunca antes de ella.',
         },
       ],
     },
   ],
   outro: {
-    closing: 'Construido en solitario. Verificable en cada paso.',
+    note: 'Sin fechas. Cada paso depende del anterior. Lo que existe se publica con la dirección del contrato al lado.',
+    ctaLine1: 'Construyendo los rieles para la distribución transparente y on-chain de activos tokenizados.',
+    ctaLine2: 'Están abiertas conversaciones iniciales con inversores y socios.',
+    ctaButton: 'Habla con nosotros',
     back: 'Volver a instantwin',
   },
 };

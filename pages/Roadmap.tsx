@@ -2,9 +2,10 @@ import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS } from '../constants';
+import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { WaitlistLink } from '../components/WaitlistLink';
+import { LangSwitch } from '../components/LangSwitch';
 import { useRoadmapCopy } from './roadmap.i18n';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -74,6 +75,7 @@ export const Roadmap: React.FC = () => {
           <PublicNavLinks />
 
           <div className="flex items-center gap-2">
+            <LangSwitch />
             <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
           </div>
         </div>
@@ -91,6 +93,14 @@ export const Roadmap: React.FC = () => {
           </h1>
           <p className="text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
         </section>
+
+        {/* Síntese visual das quatro fases — mesmo conteúdo da lista abaixo,
+            em formato de relance. */}
+        <img
+          src="/roadmap-overview.png"
+          alt={c.hero.overviewAlt}
+          className="w-full h-auto rounded-xl border border-dark-border mb-10 sm:mb-16"
+        />
 
         {/* Os 4 degraus */}
         <ol className="space-y-4 sm:space-y-6 pb-4">
@@ -172,14 +182,24 @@ export const Roadmap: React.FC = () => {
           })}
         </ol>
 
-        {/* CTA final */}
-        <section className="py-14 sm:py-20 text-center">
-          <p className="font-display font-bold text-2xl sm:text-3xl text-white mb-6">{c.outro.closing}</p>
-          <WaitlistLink
-            label={c.waitlist.cta}
-            withArrow
-            className="inline-flex w-full sm:w-auto px-10 h-14 sm:h-16 text-lg sm:text-xl"
-          />
+        {/* Nota antes do CTA: sem datas, sem promessa de calendário. */}
+        <p className="text-gray-500 text-sm leading-relaxed text-center max-w-xl mx-auto pt-10 sm:pt-14">
+          {c.outro.note}
+        </p>
+
+        {/* CTA final — investidores e parceiros, não a waitlist. Sem âmbar
+            nem verde: esta página reserva ambos para outro significado. */}
+        <section className="py-8 sm:py-12 pb-14 sm:pb-20 text-center">
+          <div className="bg-dark-card border border-dark-border rounded-xl p-8 sm:p-10">
+            <p className="font-display font-bold text-xl sm:text-2xl text-white mb-2">{c.outro.ctaLine1}</p>
+            <p className="text-gray-400 leading-relaxed mb-8">{c.outro.ctaLine2}</p>
+            <a
+              href={`mailto:${INVESTOR_EMAIL}`}
+              className="inline-flex items-center justify-center gap-2 min-h-[44px] w-full sm:w-auto px-10 h-14 sm:h-16 rounded-lg bg-white text-black font-extrabold text-lg sm:text-xl hover:bg-gray-200 transition-colors"
+            >
+              {c.outro.ctaButton}
+            </a>
+          </div>
         </section>
       </main>
 

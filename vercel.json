@@ -1,5 +1,17 @@
 {
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/bridge/v2/cron/process.ts": { "maxDuration": 300 },
+    "api/bridge/v2/cron/maintenance.ts": { "maxDuration": 300 },
+    "api/bridge/v2/entry/start.ts": { "maxDuration": 148 },
+    "api/bridge/v2/entry/resume.ts": { "maxDuration": 68 },
+    "api/bridge/v2/creator/campaign/start.ts": { "maxDuration": 100 },
+    "api/bridge/v2/creator/campaign/submit.ts": { "maxDuration": 270 }
+  },
+  "crons": [
+    { "path": "/api/bridge/v2/cron/process", "schedule": "* * * * *" },
+    { "path": "/api/bridge/v2/cron/maintenance", "schedule": "0 * * * *" }
   ]
 }

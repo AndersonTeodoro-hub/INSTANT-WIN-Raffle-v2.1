@@ -155,7 +155,7 @@ const pt: LandingCopy = {
     badge: 'Com tecnologia Chainlink VRF',
     headlineTop: 'Eventos comprovadamente justos.',
     headlineBottom: 'Prova, não promessa.',
-    sub: 'Um Event Center on-chain na Arbitrum One: loterias, giveaways e recompensas em que cada ganhador é sorteado pelo Chainlink VRF e cada prêmio é resgatado direto do contrato.',
+    sub: 'Um Event Center on-chain na Arbitrum One: loterias, sorteios e recompensas em que cada ganhador é sorteado pelo Chainlink VRF e cada prêmio é resgatado direto do contrato.',
     cta: 'JOGAR AGORA',
   },
   modules: {
@@ -245,7 +245,7 @@ const es: LandingCopy = {
     badge: 'Con tecnología Chainlink VRF',
     headlineTop: 'Eventos demostrablemente justos.',
     headlineBottom: 'Prueba, no promesa.',
-    sub: 'Un Event Center on-chain en Arbitrum One: loterías, giveaways y recompensas donde cada ganador se sortea con Chainlink VRF y cada premio se reclama directamente del contrato.',
+    sub: 'Un Event Center on-chain en Arbitrum One: loterías, sorteos y recompensas donde cada ganador se sortea con Chainlink VRF y cada premio se reclama directamente del contrato.',
     cta: 'JUGAR AHORA',
   },
   modules: {

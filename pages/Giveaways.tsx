@@ -4,6 +4,7 @@ import { ExternalLink, ShieldCheck } from 'lucide-react';
 import { CONTRACTS, GIVEAWAY_LIMITS } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { WaitlistLink } from '../components/WaitlistLink';
+import { LangSwitch } from '../components/LangSwitch';
 import { GiveawayWizard } from '../components/GiveawayWizard';
 import { useGiveawaysCopy } from './giveaways.i18n';
 import type { GiveawaysCopy } from './giveaways.i18n';
@@ -77,6 +78,7 @@ export const Giveaways: React.FC = () => {
           <PublicNavLinks />
 
           <div className="flex items-center gap-2">
+            <LangSwitch />
             <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
           </div>
         </div>
@@ -119,12 +121,12 @@ export const Giveaways: React.FC = () => {
               {c.proof.verifyLabel}
             </p>
             <a
-              href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER}`}
+              href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between gap-3 min-h-[44px] rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
             >
-              <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER}</span>
+              <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
               <ExternalLink className="w-4 h-4 shrink-0" />
             </a>
 
