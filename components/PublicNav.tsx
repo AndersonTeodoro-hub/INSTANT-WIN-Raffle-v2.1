@@ -19,6 +19,7 @@ import { clsx } from 'clsx';
 export const PUBLIC_NAV = [
   { to: '/play', label: 'Lottery' },
   { to: '/giveaways', label: 'Giveaways' },
+  { to: '/events', label: 'Event Center' },
   { to: '/roadmap', label: 'Roadmap' },
 ] as const;
 
