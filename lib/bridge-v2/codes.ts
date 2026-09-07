@@ -37,27 +37,26 @@ function hashCode(code: string, canonicalEmail: string): Promise<string> {
  * Returns the plaintext code for the one caller that needs it — the mail sender.
  * It is never returned to a client, never logged, and never stored: only the
  * hash reaches the database.
+ *
+ * One call, one transaction (bridge_v2_issue_email_code, 0005). Superseding and
+ * inserting used to be two round trips, and a race between two issues could
+ * interleave them as supersede(A), supersede(B), insert(A), insert(B): neither
+ * supersede found anything to end and both inserts landed, leaving two live
+ * codes for one address instead of one.
  */
 export async function issueEmailCode(canonicalEmail: string): Promise<string> {
   const code = randomDigits(EMAIL_CODE_DIGITS);
   const db = getDb();
 
-  // J3: only the most recent code is valid. Superseding first means a race
-  // between two issues leaves exactly one live code rather than two.
   checked(
-    'code.supersede',
+    'code.issue',
     await db
-      .rpc('bridge_v2_supersede_email_codes', { p_email_canonical: canonicalEmail })
+      .rpc('bridge_v2_issue_email_code', {
+        p_email_canonical: canonicalEmail,
+        p_code_hash: await hashCode(code, canonicalEmail),
+        p_expires_at: new Date(Date.now() + EMAIL_CODE_TTL_MS).toISOString(),
+      })
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-  );
-
-  checked(
-    'code.insert',
-    await db.from('bridge_v2_email_codes').insert({
-      email_canonical: canonicalEmail,
-      code_hash: await hashCode(code, canonicalEmail),
-      expires_at: new Date(Date.now() + EMAIL_CODE_TTL_MS).toISOString(),
-    }).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
   return code;

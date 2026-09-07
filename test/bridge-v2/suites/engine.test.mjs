@@ -130,7 +130,7 @@ await test(['I5', 'I6'], '0004, 0005 and 0006 apply in order to an empty target-
   const tables = await bridgeTables(target);
   assert.equal(tables.length, 16, `0004 declares sixteen tables, the catalog holds ${tables.length}`);
   const functions = await bridgeFunctions(target);
-  assert.equal(functions.length, 20, `0005 defines twenty functions, the catalog holds ${functions.length}`);
+  assert.equal(functions.length, 21, `0005 defines twenty-one functions, the catalog holds ${functions.length}`);
   const sequences = await rows(
     `SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'S' AND c.relname LIKE 'bridge\\_v2\\_%'`,
@@ -155,7 +155,7 @@ await test(['I6'], 'applying the three again changes nothing and raises nothing'
   );
   assert.deepEqual(after, before, 'a re-application created or dropped a table');
   const functions = await bridgeFunctions(target);
-  assert.equal(functions.length, 20, 'a re-application left a second overload of some function behind');
+  assert.equal(functions.length, 21, 'a re-application left a second overload of some function behind');
 });
 
 await test(['I6'], '0004 installs citext itself when the project does not already carry it', async () => {
@@ -196,7 +196,7 @@ await test(['I5'], 'every function runs as its caller and resolves citext throug
 });
 
 // ===========================================================================
-// 2. the twenty functions
+// 2. the twenty-one functions
 // ===========================================================================
 
 // --- bridge_v2_rate_limit_hit ---------------------------------------------
@@ -306,8 +306,12 @@ await test(['J4', 'C1'], 'the email is matched case-insensitively, as a citext c
 await test(['J3'], 'an expired or consumed code cannot be attempted', async () => {
   await reset(target);
   const email = `${uniq('dead')}@example.test`;
-  await emailCode(email, 'HASH-EXPIRED', `now() - interval '1 minute'`);
+  const expired = await emailCode(email, 'HASH-EXPIRED', `now() - interval '1 minute'`);
   assert.equal((await rows(`SELECT * FROM bridge_v2_claim_email_code_attempt($1, 5)`, [email])).length, 0);
+  // bridge_v2_email_codes_live_unique (0004, Achado 4) allows at most one row
+  // per address with consumed_at IS NULL, so the expired row is ended before the
+  // next case can exist.
+  await q(`UPDATE bridge_v2_email_codes SET consumed_at = now() WHERE id = $1`, [expired]);
   const live = await emailCode(email, 'HASH-CONSUMED');
   await q(`UPDATE bridge_v2_email_codes SET consumed_at = now() WHERE id = $1`, [live]);
   assert.equal((await rows(`SELECT * FROM bridge_v2_claim_email_code_attempt($1, 5)`, [email])).length, 0);
@@ -322,12 +326,13 @@ await test(['G2', 'G5'], 'consume_email_code reports whether it changed a row', 
     'a second consumption must report that somebody else got there first');
 });
 
-await test(['J3'], 'supersede_email_codes ends every live code for the address', async () => {
+await test(['J3'], 'supersede_email_codes ends the live code for the address', async () => {
   await reset(target);
   const email = `${uniq('super')}@example.test`;
+  // bridge_v2_email_codes_live_unique (0004, Achado 4) allows at most one row
+  // per address with consumed_at IS NULL, so there is never more than one to end.
   await emailCode(email, 'HASH-1');
-  await emailCode(email, 'HASH-2');
-  assert.equal(await scalar(`SELECT bridge_v2_supersede_email_codes($1)`, [email]), 2);
+  assert.equal(await scalar(`SELECT bridge_v2_supersede_email_codes($1)`, [email]), 1);
   assert.equal(await scalar(`SELECT bridge_v2_supersede_email_codes($1)`, [email]), 0);
   assert.equal(
     await scalar(`SELECT count(*)::int FROM bridge_v2_email_codes
@@ -337,10 +342,17 @@ await test(['J3'], 'supersede_email_codes ends every live code for the address',
 });
 
 await test(['J3', 'J4'], 'the attempt ceiling belongs to the address, not to one code', async () => {
+  // Achado 1 was reachable through two live codes for one address: the CTE's
+  // `attempts < p_max_attempts` used to sit inside `ORDER BY created_at DESC
+  // LIMIT 1`, so an exhausted newest code fell out of the candidate set and the
+  // next-newest live code -- itself under no ceiling yet -- was picked up
+  // instead. bridge_v2_email_codes_live_unique (0004, Achado 4) now makes two
+  // live codes for one address impossible to construct at all, which is the
+  // primary fix; what this proves is that the ceiling still holds for its one
+  // code even with the predicate moved to the UPDATE clause, so nothing here
+  // regressed when the fallback path it used to reach stopped existing.
   await reset(target);
   const email = `${uniq('ladder')}@example.test`;
-  await emailCode(email, 'HASH-OLDER');
-  await sleep(5); // created_at DESC has to be able to tell them apart
   await emailCode(email, 'HASH-NEWER');
 
   const seen = [];
@@ -350,15 +362,8 @@ await test(['J3', 'J4'], 'the attempt ceiling belongs to the address, not to one
     seen.push(claimed.code_hash);
   }
 
-  assert.deepEqual(
-    [...new Set(seen)],
-    ['HASH-NEWER'],
-    'ACHADO 0005:145-171. J3 says only the most recent unconsumed code for an address is valid, and J4 '
-    + 'caps the guesses. The predicate `attempts < p_max_attempts` inside `ORDER BY created_at DESC LIMIT 1` '
-    + 'removes the exhausted newest code from the candidate set instead of ending the attempt, so the '
-    + `previous live code becomes attemptable: the engine handed out ${seen.length} guesses across `
-    + `${new Set(seen).size} codes for a ceiling of three. The ceiling is per code, not per address.`,
-  );
+  assert.deepEqual([...new Set(seen)], ['HASH-NEWER']);
+  assert.equal(seen.length, 3, 'a ceiling of three must not hand out a fourth guess');
 });
 
 // --- bridge_v2_claim_link_for_chat / consume_link_for_chat -----------------
@@ -919,30 +924,19 @@ await test(['I9', 'G4'], 'concurrent draws on the two sequences never repeat a n
 await test(['J3', 'J4'], 'two issues of a code at once leave one live code, not two', async () => {
   await reset(target);
   const email = `${uniq('issue')}@example.test`;
-  // What lib/bridge-v2/codes.ts:47-61 does: supersede, then insert. Two round
-  // trips, and the comment above them says the order "means a race between two
-  // issues leaves exactly one live code rather than two".
-  const runs = await concurrently(target, 2, async (client) => {
-    await client.query(`SELECT bridge_v2_supersede_email_codes($1)`, [email]);
-    await client.query(
-      `INSERT INTO bridge_v2_email_codes (email_canonical, code_hash, expires_at)
-       VALUES ($1, $2, now() + interval '10 minutes')`,
+  // What lib/bridge-v2/codes.ts now does: bridge_v2_issue_email_code (0005),
+  // supersede and insert in the one call, closing the Achado 4 race between two
+  // separate round trips that used to leave two live codes for one address.
+  const runs = await concurrently(target, 2, (client) =>
+    client.query(
+      `SELECT bridge_v2_issue_email_code($1, $2, now() + interval '10 minutes')`,
       [email, uniq('HASH')],
-    );
-    return 'issued';
-  });
+    ));
   assert.deepEqual(runs.filter((run) => !run.ok).map((run) => run.code), []);
   const live = await scalar(
     `SELECT count(*)::int FROM bridge_v2_email_codes
       WHERE email_canonical = $1 AND consumed_at IS NULL`, [email]);
-  assert.equal(
-    live,
-    1,
-    'ACHADO lib/bridge-v2/codes.ts:47-61 against J3. Superseding in one statement and inserting in another '
-    + 'does not exclude the interleaving supersede(A), supersede(B), insert(A), insert(B): both supersedes '
-    + `find nothing to end and both inserts land. The engine left ${live} live codes for one address, which `
-    + 'doubles the J4 attempt ceiling and makes the older code attemptable once the newer is exhausted.',
-  );
+  assert.equal(live, 1, 'bridge_v2_issue_email_code must leave exactly one live code per address');
 });
 
 // ===========================================================================

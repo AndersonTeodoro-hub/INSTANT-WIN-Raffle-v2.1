@@ -186,7 +186,7 @@ await test(['B8'], 'the mail budget is claimed before the provider is called', a
   );
   assert.equal(response.status, 200);
   assert.equal(http.requests.filter((entry) => entry.url.includes('resend')).length, 0);
-  assert.equal(db.callsTo('bridge_v2_email_codes:insert').length, 0, 'a code was issued anyway');
+  assert.equal(db.callsTo('rpc:bridge_v2_issue_email_code').length, 0, 'a code was issued anyway');
   assert.ok(alertsRaised().includes('external spend ceiling reached'));
 });
 
@@ -200,8 +200,8 @@ await test(['C1', 'J6'], 'the code is keyed on the canonical address and sent to
   await requestCode.POST(
     request(url('session/request-code'), { body: { email: 'Alice+shop@example.com' } }),
   );
-  const insert = db.callsTo('bridge_v2_email_codes:insert')[0];
-  assert.equal(insert.payload.email_canonical, 'alice@example.com');
+  const issued = db.callsTo('rpc:bridge_v2_issue_email_code')[0];
+  assert.equal(issued.args.p_email_canonical, 'alice@example.com');
   const mail = JSON.parse(http.requests.find((entry) => entry.url.includes('resend')).body);
   assert.deepEqual(mail.to, ['Alice+shop@example.com'], 'the code went to the canonical form');
   assert.ok(!/\d{6}/.test(mail.subject), 'the code is in the subject');
@@ -218,9 +218,9 @@ await test(['J2', 'F2'], 'the plaintext code is never stored and never returned'
   );
   const mail = JSON.parse(http.requests.find((entry) => entry.url.includes('resend')).body);
   const code = mail.text.match(/\b(\d{6})\b/)[1];
-  const insert = db.callsTo('bridge_v2_email_codes:insert')[0];
-  assert.ok(!JSON.stringify(insert.payload).includes(code), 'the code was persisted in clear');
-  assert.equal(insert.payload.code_hash.length, 64);
+  const issued = db.callsTo('rpc:bridge_v2_issue_email_code')[0];
+  assert.ok(!JSON.stringify(issued.args).includes(code), 'the code was persisted in clear');
+  assert.equal(issued.args.p_code_hash.length, 64);
   assert.ok(!(await response.text()).includes(code));
 });
 
@@ -290,12 +290,12 @@ await test(['A1', 'A2', 'A3'], 'a correct code issues a session in a cookie and 
   await requestCode.POST(
     request(url('session/request-code'), { body: { email: 'alice@example.com' } }),
   );
-  const issued = db.callsTo('bridge_v2_email_codes:insert')[0].payload;
+  const issued = db.callsTo('rpc:bridge_v2_issue_email_code')[0].args;
   const mail = JSON.parse(http.requests.find((entry) => entry.url.includes('resend')).body);
   const code = mail.text.match(/\b(\d{6})\b/)[1];
 
   db.on('rpc:bridge_v2_claim_email_code_attempt', () => ({
-    data: [{ code_id: 'code-1', code_hash: issued.code_hash, attempts_left: 4 }],
+    data: [{ code_id: 'code-1', code_hash: issued.p_code_hash, attempts_left: 4 }],
     error: null,
   }));
   db.on('rpc:bridge_v2_consume_email_code', () => ({ data: true, error: null }));

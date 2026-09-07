@@ -93,16 +93,19 @@ await test(['B4'], 'the penalty is keyed by axis and key alone, never by window'
 
 await test(['B4'], 'the penalty grows with the strike count, is capped, and decays', () => {
   const body = bodyOf('bridge_v2_rate_limit_hit');
-  assert.match(body, /power\(2, LEAST\(v_strikes - 1, 6\)\)/);
+  assert.match(body, /power\(2, LEAST\(\s*\(CASE/);
   assert.match(body, /LEAST\(3600,/);
   // Or somebody who mistyped a code in March meets an hour of penalty later.
-  assert.match(body, /v_last < v_now - make_interval\(secs => p_strike_decay_seconds\)/);
-  assert.match(body, /v_strikes := 1;/);
+  // Achado 3: the decay check and the reset to 1 both moved into the CASE of
+  // the atomic upsert, reading the stored row through the "p" alias rather
+  // than a value a prior SELECT read.
+  assert.match(body, /p\.last_strike_at < v_check - make_interval\(secs => p_strike_decay_seconds\)/);
+  assert.match(body, /WHEN[\s\S]*THEN\s+1/);
 });
 
 await test(['B4'], 'a request refused by a live penalty does not also spend a window slot', () => {
   const body = bodyOf('bridge_v2_rate_limit_hit');
-  const penaltyReturn = body.indexOf('IF v_penalty IS NOT NULL AND v_penalty > v_now THEN');
+  const penaltyReturn = body.indexOf('IF v_penalty IS NOT NULL AND v_penalty > v_check THEN');
   const insert = body.indexOf('INSERT INTO bridge_v2_rate_limits');
   assert.ok(penaltyReturn !== -1 && insert !== -1);
   assert.ok(penaltyReturn < insert, 'the penalty check runs after the counter is incremented');
@@ -441,7 +444,7 @@ await test(['I4'], 'no function builds SQL out of a value a caller supplies', ()
   assert.ok(!/EXECUTE\s+format\(/.test(FUNCTIONS), '0005 executes dynamic SQL');
   for (const [, argument] of GRANTS.matchAll(/EXECUTE format\(([^)]*)\)/g)) {
     assert.ok(
-      argument.includes('r.signature'),
+      /\br\.\w+/.test(argument),
       'dynamic SQL in 0006 is built from something other than the catalogue',
     );
   }

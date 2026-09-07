@@ -64,6 +64,40 @@ SET search_path = public, extensions;
 
 GRANT USAGE ON SCHEMA public TO service_role;
 
+-- Achado 6. A Supabase project's ALTER DEFAULT PRIVILEGES already grants
+-- service_role ALL on every table and sequence this migration creates, before a
+-- single GRANT below runs -- the same mechanism Achado 5 names for anon and
+-- authenticated on sequences. Every per-verb GRANT that follows only adds to
+-- that default, so a verb this file argues against (DELETE on
+-- bridge_v2_entries, UPDATE on bridge_v2_ops_events, UPDATE on a sequence) stays
+-- available to service_role regardless of what the comment beside it says.
+-- Revoking everything this migration owns from service_role first, before a
+-- single explicit GRANT runs, turns the per-verb model into a fact: whatever
+-- the platform granted by default is gone, and only what is listed below comes
+-- back. A sweep rather than a list for the same reason the EXECUTE revoke below
+-- is one: it also covers a table or sequence added after this line without
+-- being told to.
+DO $revoke_service_role_defaults$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT c.relname AS name, c.relkind AS kind
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname LIKE 'bridge\_v2\_%'
+       AND c.relkind IN ('r', 'S')
+  LOOP
+    IF r.kind = 'r' THEN
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM service_role', r.name);
+    ELSE
+      EXECUTE format('REVOKE ALL ON SEQUENCE public.%I FROM service_role', r.name);
+    END IF;
+  END LOOP;
+END
+$revoke_service_role_defaults$;
+
 -- participants — SELECT participants.ts, INSERT participants.ts (get-or-create),
 -- UPDATE privacy/erase.ts (pseudonymisation). No DELETE: erasure is a rewrite,
 -- and removing a participant would orphan an address already in an on-chain root.
@@ -148,8 +182,13 @@ GRANT USAGE ON SEQUENCE public.bridge_v2_ops_events_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.bridge_v2_run_seq TO service_role;
 
 -- -----------------------------------------------------------------------------
--- functions — all nineteen of 0005
+-- functions — every function 0005 defines
 -- -----------------------------------------------------------------------------
+-- Not a fixed count in prose: 0005 has grown since this file first said
+-- "nineteen" while it already defined twenty, and a number here drifts the same
+-- way again the next time a function is added. The revoke sweep below and the
+-- GRANT list after it are both exhaustive against 0005 as it exists when this
+-- file runs, which is the guarantee that does not go stale.
 -- REVOKE FIRST, AND THIS IS THE POINT OF THE BLOCK. Postgres grants EXECUTE on a
 -- new function to PUBLIC by default, and PUBLIC includes anon and authenticated —
 -- the two roles a publishable key in a browser resolves to. Every function in
@@ -186,6 +225,9 @@ GRANT EXECUTE ON FUNCTION public.bridge_v2_rate_limit_hit(text, text, integer, i
 GRANT EXECUTE ON FUNCTION public.bridge_v2_claim_email_code_attempt(citext, integer)                  TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_consume_email_code(uuid)                                   TO service_role;
 GRANT EXECUTE ON FUNCTION public.bridge_v2_supersede_email_codes(citext)                              TO service_role;
+-- Achado 4: supersede and insert in one call, so a race between two issues
+-- cannot interleave the two round trips codes.ts used to make separately.
+GRANT EXECUTE ON FUNCTION public.bridge_v2_issue_email_code(citext, text, timestamptz)                TO service_role;
 -- Both take a keyed hash of the chat id now, not the id (R4), so the signatures
 -- changed and 0005 dropped the old ones.
 GRANT EXECUTE ON FUNCTION public.bridge_v2_claim_link_for_chat(text, text)                            TO service_role;
@@ -240,3 +282,14 @@ REVOKE ALL ON TABLE public.bridge_v2_external_spend      FROM anon, authenticate
 REVOKE ALL ON TABLE public.bridge_v2_disposable_domains  FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_custody             FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_ops_events          FROM anon, authenticated;
+
+-- Achado 5. GRANT USAGE ... TO service_role above adds; it does not remove what
+-- Supabase's ALTER DEFAULT PRIVILEGES already gave anon and authenticated on
+-- every sequence this migration creates -- USAGE and UPDATE both, and UPDATE is
+-- setval, the one thing the comment two sections up names as the danger:
+-- rewinding bridge_v2_wallet_index_seq would reassign an index that is already
+-- somebody's wallet. Tables and functions get this same wall; sequences did
+-- not.
+REVOKE ALL ON SEQUENCE public.bridge_v2_wallet_index_seq  FROM anon, authenticated;
+REVOKE ALL ON SEQUENCE public.bridge_v2_run_seq           FROM anon, authenticated;
+REVOKE ALL ON SEQUENCE public.bridge_v2_ops_events_id_seq FROM anon, authenticated;

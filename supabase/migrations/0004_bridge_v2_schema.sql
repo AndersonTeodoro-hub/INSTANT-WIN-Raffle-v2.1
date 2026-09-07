@@ -102,6 +102,15 @@ CREATE INDEX IF NOT EXISTS bridge_v2_email_codes_lookup_idx
   ON bridge_v2_email_codes (email_canonical, consumed_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS bridge_v2_email_codes_expiry_idx ON bridge_v2_email_codes (expires_at);
 
+-- J3, closed by constraint rather than by convention (Achado 4, same pattern as
+-- K5 on wallet_address): at most one live code per address, ever. This is what
+-- lets bridge_v2_issue_email_code (0005) reissue a code with a single native
+-- upsert instead of a supersede call and an insert as two separate statements,
+-- which is what left two live codes for one address when two issues raced.
+CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_email_codes_live_unique
+  ON bridge_v2_email_codes (email_canonical)
+  WHERE consumed_at IS NULL;
+
 COMMENT ON COLUMN bridge_v2_email_codes.code_hash IS 'HMAC under the code-dedicated key (F1, J2). The code is never persisted in clear.';
 
 -- -----------------------------------------------------------------------------

@@ -70,24 +70,40 @@ DECLARE
   v_count    integer;
   v_strikes  integer;
   v_penalty  timestamptz;
-  v_last     timestamptz;
   v_now      timestamptz := now();
+  -- now() is transaction_timestamp(): fixed at BEGIN, before the barrier every
+  -- concurrent caller in the test below waits at, and before any queueing on
+  -- the FOR UPDATE lock two lines down. A caller several places back in that
+  -- queue can still be holding the v_now it captured at BEGIN by the time it
+  -- is finally granted the lock -- real time has moved on underneath it, and a
+  -- queue-neighbour who began even slightly later can have already committed a
+  -- penalty_until that is, in real time, later than this caller's stale v_now,
+  -- so "v_penalty > v_now" reads a not-yet-real penalty as active and this
+  -- caller silently skips its own strike. v_check is clock_timestamp(): the
+  -- actual current instant, read again after whatever queueing already
+  -- happened, which is what a comparison against a penalty someone else just
+  -- committed has to be measured against.
+  v_check    timestamptz;
 BEGIN
   -- The standing penalty is read first and under a row lock, so two concurrent
   -- callers cannot both observe the pre-strike value and both write strike n+1.
-  SELECT p.strikes, p.penalty_until, p.last_strike_at
-    INTO v_strikes, v_penalty, v_last
+  -- Achado 3: this SELECT locks nothing when the key has never struck before,
+  -- but that no longer matters for the strikes counter below, which is
+  -- computed by an atomic upsert against whatever row Postgres itself resolves
+  -- the conflict against rather than from a value read here.
+  SELECT p.penalty_until
+    INTO v_penalty
     FROM bridge_v2_rate_penalties p
    WHERE p.axis = p_axis AND p.key_hash = p_key_hash
      FOR UPDATE;
 
-  v_strikes := COALESCE(v_strikes, 0);
+  v_check := clock_timestamp();
 
   -- An active penalty denies regardless of the count, and denies WITHOUT
   -- spending a window slot: counting a request refused before it was looked at
   -- would let a penalised caller keep filling their own window.
-  IF v_penalty IS NOT NULL AND v_penalty > v_now THEN
-    RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_now)))::integer);
+  IF v_penalty IS NOT NULL AND v_penalty > v_check THEN
+    RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_check)))::integer);
     RETURN;
   END IF;
 
@@ -101,23 +117,49 @@ BEGIN
   RETURNING count INTO v_count;
 
   IF v_count > p_max_count THEN
-    IF v_last IS NULL OR v_last < v_now - make_interval(secs => p_strike_decay_seconds) THEN
-      v_strikes := 1;
-    ELSE
-      v_strikes := v_strikes + 1;
-    END IF;
+    -- Achado 3. The same atomic shape the window counter above already uses
+    -- for this exact race (count = bridge_v2_rate_limits.count + 1, proven
+    -- correct under concurrency by the test beside it): the CASE reads the row
+    -- through the "p" alias, which is the row Postgres itself resolved the
+    -- conflict against, never a value read from a SELECT taken before any
+    -- concurrent caller had written anything.
+    --
+    -- Strikes and penalty_until are written by this one statement rather than
+    -- a strikes upsert followed by a second UPDATE, so this row is not held
+    -- locked for longer than it needs to be -- a longer hold only lengthens
+    -- the queue every other concurrent caller waits in, and queueing is
+    -- exactly what makes a stale clock reading likely (see v_check above). The
+    -- CASE computing the next strike count is written twice, once for
+    -- `strikes` and once inside the `penalty_until` expression that depends on
+    -- it, because DO UPDATE has no FROM clause to compute it once and reuse
+    -- it. v_check is re-read here rather than reusing the one above: the
+    -- window-count INSERT between them can itself queue on a shared window
+    -- row, and this write should be stamped with the time it actually runs.
+    v_check := clock_timestamp();
 
-    -- Growth is exponential in strikes and capped at one hour.
-    v_penalty := v_now + make_interval(secs => LEAST(3600, p_penalty_seconds * power(2, LEAST(v_strikes - 1, 6))::integer));
-
-    INSERT INTO bridge_v2_rate_penalties (axis, key_hash, strikes, penalty_until, last_strike_at)
-    VALUES (p_axis, p_key_hash, v_strikes, v_penalty, v_now)
+    INSERT INTO bridge_v2_rate_penalties AS p (axis, key_hash, strikes, last_strike_at, penalty_until)
+    VALUES (
+      p_axis, p_key_hash, 1, v_check,
+      v_check + make_interval(secs => LEAST(3600, p_penalty_seconds))
+    )
     ON CONFLICT (axis, key_hash) DO UPDATE
-      SET strikes        = v_strikes,
-          penalty_until  = v_penalty,
-          last_strike_at = v_now;
+      SET strikes = CASE
+            WHEN p.last_strike_at < v_check - make_interval(secs => p_strike_decay_seconds)
+              THEN 1
+            ELSE p.strikes + 1
+          END,
+          last_strike_at = v_check,
+          -- Growth is exponential in strikes and capped at one hour.
+          penalty_until = v_check + make_interval(secs => LEAST(3600, p_penalty_seconds * power(2, LEAST(
+            (CASE
+               WHEN p.last_strike_at < v_check - make_interval(secs => p_strike_decay_seconds)
+                 THEN 1
+               ELSE p.strikes + 1
+             END) - 1
+          , 6))::integer))
+    RETURNING strikes, penalty_until INTO v_strikes, v_penalty;
 
-    RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_now)))::integer);
+    RETURN QUERY SELECT false, GREATEST(1, ceil(extract(epoch from (v_penalty - v_check)))::integer);
     RETURN;
   END IF;
 
@@ -152,6 +194,13 @@ AS $fn$
 DECLARE
   v_now timestamptz := now();
 BEGIN
+  -- Achado 1. p_max_attempts used to gate which row entered this CTE, so an
+  -- exhausted newest code fell out of the candidate set and LIMIT 1 picked the
+  -- next-newest code instead -- a fresh ceiling for an address that had already
+  -- spent its attempts. The candidate is now the newest live code regardless of
+  -- attempts already spent; the ceiling is applied only to whether THAT row may
+  -- be claimed again. Once it is exhausted no row is returned, ever, and an
+  -- older superseded code is never reachable through this path.
   RETURN QUERY
   WITH live AS (
     SELECT c.id
@@ -159,7 +208,6 @@ BEGIN
      WHERE c.email_canonical = p_email_canonical
        AND c.consumed_at IS NULL
        AND c.expires_at > v_now
-       AND c.attempts < p_max_attempts
      ORDER BY c.created_at DESC
      LIMIT 1
      FOR UPDATE
@@ -168,6 +216,7 @@ BEGIN
      SET attempts = c.attempts + 1
     FROM live
    WHERE c.id = live.id
+     AND c.attempts < p_max_attempts
   RETURNING c.id, c.code_hash, (p_max_attempts - c.attempts);
 END;
 $fn$;
@@ -212,6 +261,41 @@ BEGIN
   RETURN v_rows;
 END;
 $fn$;
+
+-- Achado 4. lib/bridge-v2/codes.ts used to call bridge_v2_supersede_email_codes
+-- and then insert as two separate round trips, hence two separate transactions.
+-- The interleaving supersede(A), supersede(B), insert(A), insert(B) is not
+-- excluded by anything: both supersedes find nothing to end and both inserts
+-- land, leaving two live codes for one address.
+--
+-- One statement closes the gap, using the same mechanism J3 is now enforced by
+-- at the schema level: bridge_v2_email_codes_live_unique (0004) allows at most
+-- one row per address with consumed_at IS NULL, so this INSERT ... ON CONFLICT
+-- targets that row directly. A second concurrent caller does not race a
+-- separate supersede against a separate insert; it conflicts on the same slot
+-- the first caller just took, waits for that transaction to commit, and then
+-- overwrites the row in place with its own code, expiry and a reset attempt
+-- count. Exactly one live row survives, whichever caller runs last.
+CREATE OR REPLACE FUNCTION bridge_v2_issue_email_code(
+  p_email_canonical citext,
+  p_code_hash        text,
+  p_expires_at       timestamptz
+) RETURNS uuid
+LANGUAGE sql
+SET search_path = public, extensions
+AS $fn$
+  INSERT INTO bridge_v2_email_codes (email_canonical, code_hash, expires_at)
+  VALUES (p_email_canonical, p_code_hash, p_expires_at)
+  ON CONFLICT (email_canonical) WHERE consumed_at IS NULL DO UPDATE
+    SET code_hash   = EXCLUDED.code_hash,
+        expires_at  = EXCLUDED.expires_at,
+        attempts    = 0,
+        created_at  = now(),
+        consumed_at = NULL
+  RETURNING id;
+$fn$;
+
+COMMENT ON FUNCTION bridge_v2_issue_email_code IS 'J3: reissues the one live code for an address with a single native upsert.';
 
 -- -----------------------------------------------------------------------------
 -- link code consumption — 05/09/2026 decision, step 3 ("validates the code once")
@@ -330,6 +414,12 @@ DECLARE
   v_previous text;
   v_entry    uuid;
   v_rows     integer;
+  -- Achado 2. Set only when THIS call is the one that inserted the phone row
+  -- below. Every outcome that returns after that point undoes the insert unless
+  -- it is VERIFIED, so a call that never verifies leaves the number exactly as
+  -- it found it -- unbound -- instead of spending it on a participation that
+  -- never advanced.
+  v_inserted boolean := false;
 BEGIN
   -- C5: the live binding for this number decides before anything else. The row
   -- is locked so a concurrent delivery of the same contact cannot pass here too.
@@ -380,6 +470,7 @@ BEGIN
     BEGIN
       INSERT INTO bridge_v2_phones (phone_hmac, participant_id, telegram_user_id_hmac)
       VALUES (p_phone_hmac, p_participant_id, p_telegram_id_hmac);
+      v_inserted := true;
     EXCEPTION
       -- The partial unique indexes are the authority. Losing the race to another
       -- transaction is reported, never raised.
@@ -394,6 +485,13 @@ BEGIN
    FOR UPDATE;
 
   IF v_entry IS NULL THEN
+    -- Achado 2. NO_ENTRY used to leave a binding this call just created: the
+    -- number spent, the participation never advanced, no way back because the
+    -- number is now in use.
+    IF v_inserted THEN
+      DELETE FROM bridge_v2_phones
+       WHERE phone_hmac = p_phone_hmac AND participant_id = p_participant_id AND released_at IS NULL;
+    END IF;
     RETURN 'NO_ENTRY';
   END IF;
 
@@ -407,10 +505,23 @@ BEGIN
   EXCEPTION
     -- bridge_v2_entries_phone_giveaway_unique: this number already holds an
     -- entry in this campaign, which is the uniqueness rule of the 05/09/2026
-    -- decision doing its job.
+    -- decision doing its job. Achado 2: same rollback as NO_ENTRY above.
     WHEN unique_violation THEN
+      IF v_inserted THEN
+        DELETE FROM bridge_v2_phones
+         WHERE phone_hmac = p_phone_hmac AND participant_id = p_participant_id AND released_at IS NULL;
+      END IF;
       RETURN 'DUPLICATE';
   END;
+
+  -- NOT_AWAITING (v_rows <> 1): the row this call inserted, if any, belongs to
+  -- a bind that did not verify, same reasoning as NO_ENTRY and DUPLICATE above.
+  -- When v_inserted is false the binding predates this call -- a Telegram retry
+  -- of an already-verified contact -- and is left exactly as found.
+  IF v_inserted AND v_rows <> 1 THEN
+    DELETE FROM bridge_v2_phones
+     WHERE phone_hmac = p_phone_hmac AND participant_id = p_participant_id AND released_at IS NULL;
+  END IF;
 
   -- The status predicate makes the transition idempotent: a Telegram retry
   -- delivering the same contact twice moves the row once.
