@@ -22,7 +22,7 @@
  * is what turns "they agree" from a sentence in a comment into the check at the
  * bottom of this file.
  */
-import vercelConfig from '../../vercel.json';
+import vercelConfig from '../../vercel.json' with { type: 'json' };
 
 /** Arbitrum One. The bridge signs on no other chain. */
 export const CHAIN_ID = 42161 as const;

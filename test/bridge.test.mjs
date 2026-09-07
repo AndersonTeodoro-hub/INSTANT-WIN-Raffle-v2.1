@@ -189,13 +189,13 @@ await t('status: sem env vars falha limpo em 500 JSON, sem stack', async () => {
 // ============================================================ funding pool
 const funders = await import('../lib/bridge/funders.ts');
 
-/** Chaves de TESTE: as 3 primeiras contas do Anvil. Públicas, documentadas, sem
- *  fundos em nenhuma rede real. As verdadeiras vivem só em BRIDGE_FUNDER_PKS. */
-const TEST_PKS = [
-  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
-  '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
-  '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
-];
+/** Chaves de TESTE geradas no arranque. Nenhuma chave privada é escrita num
+ *  ficheiro do repositório — nem sequer as do Anvil, que são públicas: a regra
+ *  não abre excepção e uma chave literal num teste é indistinguível de uma real
+ *  para quem faz grep. Estes testes só precisam de N chaves válidas e distintas.
+ *  As verdadeiras vivem só em BRIDGE_FUNDER_PKS. */
+const { generatePrivateKey } = await import('viem/accounts');
+const TEST_PKS = [generatePrivateKey(), generatePrivateKey(), generatePrivateKey()];
 
 /** LockStore em memória com a mesma semântica de exclusão mútua da tabela. */
 function fakeStore() {
