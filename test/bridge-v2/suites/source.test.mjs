@@ -86,8 +86,14 @@ await test(['A6'], 'no route takes a participant id or a wallet address from a b
     assert.ok(!/body\.wallet\b/.test(code), `${shortName(path)} takes a wallet`);
     // prize/destination takes an address, and it is a DESTINATION the winner
     // confirms for their own prize, never the identity of the caller.
+    // entry/address takes one too (07/09/2026 decision): the eligibility
+    // TARGET a session-verified participant declares for their own entry,
+    // never a caller identity read from the body.
     if (/body\.address/.test(code)) {
-      assert.equal(shortName(path), 'api/bridge/v2/prize/destination.ts');
+      assert.ok(
+        ['api/bridge/v2/prize/destination.ts', 'api/bridge/v2/entry/address.ts'].includes(shortName(path)),
+        `${shortName(path)} takes an address`,
+      );
       assert.match(code, /session\.participantId/);
     }
   }

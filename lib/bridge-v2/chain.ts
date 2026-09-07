@@ -38,6 +38,7 @@
 
 import {
   createPublicClient,
+  encodeAbiParameters,
   encodeFunctionData,
   http,
   parseEventLogs,
@@ -49,6 +50,8 @@ import {
 import { arbitrum } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
+  CREATOR_APPROVAL_ABI,
+  CREATOR_CAMPAIGN_MANAGER_ABI,
   ERC1155_ABI,
   ERC1155_PRIZE_MODULE_ABI,
   ERC1155_RECEIVER_INTERFACE_ID,
@@ -57,6 +60,7 @@ import {
   ERC721_PRIZE_MODULE_ABI,
   GIVEAWAY_MANAGER_V2_ABI,
   GiveawayStatus,
+  PRIZE_MODULE_KIND_ABI,
   PrizeKind,
   VRF_COORDINATOR_V2_PLUS_ABI,
 } from './abi.js';
@@ -1095,4 +1099,142 @@ export async function quoteDelivery(
   delivery: PrizeDelivery,
 ): Promise<GasPlan> {
   return quoteCall(wallet, delivery.to, delivery.data, GAS_BANDS.DELIVERY);
+}
+
+// -----------------------------------------------------------------------------
+// Creator-without-wallet campaigns — 07/09/2026 owner decision
+// -----------------------------------------------------------------------------
+// A creator with no wallet of their own has the bridge create their campaign
+// and deposit its prize. TOKEN prizes only in this pass (see PRIZE_MODULE_KIND_ABI
+// in abi.ts for why); the module, the fee token and the slot cost are still
+// read from the chain and never assumed, exactly as H1 asks everywhere else.
+
+/** Whether the contract will accept this module at all. */
+export async function isModuleRegistered(module: `0x${string}`): Promise<boolean> {
+  return (await publicClient().readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: CREATOR_CAMPAIGN_MANAGER_ABI,
+    functionName: 'isModuleRegistered',
+    args: [module],
+  })) as boolean;
+}
+
+/**
+ * What kind of prize a module hands out. Read before anything is drafted, so
+ * an NFT module is refused with a clear reason rather than discovered when
+ * takeCustody's prizeData turns out to be the wrong shape.
+ */
+export async function modulePrizeKind(module: `0x${string}`): Promise<number> {
+  return Number(
+    await publicClient().readContract({
+      address: module,
+      abi: PRIZE_MODULE_KIND_ABI,
+      functionName: 'prizeKind',
+      args: [],
+    }),
+  );
+}
+
+/** The fee this campaign would owe, in the units currentFee itself declares. */
+export async function currentCreationFee(kind: number, amount: bigint): Promise<bigint> {
+  return (await publicClient().readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: CREATOR_CAMPAIGN_MANAGER_ABI,
+    functionName: 'currentFee',
+    args: [kind, amount],
+  })) as bigint;
+}
+
+/** The current price of one entry slot, in USDC base units. */
+export async function slotPrice(): Promise<bigint> {
+  return (await publicClient().readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: CREATOR_CAMPAIGN_MANAGER_ABI,
+    functionName: 'pricePerSlot',
+    args: [],
+  })) as bigint;
+}
+
+/** What an address currently holds of a token. */
+export async function erc20BalanceOf(token: `0x${string}`, address: `0x${string}`): Promise<bigint> {
+  return (await publicClient().readContract({
+    address: token,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [address],
+  })) as bigint;
+}
+
+/** What `spender` may already move of `token` on `owner`'s behalf. */
+export async function erc20Allowance(
+  token: `0x${string}`,
+  owner: `0x${string}`,
+  spender: `0x${string}`,
+): Promise<bigint> {
+  return (await publicClient().readContract({
+    address: token,
+    abi: CREATOR_APPROVAL_ABI,
+    functionName: 'allowance',
+    args: [owner, spender],
+  })) as bigint;
+}
+
+/** Prices an ERC-20 approve() from the creator's derived wallet. */
+export async function quoteApprove(
+  from: `0x${string}`,
+  token: `0x${string}`,
+  spender: `0x${string}`,
+  amount: bigint,
+): Promise<{ plan: GasPlan; data: Hex }> {
+  const data = encodeFunctionData({ abi: CREATOR_APPROVAL_ABI, functionName: 'approve', args: [spender, amount] });
+  return { plan: await quoteCall(from, token, data, GAS_BANDS.DELIVERY), data };
+}
+
+/**
+ * ERC20PrizeModule's own prizeData shape (its NatSpec, line 21):
+ * abi.encode(address token, uint256 amount). H1: the module is a parameter of
+ * createGiveaway itself, chosen and validated (isModuleRegistered,
+ * modulePrizeKind) before this is ever built — never a second, unchecked path
+ * to the same call.
+ */
+export function encodeTokenPrizeData(token: `0x${string}`, amount: bigint): Hex {
+  return encodeAbiParameters(
+    [{ type: 'address' }, { type: 'uint256' }],
+    [token, amount],
+  );
+}
+
+/** Prices createGiveaway() from the creator's derived wallet. */
+export async function quoteCreateGiveaway(
+  from: `0x${string}`,
+  module: `0x${string}`,
+  prizeData: Hex,
+  prizeAmount: bigint,
+  declaredValue: bigint,
+  duration: bigint,
+  winnersCount: number,
+  slotCap: number,
+): Promise<{ plan: GasPlan; data: Hex }> {
+  const data = encodeFunctionData({
+    abi: CREATOR_CAMPAIGN_MANAGER_ABI,
+    functionName: 'createGiveaway',
+    args: [module, prizeData, prizeAmount, declaredValue, duration, winnersCount, slotCap],
+  });
+  return { plan: await quoteCall(from, GIVEAWAY_MANAGER_V2, data, GAS_BANDS.MANAGER), data };
+}
+
+/**
+ * The id the contract assigned to a new campaign, read from the event it
+ * emitted. Same reasoning as rootIndexFromLogs: createGiveaway returns the id,
+ * but a return value is only visible to a caller that reads it via eth_call,
+ * and this side only ever broadcasts and waits for a receipt. The event is
+ * the only place the assigned id reaches this process.
+ */
+export function giveawayIdFromLogs(logs: readonly Log[]): bigint | null {
+  const events = parseEventLogs({ abi: CREATOR_CAMPAIGN_MANAGER_ABI, eventName: 'GiveawayCreated', logs: logs as Log[] });
+  for (const event of events) {
+    if (event.address.toLowerCase() !== (GIVEAWAY_MANAGER_V2 as string).toLowerCase()) continue;
+    return (event.args as { giveawayId: bigint }).giveawayId;
+  }
+  return null;
 }

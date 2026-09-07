@@ -34,6 +34,16 @@ export const GIVEAWAY_MANAGER_V2 = '0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739' 
 export const USDC = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' as const;
 export const USDC_DECIMALS = 6 as const;
 
+// -----------------------------------------------------------------------------
+// Creator-without-wallet campaign limits — mirrored from GiveawayManagerV2.sol
+// so a bad request fails with 400 before it costs a wasted revert (I2).
+// -----------------------------------------------------------------------------
+export const CONTRACT_MIN_DURATION_SECONDS = 60 * 60;
+export const CONTRACT_MAX_DURATION_SECONDS = 30 * 24 * 60 * 60;
+export const CONTRACT_MAX_WINNERS = 1_000;
+export const CONTRACT_MIN_PARTICIPANTS = 10;
+export const CONTRACT_MAX_PARTICIPANTS = 100_000;
+
 /** Public endpoint used when ARBITRUM_RPC_URL is unset. */
 export const DEFAULT_RPC_URL = 'https://arb1.arbitrum.io/rpc' as const;
 
@@ -266,6 +276,25 @@ export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
 export const PRIZE_WORST_CASE_MS = 2 * ENTRY_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS;
 
 /**
+ * What creator/campaign/submit.ts may cost: fund the creator's derived wallet
+ * with gas and wait for that receipt, then approve the module, approve the
+ * core, and call createGiveaway — each waited on in turn before the next is
+ * quoted.
+ *
+ * EACH RECEIPT IS AWAITED, DELIBERATELY, RATHER THAN ONLY THE LAST. createGiveaway
+ * calls takeCustody, which reverts unless the module's allowance is already
+ * satisfied — so quoting it (eth_estimateGas) before the approve that grants
+ * that allowance is actually mined would estimate a revert, or would have to
+ * ask the node to simulate against a pending state this side cannot rely on
+ * being there. Waiting for each transaction before quoting the next is the
+ * one ordering that is simply correct; four receipt waits is the cost of it,
+ * and it still fits inside what the platform allows a function to run for
+ * (see the PRIZE_WORST_CASE_MS comment for what happens when a reservation
+ * does not).
+ */
+export const CREATOR_SUBMIT_WORST_CASE_MS = 4 * RECEIPT_TIMEOUT_MS + 7 * RPC_TIMEOUT_MS + 10 * DB_TIMEOUT_MS;
+
+/**
  * What each stage of the pipeline reserves before it starts one unit of its own
  * work, and — because the keys are the stage names — what the stages ARE.
  *
@@ -295,6 +324,21 @@ export const PHASE_RESERVATION_MS = {
 } as const;
 
 export type PipelinePhase = keyof typeof PHASE_RESERVATION_MS;
+
+/**
+ * 07/09/2026 decision: what one self-custody ELIGIBLE entry costs to
+ * reconcile — hasEntered, and the transition that follows it. No receipt
+ * wait, because the bridge never signs for this wallet; it only asks the
+ * chain whether the participant has entered on their own.
+ *
+ * NOT a pipeline phase of its own. It runs inside processEligibleEntries,
+ * under the processEntries reservation, which is far larger per item (a
+ * funding transfer and a submission, each awaited) than this ever costs — so
+ * borrowing that budget cannot starve it. A sixth phase would have meant a
+ * sixth name in the rotation the G4 tests fix at five; this keeps the
+ * rotation exactly as it is while still reconciling these entries every run.
+ */
+export const SELF_CUSTODY_RECONCILE_MS = 2 * RPC_TIMEOUT_MS;
 
 /**
  * The phases in their declared order, which is the order a run prefers: the two
@@ -533,6 +577,21 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // race takes, the custody policy upsert, the link code insert, the ops event —
   // plus the one the envelope writes if the route throws after all of them.
   'api/bridge/v2/entry/start.ts': maxDurationSeconds(2, 16),
+  // Two RPC stages: readGiveaway and slotsRemaining, exactly as entry/start,
+  // because resuming re-checks the same two conditions before moving the row.
+  // Six database stages: the session read, three rate-limit axes, the entry
+  // lookup, and the transition write.
+  'api/bridge/v2/entry/resume.ts': maxDurationSeconds(2, 6),
+  // Two RPC stages: isModuleRegistered and prizeKind together, then currentFee
+  // and pricePerSlot together. Ten database stages: the session read, three
+  // rate-limit axes, the get-or-create creator row, the phone-verified check,
+  // the active-draft check the unique index also enforces, the draft insert,
+  // and the ops event.
+  'api/bridge/v2/creator/campaign/start.ts': maxDurationSeconds(2, 10),
+  // Not derived through the helper above: this route waits on transaction
+  // receipts, which maxDurationSeconds does not model. See the
+  // CREATOR_SUBMIT_WORST_CASE_MS comment for what the number is built from.
+  'api/bridge/v2/creator/campaign/submit.ts': Math.ceil(CREATOR_SUBMIT_WORST_CASE_MS / 1000),
 };
 
 /**

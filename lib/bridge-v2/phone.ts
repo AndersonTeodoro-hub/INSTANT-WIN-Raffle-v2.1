@@ -17,7 +17,7 @@
 
 import { DB_TIMEOUT_MS, PHONE_COOLDOWN_DAYS } from './config.js';
 import { keyedHash } from './crypto.js';
-import { checked, getDb } from './db.js';
+import { checked, checkedMaybe, getDb } from './db.js';
 
 /** C5. The only function that turns a number into something storable. */
 export function hashPhone(normalisedNumber: string): Promise<string> {
@@ -104,6 +104,33 @@ export async function bindPhoneAndVerify(
   ) as BindOutcome | null;
   // A null result is not a success. Treated as a duplicate so the caller refuses.
   return outcome ?? 'DUPLICATE';
+}
+
+/**
+ * Whether this participant currently holds a live, Telegram-verified number.
+ *
+ * 07/09/2026 decision: the barrier applies in all four paths without
+ * exception, including a creator with no wallet. This is the check
+ * creator/campaign/start.ts makes before it will draft anything — a live row
+ * here means the same phone verification an entrant goes through has already
+ * happened for this participant, by any earlier path. DESVIO (0.4): a creator
+ * who has never verified a phone at all has no campaign yet to attach a
+ * Telegram deep link to, and this pass does not build a campaign-less
+ * verification funnel; see the 0007 migration header.
+ */
+export async function hasVerifiedPhone(participantId: string): Promise<boolean> {
+  const db = getDb();
+  const row = checkedMaybe(
+    'phone.has_verified',
+    await db
+      .from('bridge_v2_phones')
+      .select('id')
+      .eq('participant_id', participantId)
+      .is('released_at', null)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return row !== null;
 }
 
 /**

@@ -12,7 +12,7 @@
  * second funding, or a second email.
  */
 
-import { checked, checkedMaybe, getDb } from './db.js';
+import { checked, checkedMaybe, DatabaseError, getDb } from './db.js';
 import { DB_TIMEOUT_MS } from './config.js';
 import { sha256Hex } from './crypto.js';
 import type { Participant } from './participants.js';
@@ -35,6 +35,8 @@ export interface Entry {
   readonly phoneHmac: string | null;
   readonly rootIndex: bigint | null;
   readonly txHash: string | null;
+  /** 07/09/2026 decision: true once the participant declared their own address. */
+  readonly selfCustody: boolean;
 }
 
 interface EntryRow {
@@ -46,6 +48,7 @@ interface EntryRow {
   phone_hmac: string | null;
   root_index: string | null;
   tx_hash: string | null;
+  self_custody: boolean;
 }
 
 /**
@@ -61,7 +64,7 @@ interface EntryRow {
  * bigint then happens from an exact decimal string.
  */
 const COLUMNS =
-  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash';
+  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash, self_custody';
 
 function toEntry(row: EntryRow): Entry {
   return {
@@ -73,6 +76,7 @@ function toEntry(row: EntryRow): Entry {
     phoneHmac: row.phone_hmac,
     rootIndex: row.root_index === null ? null : BigInt(row.root_index),
     txHash: row.tx_hash,
+    selfCustody: row.self_custody,
   };
 }
 
@@ -94,6 +98,48 @@ export async function findEntry(participantId: string, giveawayId: bigint): Prom
       .maybeSingle(),
   ) as EntryRow | null;
   return row === null ? null : toEntry(row);
+}
+
+export type DeclareAddressOutcome = 'DECLARED' | 'ADDRESS_TAKEN' | 'NOT_DECLARABLE';
+
+/**
+ * 07/09/2026 decision: a verified participant may declare their own address as
+ * the eligibility target instead of the derived wallet.
+ *
+ * Only while the entry is still AWAITING_CONTACT or VERIFIED. C8: once an
+ * address sits inside a published root nobody can take it out again, and
+ * ELIGIBLE is exactly the state that means a root already covers this entry —
+ * so those are the only two states the WHERE clause admits.
+ *
+ * Uniqueness is the database's, not this function's: bridge_v2_entries_
+ * giveaway_address_unique (0007 migration) is the authority. A race between
+ * two participants declaring the same address in the same campaign resolves
+ * by which UPDATE's commit the constraint accepts, never by a read this
+ * function did earlier (G1).
+ */
+export async function declareOwnAddress(
+  entryId: string,
+  address: `0x${string}`,
+): Promise<DeclareAddressOutcome> {
+  const db = getDb();
+  const result = await db
+    .from('bridge_v2_entries')
+    .update({ wallet_address: address, self_custody: true, updated_at: new Date().toISOString() })
+    .eq('id', entryId)
+    .in('status', ['AWAITING_CONTACT', 'VERIFIED'])
+    .select('id')
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+    .maybeSingle();
+
+  if (result.error) {
+    // 23505 is bridge_v2_entries_giveaway_address_unique: this address already
+    // sits on another entry in this campaign. Nothing else is this function's
+    // to distinguish (G2) — any other error is a real failure and throws.
+    if ((result.error as { code?: string }).code === '23505') return 'ADDRESS_TAKEN';
+    throw new DatabaseError('entry.declare_own_address');
+  }
+
+  return result.data === null ? 'NOT_DECLARABLE' : 'DECLARED';
 }
 
 /**
@@ -223,7 +269,15 @@ export async function campaignsWithVerified(limit: number): Promise<bigint[]> {
   return rows.map((row) => BigInt(row.giveaway_id));
 }
 
-/** Entries admitted to a root and waiting to be funded and submitted. */
+/**
+ * Entries admitted to a root and waiting to move again — funded and
+ * submitted by the bridge, or, for a self_custody entry (07/09/2026
+ * decision), simply asked whether the participant has entered on their own.
+ * One query for both: processEligibleEntries (processor.ts) branches on
+ * selfCustody per row rather than this module running two differently
+ * filtered queries against the same table for what is, to the caller, one
+ * queue of entries waiting on the next thing to happen to them.
+ */
 export async function listEligible(limit: number): Promise<Entry[]> {
   const db = getDb();
   const rows = checked(
