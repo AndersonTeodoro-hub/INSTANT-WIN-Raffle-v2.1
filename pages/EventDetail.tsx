@@ -129,23 +129,21 @@ function AccountPanel({
 
   if (loggedIn) {
     return (
-      <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-3">
-        <p className="text-sm text-gray-400">
-          {c.signedInAs} {email ? <span className="text-white font-mono">{email}</span> : null}
-        </p>
-        {notice && <p className="text-sm text-success">{notice}</p>}
-        {error && <ErrorBanner message={error} />}
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="text-sm px-4 py-2" onClick={signOut} isLoading={busy}>
-            {c.signOut}
-          </Button>
-          <Button variant="outline" className="text-sm px-4 py-2" onClick={exportData} isLoading={busy}>
-            {c.exportData}
-          </Button>
-          <Button variant="danger" className="text-sm px-4 py-2" onClick={eraseData} isLoading={busy}>
-            {c.deleteData}
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+        <span>
+          {c.signedInAs} {email ? <span className="text-gray-400 font-mono">{email}</span> : null}
+        </span>
+        <button type="button" onClick={signOut} disabled={busy} className="hover:text-white underline underline-offset-2 disabled:opacity-50">
+          {c.signOut}
+        </button>
+        <button type="button" onClick={exportData} disabled={busy} className="hover:text-white underline underline-offset-2 disabled:opacity-50">
+          {c.exportData}
+        </button>
+        <button type="button" onClick={eraseData} disabled={busy} className="text-red-400/70 hover:text-red-400 underline underline-offset-2 disabled:opacity-50">
+          {c.deleteData}
+        </button>
+        {notice && <span className="text-success">{notice}</span>}
+        {error && <span className="text-red-400">{error}</span>}
       </div>
     );
   }
