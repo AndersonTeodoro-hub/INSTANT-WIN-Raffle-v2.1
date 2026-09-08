@@ -65,6 +65,8 @@ export interface EventsCopy {
       intro: string;
       ctaEnter: string;
       openTelegram: string;
+      openTelegramAgain: string;
+      telegramExpiredHint: string;
       statusAwaitingContact: string;
       statusVerified: string;
       statusEligible: string;
@@ -212,6 +214,8 @@ const en: EventsCopy = {
       intro: 'Verification happens over Telegram — a bot asks only for your phone number, once. It never mentions the prize.',
       ctaEnter: 'Enter with email',
       openTelegram: 'Open Telegram to verify',
+      openTelegramAgain: 'Open Telegram again',
+      telegramExpiredHint: 'Link expired? Tap the button to get a new one — the old one only works once.',
       statusAwaitingContact: 'Waiting for you to verify your phone number on Telegram.',
       statusVerified: 'Phone verified. Waiting for your entry to be admitted.',
       statusEligible: 'Admitted. Your entry is queued to go on-chain.',
@@ -367,6 +371,8 @@ const pt: EventsCopy = {
       intro: 'A verificação acontece pelo Telegram — um bot pede apenas o seu número de telemóvel, uma vez. Nunca menciona o prémio.',
       ctaEnter: 'Participar com email',
       openTelegram: 'Abrir o Telegram para verificar',
+      openTelegramAgain: 'Abrir o Telegram novamente',
+      telegramExpiredHint: 'Link expirado? Toque no botão para obter um novo — o anterior só funciona uma vez.',
       statusAwaitingContact: 'A aguardar que verifique o seu número no Telegram.',
       statusVerified: 'Telemóvel verificado. A aguardar que a entrada seja admitida.',
       statusEligible: 'Admitido. A sua entrada está em fila para ir on-chain.',
@@ -522,6 +528,8 @@ const es: EventsCopy = {
       intro: 'La verificación ocurre por Telegram — un bot pide solo tu número de teléfono, una vez. Nunca menciona el premio.',
       ctaEnter: 'Participar con email',
       openTelegram: 'Abrir Telegram para verificar',
+      openTelegramAgain: 'Abrir Telegram de nuevo',
+      telegramExpiredHint: '¿Enlace vencido? Toca el botón para obtener uno nuevo — el anterior solo funciona una vez.',
       statusAwaitingContact: 'Esperando que verifiques tu número en Telegram.',
       statusVerified: 'Teléfono verificado. Esperando que la entrada sea admitida.',
       statusEligible: 'Admitido. Tu entrada está en cola para ir on-chain.',

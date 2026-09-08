@@ -263,16 +263,20 @@ function ParticipatePanel({ giveawayId, onStatus }: { giveawayId: bigint; onStat
       ) : (
         <>
           <p className="text-sm text-gray-300">{label[status.status] ?? status.status}</p>
-          {status.status === 'AWAITING_CONTACT' && telegramUrl && (
-            <a
-              href={telegramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 min-h-[44px] px-5 rounded-lg bg-brand text-black font-extrabold"
-            >
-              {c.openTelegram}
-              <ExternalLink className="w-4 h-4" />
-            </a>
+          {status.status === 'AWAITING_CONTACT' && (
+            <div className="space-y-2">
+              {error && <ErrorBanner message={error} />}
+              <Button
+                variant="primary"
+                onClick={enter}
+                isLoading={busy}
+                className="inline-flex items-center gap-2 w-full sm:w-auto"
+              >
+                {telegramUrl ? c.openTelegramAgain : c.openTelegram}
+                <ExternalLink className="w-4 h-4" />
+              </Button>
+              <p className="text-xs text-gray-500">{c.telegramExpiredHint}</p>
+            </div>
           )}
           {status.txHash && (
             <a
