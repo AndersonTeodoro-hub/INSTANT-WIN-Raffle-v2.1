@@ -17,7 +17,9 @@ export const ShareButton: React.FC<{
   /** Rótulo da variante "full", vindo do i18n da landing. */
   label?: string;
   className?: string;
-}> = ({ variant = 'icon', label = 'Share', className = '' }) => {
+  /** Link a partilhar; por omissão o site. Uma página de evento passa o seu próprio link público. */
+  url?: string;
+}> = ({ variant = 'icon', label = 'Share', className = '', url = SHARE_URL }) => {
   const [copied, setCopied] = useState(false);
 
   const handleShare = async () => {
@@ -26,10 +28,10 @@ export const ShareButton: React.FC<{
         // Só `url`, deliberadamente. Testado em Android: com `text` acompanhado,
         // o WhatsApp trata a partilha como mensagem de texto e não gera o cartão
         // de pré-visualização; com o link sozinho, o og-image aparece.
-        await navigator.share({ url: SHARE_URL });
+        await navigator.share({ url });
         return;
       }
-      await navigator.clipboard.writeText(SHARE_URL);
+      await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

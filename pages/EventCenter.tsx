@@ -7,6 +7,7 @@ import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status } from '../li
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { LangSwitch } from '../components/LangSwitch';
 import { Button } from '../components/Button';
+import { ShareButton } from '../components/ShareButton';
 import { useEventsCopy } from './events.i18n';
 import { Loader2, ExternalLink } from 'lucide-react';
 
@@ -82,9 +83,17 @@ function EventCard({ id }: { id: bigint }) {
     >
       <div className="flex items-center justify-between mb-3">
         <span className="font-mono text-[11px] uppercase tracking-widest text-gray-500">#{id.toString()}</span>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-gray-300 border border-dark-border rounded px-2 py-0.5">
-          {statusLabel}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-gray-300 border border-dark-border rounded px-2 py-0.5">
+            {statusLabel}
+          </span>
+          <span onClick={(e) => e.preventDefault()}>
+            <ShareButton
+              className="!min-h-[32px] !min-w-[32px] border-0"
+              url={`${window.location.origin}/events/${id.toString()}`}
+            />
+          </span>
+        </div>
       </div>
       <p className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-1">{c.list.card.prize}</p>
       <p className="font-mono text-2xl font-bold text-brand mb-4 truncate">

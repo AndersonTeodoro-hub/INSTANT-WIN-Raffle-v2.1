@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2PrizeKind } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
+import { ShareButton } from '../components/ShareButton';
 import { ConnectWallet } from '../components/ConnectWallet';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { LangSwitch } from '../components/LangSwitch';
@@ -88,6 +89,7 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
   const { data: extra } = useReadContracts({
     contracts: [
       { address: CONTRACTS.GIVEAWAY_MANAGER_V2, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'getParticipantsCount', args: [id] },
+      { address: CONTRACTS.GIVEAWAY_MANAGER_V2, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'slotsRemaining', args: [id] },
       { address: CONTRACTS.GIVEAWAY_MANAGER_V2, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'getWinnersCount', args: [id] },
       { address: CONTRACTS.GIVEAWAY_MANAGER_V2, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'effectiveEndTime', args: [id] },
       { address: CONTRACTS.GIVEAWAY_MANAGER_V2, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'creatorRefunded', args: [id] },
@@ -98,7 +100,7 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
     ],
     query: { staleTime: 0 },
   });
-  const [participants, winnersDrawn, effectiveEnd, refunded, clampReclaimed, drawTimeout, rescueWindow, claimDeadline] = (
+  const [participants, slotsRemaining, winnersDrawn, effectiveEnd, refunded, clampReclaimed, drawTimeout, rescueWindow, claimDeadline] = (
     extra ?? []
   ).map((r) => r?.result);
 
@@ -149,13 +151,16 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
         <Link to={`/events/${id.toString()}`} className="font-mono text-sm text-gray-300 hover:text-white">
           #{id.toString()} · {formatUnits(displayAmount, decimals)} {symbol}
         </Link>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-gray-300 border border-dark-border rounded px-2 py-0.5">
-          {c.list.status[statusKey as keyof typeof c.list.status] ?? statusKey}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-gray-300 border border-dark-border rounded px-2 py-0.5">
+            {c.list.status[statusKey as keyof typeof c.list.status] ?? statusKey}
+          </span>
+          <ShareButton className="!min-h-[32px] !min-w-[32px] border-0" url={`${window.location.origin}/events/${id.toString()}`} />
+        </div>
       </div>
       <p className="text-xs text-gray-500">
         {c.list.card.winners}: {winnersDrawn !== undefined ? String(winnersDrawn) : '…'}/{g.winnersCount} · {c.list.card.slots}:{' '}
-        {participants !== undefined ? String(participants) : '…'}/{g.slotCap}
+        {slotsRemaining !== undefined ? String(slotsRemaining) : '…'}/{g.slotCap}
       </p>
       <div className="flex flex-wrap gap-2">
         {canReload && <ReloadAction id={id} onDone={bump} />}

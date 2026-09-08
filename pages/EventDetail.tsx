@@ -6,6 +6,7 @@ import { Loader2, ExternalLink, ShieldAlert } from 'lucide-react';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2PrizeKind } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
+import { ShareButton } from '../components/ShareButton';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { LangSwitch } from '../components/LangSwitch';
 import { useEventsCopy } from './events.i18n';
@@ -505,7 +506,10 @@ export const EventDetail: React.FC = () => {
         {g && g.status !== GiveawayV2Status.NONE && (
           <>
             <div className="rounded-xl border border-dark-border bg-dark-card p-6 space-y-4">
-              <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">#{giveawayId.toString()}</p>
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">#{giveawayId.toString()}</p>
+                <ShareButton url={`${window.location.origin}/events/${giveawayId.toString()}`} />
+              </div>
               <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">{c.detail.prizeLabel}</p>
               <p className="font-mono text-3xl font-bold text-brand break-all">
                 {formatUnits(displayAmount ?? 0n, decimals)} {symbol}
