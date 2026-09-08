@@ -72,13 +72,15 @@ const en: RoadmapCopy = {
     },
     {
       num: '02',
-      status: 'Building',
+      status: 'Live now',
       title: 'Event Center',
       body: [
         {
           pre: 'Campaigns anyone can create and anyone can enter, with the winner picked by VRF and the prize held by a verified contract until it is claimed. Prize modules for ERC-20, ERC-721 and ERC-1155 are already deployed and verified, so a campaign can distribute any tokenized asset, including the ones issued on Robinhood Chain. Entering needs no wallet and no crypto knowledge.',
         },
       ],
+      verify: 'Verify it yourself',
+      note: 'The first campaign is coming soon.',
     },
     {
       num: '03',
@@ -155,13 +157,15 @@ const pt: RoadmapCopy = {
     },
     {
       num: '02',
-      status: 'Em construção',
+      status: 'Ao vivo agora',
       title: 'Event Center',
       body: [
         {
           pre: 'Campanhas que qualquer pessoa pode criar e qualquer pessoa pode participar, com o vencedor escolhido por VRF e o prémio guardado por um contrato verificado até ser levantado. Os módulos de prémio para ERC-20, ERC-721 e ERC-1155 já estão implementados e verificados, por isso uma campanha pode distribuir qualquer ativo tokenizado, incluindo os emitidos na Robinhood Chain. Participar não exige wallet nem conhecimentos de cripto.',
         },
       ],
+      verify: 'Verifique por si mesmo',
+      note: 'A primeira campanha está para breve.',
     },
     {
       num: '03',
@@ -225,13 +229,15 @@ const es: RoadmapCopy = {
     },
     {
       num: '02',
-      status: 'En construcción',
+      status: 'En vivo ahora',
       title: 'Event Center',
       body: [
         {
           pre: 'Campañas que cualquiera puede crear y cualquiera puede participar, con el ganador elegido por VRF y el premio custodiado por un contrato verificado hasta que se reclama. Los módulos de premio para ERC-20, ERC-721 y ERC-1155 ya están desplegados y verificados, por lo que una campaña puede distribuir cualquier activo tokenizado, incluidos los emitidos en Robinhood Chain. Participar no requiere wallet ni conocimientos de cripto.',
         },
       ],
+      verify: 'Verifícalo tú mismo',
+      note: 'La primera campaña está por llegar.',
     },
     {
       num: '03',

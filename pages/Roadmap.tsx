@@ -11,22 +11,21 @@ import { useRoadmapCopy } from './roadmap.i18n';
 const ARBISCAN = 'https://arbiscan.io/address/';
 
 /**
- * Índice do degrau que já está on-chain. Emparelha posicionalmente com
- * `copy.steps` — é estado visual, portanto fora do i18n (mesma convenção dos
- * STEP_ICONS da Landing).
+ * Quantos degraus iniciais entram no grupo "ao vivo / verificado on-chain"
+ * (Lotaria + Event Center: ambos têm contratos implementados, verificados e
+ * despausados). Emparelha posicionalmente com `copy.steps`. Governa tanto a
+ * síntese (Check verde vs. seta cinzenta) como o estado "live" de cada cartão
+ * na lista detalhada — é estado visual, portanto fora do i18n (mesma
+ * convenção dos STEP_ICONS da Landing).
  *
  * É o único sítio desta página onde o verde é permitido, além do link para o
  * Arbiscan logo abaixo: verde aqui significa "verificável agora", não decoração.
  * Âmbar não aparece em lado nenhum — nesta página não há valores de prémio.
  */
-const LIVE_STEP = 0;
-
-/**
- * Quantos degraus iniciais entram no grupo "verificado on-chain" da síntese
- * (Lotaria + Event Center: ambos têm contratos já implementados e verificados).
- * Os restantes caem no grupo "pretendido, por esta ordem".
- */
 const ONCHAIN_STEPS = 2;
+
+/** Endereço a verificar por degrau, posicional com `copy.steps`. */
+const VERIFY_ADDRESSES = [CONTRACTS.RAFFLE_MANAGER, CONTRACTS.GIVEAWAY_MANAGER_V2];
 
 export const Roadmap: React.FC = () => {
   const c = useRoadmapCopy();
@@ -159,7 +158,7 @@ export const Roadmap: React.FC = () => {
         {/* Os 4 degraus */}
         <ol className="space-y-4 sm:space-y-6 pb-4">
           {c.steps.map((step, i) => {
-            const isLive = i === LIVE_STEP;
+            const isLive = i < ONCHAIN_STEPS;
             return (
               <li key={step.num} className="bg-dark-card border border-dark-border rounded-xl p-6 sm:p-8">
 
@@ -215,12 +214,12 @@ export const Roadmap: React.FC = () => {
                       {step.verify}
                     </p>
                     <a
-                      href={`${ARBISCAN}${CONTRACTS.RAFFLE_MANAGER}`}
+                      href={`${ARBISCAN}${VERIFY_ADDRESSES[i]}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-between gap-3 min-h-[44px] rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
                     >
-                      <span className="break-all">{CONTRACTS.RAFFLE_MANAGER}</span>
+                      <span className="break-all">{VERIFY_ADDRESSES[i]}</span>
                       <ExternalLink className="w-4 h-4 shrink-0" />
                     </a>
                   </div>
