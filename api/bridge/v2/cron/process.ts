@@ -106,32 +106,38 @@ const route = handle('cron/process', async ({ request, log }) => {
   // nothing half-written.
   const deadline = runDeadline();
 
-  // §7/G4: WHERE THIS RUN STARTS, AND WHY IT IS NOT ALWAYS THE SAME PLACE.
-  //
-  // The five stages reserve 460 seconds between them out of a budget of 280, and
-  // they used to run in a fixed order with the largest reservation last. That is
-  // not a preference about ordering, it is starvation stated as code: under
-  // continuous load the four stages in front consume the budget, the prize
-  // stage's guard is false, and prizes are never claimed or delivered at all —
-  // the same outage this file's own history already records from an arithmetic
-  // error, reached again by scheduling, and just as silent, because a stage that
-  // starts nothing returns zero and reads like a stage with nothing to do.
-  //
-  // One number per run, taken from a sequence so it advances once per run that
-  // actually happens rather than once per minute, and every phase leads a run
-  // once within PHASE_STARVATION_BOUND_RUNS. A phase that leads has the whole
-  // budget, and config.ts checks that the whole budget is enough for each of
-  // them; those two facts together are the guarantee.
-  //
-  // Nothing is skipped and nothing is reordered — the declared order is still the
-  // order, read from a different starting point. It can be, because correctness
-  // never rested on it: every stage is conditional on the state it expects (G5),
-  // and no stage is the input of the next within one run. What the declared order
-  // buys is latency in the healthy case, and the run that starts at phase zero
-  // still gets exactly that.
-  const offset = (await nextRunSequence()) % PIPELINE_PHASES.length;
-
   try {
+    // §7/G4: WHERE THIS RUN STARTS, AND WHY IT IS NOT ALWAYS THE SAME PLACE.
+    //
+    // The five stages reserve 460 seconds between them out of a budget of 280, and
+    // they used to run in a fixed order with the largest reservation last. That is
+    // not a preference about ordering, it is starvation stated as code: under
+    // continuous load the four stages in front consume the budget, the prize
+    // stage's guard is false, and prizes are never claimed or delivered at all —
+    // the same outage this file's own history already records from an arithmetic
+    // error, reached again by scheduling, and just as silent, because a stage that
+    // starts nothing returns zero and reads like a stage with nothing to do.
+    //
+    // One number per run, taken from a sequence so it advances once per run that
+    // actually happens rather than once per minute, and every phase leads a run
+    // once within PHASE_STARVATION_BOUND_RUNS. A phase that leads has the whole
+    // budget, and config.ts checks that the whole budget is enough for each of
+    // them; those two facts together are the guarantee.
+    //
+    // Nothing is skipped and nothing is reordered — the declared order is still the
+    // order, read from a different starting point. It can be, because correctness
+    // never rested on it: every stage is conditional on the state it expects (G5),
+    // and no stage is the input of the next within one run. What the declared order
+    // buys is latency in the healthy case, and the run that starts at phase zero
+    // still gets exactly that.
+    //
+    // Read inside the try, not between the lock and it: this call reaches the
+    // database, and a lock taken outside a try/finally that can throw is a lock
+    // nothing ever gives back except its own TTL. It used to sit here unguarded,
+    // so a single failing sequence read orphaned the lock every cycle it was
+    // retried, and the pipeline never got past it.
+    const offset = (await nextRunSequence()) % PIPELINE_PHASES.length;
+
     const counts: Record<string, number> = {};
     for (let step = 0; step < PIPELINE_PHASES.length; step += 1) {
       const phase = PIPELINE_PHASES[(offset + step) % PIPELINE_PHASES.length];

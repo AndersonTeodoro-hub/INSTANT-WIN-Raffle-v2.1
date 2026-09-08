@@ -1,0 +1,11 @@
+-- Não aplicada automaticamente. O owner corre isto à mão quando confirmar que
+-- não há nenhum processo cron/process a decorrer de facto.
+--
+-- api/bridge/v2/cron/process.ts chamava nextRunSequence() depois do lock ser
+-- adquirido mas antes do try/finally que o liberta (G6). Uma falha nessa
+-- chamada saltava a libertação, e como falhava sempre pela mesma razão, o
+-- pipeline ficou preso: o lock só se libertava pelo TTL (301s), a tentativa
+-- seguinte falhava outra vez do mesmo jeito, e nenhum estágio chegou a correr.
+-- O código já está corrigido (a leitura passou para dentro do try); isto só
+-- limpa o lock que ficou retido em produção antes da correção.
+DELETE FROM bridge_v2_locks WHERE name = 'cron/process';
