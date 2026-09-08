@@ -441,8 +441,8 @@ export const EventCreate: React.FC = () => {
               <div>
                 <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.durationLabel}</label>
                 <div className="flex gap-3">
-                  <input value={durationValue} onChange={(e) => setDurationValue(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono flex-1`} />
-                  <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as 'hours' | 'days')} className={`${inputClass} w-28`}>
+                  <input value={durationValue} onChange={(e) => setDurationValue(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono flex-1 min-w-0`} />
+                  <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as 'hours' | 'days')} className={`${inputClass} !w-28 shrink-0`}>
                     <option value="hours">{c.durationHours}</option>
                     <option value="days">{c.durationDays}</option>
                   </select>
