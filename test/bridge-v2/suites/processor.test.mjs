@@ -9,11 +9,13 @@
  * class of failure this pipeline exists to survive.
  */
 
+import { readFileSync } from 'node:fs';
 import { assert, deadline, http, jsonResponse, recordingLogger, suite, test } from '../harness.mjs';
 import * as db from '../doubles/db.mjs';
 import * as chain from '../doubles/chain.mjs';
 
 import {
+  notifySettlements,
   processEligibleEntries,
   processPrizes,
   publishPendingRoots,
@@ -1167,4 +1169,340 @@ await test(['G4'], 'an RPC outage ends each stage without a state change', async
     await stage(recordingLogger(), deadline());
     assert.deepEqual(transitions(), [], `${name} changed a state on a dead RPC`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// notifySettlements — D7, E2, G5, R3
+//
+// The hole this closes: nobody was ever told they had won. The only outbound
+// email the platform sent was a verification code, the bot may not mention a
+// prize (R3), and so a winner found out by returning to the campaign page on
+// their own initiative — or did not find out, while the contract's ninety-day
+// claim deadline ran down.
+// ---------------------------------------------------------------------------
+
+const LOSER = addressOf(1);
+
+/** An entry as listAwaitingOutcome returns it, email joined. */
+function outcomeRow(overrides = {}) {
+  return {
+    id: 'entry-1',
+    wallet_address: WALLET,
+    self_custody: false,
+    outcome: null,
+    participant: { email_canonical: 'winner@example.com' },
+    ...overrides,
+  };
+}
+
+/** A settled TOKEN campaign paying 250 USDC, where WALLET is the drawn winner. */
+function settledCampaign(rows) {
+  db.on('rpc:bridge_v2_campaigns_awaiting_outcome', () => ({
+    data: [{ giveaway_id: '1' }],
+    error: null,
+  }));
+  db.on('bridge_v2_entries:select', () => ({ data: rows, error: null }));
+  chain.set({
+    readGiveaway: settled({ prizeAmount: 250_000_000n, winnersCount: 1, feeToken: config.USDC }),
+    // The contract's own answer per wallet: the winner is owed, the loser is not.
+    claimableFor: (_giveawayId, wallet) => (wallet === WALLET ? 250_000_000n : 0n),
+    prizeAlreadyClaimed: false,
+  });
+  http.on('api.resend.com', () => jsonResponse({ id: 'mail-1' }));
+}
+
+/** The bodies posted to the mail provider, parsed. */
+const mails = () =>
+  http.requests
+    .filter((entry) => entry.url.includes('resend'))
+    .map((entry) => JSON.parse(entry.body));
+
+/** Every write the run made to an entry row. */
+const entryWrites = () => db.callsTo('bridge_v2_entries:update').map((call) => call.payload);
+
+await test(['D7'], 'a settled campaign tells the winner what they won', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 1);
+
+  const [mail] = mails();
+  assert.deepEqual(mail.to, ['winner@example.com']);
+  assert.match(mail.subject, /won giveaway #1/i);
+  // The amount is the contract's own claimable(), scaled by the token's own
+  // decimals. Base units in an email are not an answer to "what did I win".
+  assert.match(mail.text, /You won: 250 USDC/);
+  assert.match(mail.text, /Open the campaign page/);
+  assert.match(mail.text, /\/events\/1/, 'the winner is not told where to go');
+
+  assert.ok(
+    entryWrites().some((payload) => payload.outcome === 'WON'),
+    'the result was never recorded',
+  );
+});
+
+await test(['D7'], 'and tells the loser, without offering them anything', async () => {
+  fresh();
+  settledCampaign([
+    outcomeRow({
+      id: 'entry-2',
+      wallet_address: LOSER,
+      participant: { email_canonical: 'loser@example.com' },
+    }),
+  ]);
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 1);
+
+  const [mail] = mails();
+  assert.deepEqual(mail.to, ['loser@example.com']);
+  assert.match(mail.subject, /the draw is done/i);
+  assert.match(mail.text, /not one of the winners/);
+  assert.match(mail.text, /arbiscan\.io/, 'the loser cannot check the result themselves');
+  assert.ok(!/You won/.test(mail.text), 'a loser was told they won something');
+
+  assert.ok(entryWrites().some((payload) => payload.outcome === 'LOST'));
+});
+
+await test(['G5'], 'a notice already claimed is never sent twice', async () => {
+  fresh();
+  settledCampaign([outcomeRow({ outcome: 'WON' })]);
+  // The conditional claim matched no row: an earlier run already sent this one.
+  db.on('bridge_v2_entries:update', () => ({ data: null, error: null }));
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0, 'a second copy of the same notice went out');
+});
+
+await test(['G5', 'G4'], 'a campaign that has not settled records nothing and goes to the back', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+  chain.set({ readGiveaway: { ...DEFAULT_CAMPAIGN } });
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0);
+
+  const writes = entryWrites();
+  assert.ok(!writes.some((payload) => 'outcome' in payload), 'a result was recorded before there was one');
+  assert.ok(
+    !writes.some((payload) => 'outcome_notified_at' in payload),
+    'the entry left the queue before it had an answer',
+  );
+  // THE TOUCH IS THE FIX, not an incidental write. The queue holds campaigns
+  // that have not settled — the database cannot tell those from settled and
+  // unreported — CONFIRMED is terminal, and nothing else writes these rows. Left
+  // alone, the five oldest open campaigns are the whole per-run batch on every
+  // run for ever, and a campaign that settles behind them is never reached.
+  assert.deepEqual(
+    writes.filter((payload) => Object.keys(payload).length === 1),
+    [writes.find((payload) => Object.keys(payload).join() === 'updated_at')],
+    'the campaign was left at the head of the queue',
+  );
+});
+
+await test(['G5'], 'a rejected notice goes back in the queue instead of being lost', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+  http.reset();
+  http.on('api.resend.com', () => jsonResponse({ message: 'rate limited' }, 429));
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  // The claim is taken before the send, so the release is what keeps the row
+  // reachable. Without it a transient provider failure is a result the winner
+  // is never told about, silently and for ever.
+  assert.ok(
+    entryWrites().some((payload) => payload.outcome_notified_at === null),
+    'the notice was claimed and never released',
+  );
+});
+
+await test(['D7'], 'an erased participant is never posted to', async () => {
+  fresh();
+  // privacy/erase.ts replaces the address with a tombstone on a reserved domain.
+  settledCampaign([outcomeRow({ participant: { email_canonical: 'erased-deadbeef@invalid' } })]);
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0, 'a tombstone address was handed to the provider');
+  // Claimed anyway, so the row leaves the queue rather than being retried for
+  // ever against an address that can never accept anything.
+  assert.ok(entryWrites().some((payload) => typeof payload.outcome_notified_at === 'string'));
+});
+
+await test(['R3'], 'nothing about the result is ever sent to Telegram', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+
+  await notifySettlements(recordingLogger(), deadline());
+
+  const telegram = http.requests.filter((entry) => entry.url.includes('api.telegram.org'));
+  assert.deepEqual(telegram, [], 'the bot spoke about a prize');
+});
+
+await test(['G4'], 'the notices run even when the prize queue is empty', async () => {
+  // The notices sit outside the prize queue, not behind an early return on it:
+  // a campaign whose winners all entered with their own wallets has no custody
+  // rows at all, and every entrant of it would otherwise never be told anything.
+  fresh();
+  settledCampaign([outcomeRow()]);
+  db.on('bridge_v2_custody:select', () => ({ data: [], error: null }));
+
+  assert.equal(await processPrizes(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 1, 'an empty prize queue swallowed the notices');
+});
+
+await test(['G4'], 'a run with no budget left starts no notice', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline(false)), 0);
+  assert.equal(mails().length, 0);
+});
+
+await test(['K4'], 'the ops record carries the campaign and the answer, never the person', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+  const log = recordingLogger();
+
+  await notifySettlements(log, deadline());
+
+  const recorded = JSON.stringify(log.events);
+  assert.ok(recorded.includes('outcome.notified'), 'the notice was not recorded at all');
+  assert.ok(!recorded.includes('winner@example.com'), 'an email address reached the ops table');
+  assert.ok(!recorded.includes(WALLET), 'a wallet address reached the ops table');
+});
+
+await test(['G4'], 'a cancelled campaign retires its entries instead of being re-read for ever', async () => {
+  // The leak this closes. A cancelled campaign never settles, so without a
+  // terminal value its entries stay in the queue permanently — and the queue is
+  // read a handful of campaigns at a time, so a few cancelled campaigns would
+  // fill every run's batch and the winners of a real campaign behind them would
+  // never be told anything. Cancellation is not rare: a campaign that closes
+  // below MIN_PARTICIPANTS cancels itself.
+  fresh();
+  settledCampaign([outcomeRow()]);
+  chain.set({ readGiveaway: { ...DEFAULT_CAMPAIGN, status: 6, isOpen: false, isSettled: false } });
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0, 'a cancelled campaign sent an email about a prize');
+
+  const writes = entryWrites();
+  assert.ok(writes.some((payload) => payload.outcome === 'VOID'), 'the entry has no terminal value');
+  assert.ok(
+    writes.some((payload) => typeof payload.outcome_notified_at === 'string'),
+    'the entry was never taken out of the queue',
+  );
+});
+
+await test(['G4'], 'a campaign past its claim window is retired, and told nothing', async () => {
+  // Two failures in one. claimable() reads zero for a winner who never claimed
+  // once the creator may reclaim, so a result read now would be written as LOST
+  // — once, and for ever, against somebody who actually won. And the email for
+  // it would be an instruction to name a wallet for a prize that can no longer
+  // be collected, which is worse than silence. processPrize already refuses to
+  // act inside this window (claimClosed); this is the same rule for the notice.
+  fresh();
+  settledCampaign([outcomeRow()]);
+  chain.set({
+    readGiveaway: settled({ settledAt: BigInt(Math.floor(Date.now() / 1000) - 200 * 86_400) }),
+  });
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0, 'a prize whose window has closed was still offered');
+
+  const writes = entryWrites();
+  assert.ok(!writes.some((payload) => payload.outcome === 'LOST'), 'a winner was recorded as a loser');
+  assert.ok(writes.some((payload) => payload.outcome === 'VOID'), 'the entry has no terminal value');
+  assert.ok(
+    writes.some((payload) => typeof payload.outcome_notified_at === 'string'),
+    'the entry was never taken out of the queue',
+  );
+});
+
+await test(['B8'], 'the notice counts against the email ceiling, and stops at it', async () => {
+  // The one outbound provider call in the pipeline that counted against nothing,
+  // and the one that fans out per entrant: a settled campaign with a thousand
+  // entries is a thousand posts. Denied, the row must stay in the queue — a
+  // notice marked sent because a ceiling was reached is a result nobody is ever
+  // told.
+  fresh();
+  settledCampaign([outcomeRow()]);
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: false, error: null }));
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0, 'the ceiling did not stop the post');
+  assert.ok(
+    !entryWrites().some((payload) => typeof payload.outcome_notified_at === 'string'),
+    'the notice was marked sent without being sent',
+  );
+});
+
+await test(['B8'], 'and asks once, not once per entry of every campaign left in the batch', async () => {
+  // A denial is about the run and not about this entry, and each repeat of it
+  // costs a spend.denied event, an alert, and the webhook post behind the alert —
+  // which is under no ceiling of its own. Twenty-five entries by five campaigns,
+  // once a minute, for as long as the hour lasts.
+  fresh();
+  settledCampaign([
+    outcomeRow(),
+    outcomeRow({ id: 'entry-2' }),
+    outcomeRow({ id: 'entry-3' }),
+  ]);
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: false, error: null }));
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(
+    db.callsTo('rpc:bridge_v2_claim_spend').length,
+    1,
+    'the pass went on asking for budget it had already been refused',
+  );
+  assert.equal(mails().length, 0);
+});
+
+await test(['G4'], 'a campaign whose every entry fails still goes to the back of the queue', async () => {
+  // The starvation the order key exists to prevent, reached through the error
+  // path instead: the campaign is settled, so nothing touches it, and every entry
+  // failing leaves its timestamp where it was — at the head of a batch of five,
+  // on this run and on every run after it.
+  fresh();
+  settledCampaign([outcomeRow(), outcomeRow({ id: 'entry-2' })]);
+  chain.set({ claimableFor: new Error('rpc down') });
+
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 0);
+  assert.equal(mails().length, 0);
+
+  const touches = entryWrites().filter((payload) => Object.keys(payload).join() === 'updated_at');
+  assert.equal(touches.length, 1, 'the campaign kept its place at the head of the queue');
+});
+
+await test(['G4'], 'a failing notice pass never takes the prize stage with it', async () => {
+  // notifySettlements used to run first and unprotected, and api/bridge/v2/cron/
+  // process.ts has no try per phase: one throw from the notice queue — a
+  // database helper raising, which is what every one of them does on an error —
+  // ended the stage that claims and delivers prizes, whose ninety-day deadline
+  // is the reason any of this exists.
+  fresh();
+  db.on('rpc:bridge_v2_campaigns_awaiting_outcome', () => {
+    throw new Error('[bridge-v2] database operation failed: entry.campaigns_awaiting_outcome');
+  });
+  db.on('bridge_v2_custody:select', () => ({ data: [], error: null }));
+
+  assert.equal(await processPrizes(recordingLogger(), deadline()), 0);
+});
+
+await test(['G4'], 'the prize queue is served before the notices, never after', async () => {
+  // 240_000 ms for a prize and 52_000 ms for a notice do not both fit inside a
+  // 280_000 ms run, so whichever goes first decides. With the notices first,
+  // 40_000 ms of them was enough to make the prize guard false for the rest of
+  // the run — on the very run the rotation had given the prize stage the whole
+  // budget. This is the ordering read off the source, because a test that runs
+  // both cannot see which reservation was checked first.
+  const source = readFileSync(new URL('../../../lib/bridge-v2/processor.ts', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export async function processPrizes'));
+  assert.ok(
+    body.indexOf('listPendingPrizes(PRIZE_BATCH)') < body.indexOf('notifySettlements(log, deadline)'),
+    'the notices run before the prize queue and can consume its reservation',
+  );
+  assert.ok(
+    body.indexOf('try {\n    await notifySettlements') !== -1,
+    'the notice pass is not caught, so it can end the prize stage',
+  );
 });

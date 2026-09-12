@@ -53,7 +53,16 @@ const route = handle('entry/status', async ({ request, log }) => {
   const entry = await findEntry(session.participantId, giveawayId);
   if (entry === null) return ok({ status: 'NONE' });
 
-  const custody = await readCustody(entry.id);
+  // THE GATE, AND WHY IT IS THE OUTCOME AND NOT THE CUSTODY ROW. This read used
+  // to be unconditional and the page showed its panel — headed "Your prize" — to
+  // whoever it returned a row for, which was everybody: custody.recordPolicy
+  // writes that row when the entry is OPENED, to record the rule that would
+  // apply on a win. It was being read as "you won".
+  //
+  // outcome is the recorded result, written once per entry by the pipeline from
+  // the contract (migration 0010). NULL until then, which is the right answer
+  // while a campaign is still running: nobody has won anything yet.
+  const custody = entry.outcome === 'WON' ? await readCustody(entry.id) : null;
   await log.event('route.ok');
 
   // The transaction hash is the participant's own and is public on the chain
@@ -63,6 +72,16 @@ const route = handle('entry/status', async ({ request, log }) => {
     status: entry.status,
     walletAddress: entry.walletAddress,
     txHash: entry.txHash,
+    // The result, so the page can say what happened without the participant
+    // reloading it and without inferring anything from the presence of a panel.
+    // Their own, and only their own: the row was already scoped to the session's
+    // participant id above, which is the D1 property this route exists to hold.
+    outcome: entry.outcome,
+    // 07/09/2026 decision: the bridge holds no key for this address and will
+    // never claim or deliver for it. The page was not told, so it offered the
+    // destination form anyway — a field whose only effect was to make somebody
+    // wait for a delivery that was never coming.
+    selfCustody: entry.selfCustody,
     custody:
       custody === null
         ? null

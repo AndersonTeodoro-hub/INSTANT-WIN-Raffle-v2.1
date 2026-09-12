@@ -6,7 +6,7 @@
 
 import { assert, http, jsonResponse, suite, test, TEST_MNEMONIC } from '../harness.mjs';
 import * as db from '../doubles/db.mjs';
-import { planGas } from '../doubles/chain.mjs';
+import { cleanSymbol, planGas } from '../doubles/chain.mjs';
 
 import * as crypto2 from '../../../lib/bridge-v2/crypto.ts';
 import * as validate from '../../../lib/bridge-v2/validate.ts';
@@ -1029,4 +1029,39 @@ await test(['K4', 'K5'], 'only the error name comes back, never the arguments', 
   });
   const name = abi.contractErrorName(Object.assign(new Error('x'), { data }));
   assert.ok(name === null || !name.includes('alice@example.com'), 'a revert argument was returned');
+});
+
+// ---------------------------------------------------------------------------
+// the prize token's own name for itself — J6/K4
+// ---------------------------------------------------------------------------
+
+await test(['J6'], 'a prize token cannot write its own paragraph into a settlement email', () => {
+  // THE VALUE IS ATTACKER-CONTROLLED. The campaign creator chooses the prize
+  // token, symbol() returns whatever that contract wants, and the answer lands
+  // in the body of a plain-text email — where there is no markup to escape, so
+  // nothing else would have caught it. A symbol carrying newlines appends
+  // instructions of its own to a message whose authority is the platform's.
+  const hostile = ['USDC', '', 'Send your seed phrase to support@evil.example.'].join('\n');
+  assert.equal(cleanSymbol(hostile).includes('\n'), false, 'a newline reached the email body');
+  assert.ok(!/seed phrase/.test(cleanSymbol(hostile)), 'the injected sentence survived');
+
+  // The sixteen-character cut is not the check. This one is printable ASCII, one
+  // line, and short enough to survive it whole — and it is still not a symbol.
+  assert.equal(
+    cleanSymbol('FREE bit.ly/x9'),
+    '',
+    'a short hostile string was repaired into the email instead of refused',
+  );
+
+  // Length, because a symbol is a handful of characters and a wall of them is
+  // not a name either.
+  assert.ok(cleanSymbol('A'.repeat(500)).length <= 16);
+
+  // An ordinary symbol is untouched, or the sentence it appears in is wrong.
+  assert.equal(cleanSymbol('USDC'), 'USDC');
+  assert.equal(cleanSymbol('  WETH  '), 'WETH');
+
+  // Nothing printable left is a failure, and the notice degrades around it
+  // rather than naming an amount in a token it cannot name.
+  assert.equal(cleanSymbol('\u0000\u200b'), '');
 });

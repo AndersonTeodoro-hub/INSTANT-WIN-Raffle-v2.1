@@ -1165,6 +1165,55 @@ export async function erc20BalanceOf(token: `0x${string}`, address: `0x${string}
   })) as bigint;
 }
 
+export interface Erc20Meta {
+  readonly symbol: string;
+  readonly decimals: number;
+}
+
+/**
+ * A token's symbol, reduced to something that can be put in a sentence.
+ *
+ * THE SYMBOL IS ATTACKER-CONTROLLED: the campaign creator chooses the prize
+ * token, symbol() returns whatever that contract wants, and the string goes into
+ * the body of a plain-text email — no markup to escape, so nothing would have
+ * caught it. A symbol carrying newlines appends paragraphs of its own to a
+ * message whose authority is the platform's.
+ *
+ * REFUSED, NOT REPAIRED. Sanitising kept whatever survived the edit, and a
+ * sentence cut to sixteen printable characters is still sixteen characters of
+ * somebody else's text inside our email — room enough for a shortened URL. A
+ * real symbol is a short alphanumeric word; anything else returns '', which
+ * makes the whole read count as a failure and takes the degraded path the
+ * notice already has.
+ */
+export function cleanSymbol(raw: string): string {
+  const symbol = raw.trim();
+  return /^[A-Za-z0-9.-]{1,16}$/.test(symbol) ? symbol : '';
+}
+
+/**
+ * A token's own name for itself and its scale, for the settlement notice. Read
+ * once per campaign, never per winner.
+ *
+ * NEITHER CALL IS REQUIRED TO SUCCEED: symbol() and decimals() are conventions,
+ * not part of the interface a token must implement. A failure here degrades the
+ * sentence that says what was won, never the notice that says somebody won it.
+ */
+export async function erc20Meta(token: `0x${string}`): Promise<Erc20Meta | null> {
+  const client = publicClient();
+  try {
+    const [symbol, decimals] = await Promise.all([
+      client.readContract({ address: token, abi: ERC20_ABI, functionName: 'symbol' }),
+      client.readContract({ address: token, abi: ERC20_ABI, functionName: 'decimals' }),
+    ]);
+    const clean = cleanSymbol(String(symbol));
+    if (clean === '') return null;
+    return { symbol: clean, decimals: Number(decimals) };
+  } catch {
+    return null;
+  }
+}
+
 /** What `spender` may already move of `token` on `owner`'s behalf. */
 export async function erc20Allowance(
   token: `0x${string}`,

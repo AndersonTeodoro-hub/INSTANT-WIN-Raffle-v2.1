@@ -18,10 +18,14 @@
 import { claimSpend } from './spend.js';
 import { alert } from './alert.js';
 import type { Logger } from './log.js';
+import { formatUnits } from 'viem';
 import {
   advance,
+  campaignsAwaitingOutcome,
   campaignsWithVerified,
+  claimNotice,
   fundingMark,
+  listAwaitingOutcome,
   listEligible,
   listStale,
   listSubmitted,
@@ -29,15 +33,22 @@ import {
   listVerified,
   markFunded,
   markSwept,
+  recordOutcome,
+  releaseNotice,
   touch,
   type Entry,
+  type EntryOutcome,
+  type OutcomeTarget,
 } from './entries.js';
 import {
   FUNDING_STALE_MS,
   PHASE_RESERVATION_MS,
   SELF_CUSTODY_RECONCILE_MS,
+  SETTLEMENT_NOTICE_MS,
   SWEEP_WORST_CASE_MS,
 } from './config.js';
+import { sendSettlementEmail } from './mail.js';
+import { GiveawayStatus, PrizeKind } from './abi.js';
 import type { RunDeadline } from './runlock.js';
 import { proofForAddress, publishBatch } from './eligibility.js';
 import {
@@ -50,9 +61,12 @@ import {
   prizeDelivery,
   quoteClaim,
   quoteDelivery,
+  erc20Meta,
   quoteEntryCost,
   readGiveaway,
   slotsRemaining,
+  type Erc20Meta,
+  type GiveawayView,
   submitAsDerived,
   sweepRemainder,
   transactionKnown,
@@ -1085,53 +1099,367 @@ async function processPrize(
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// settlement notices
+// ---------------------------------------------------------------------------
+
 /**
- * Runs the prize path for a bounded number of entries.
+ * How much of the notice queue one run takes. Small, because every campaign in
+ * the batch costs a readGiveaway whether or not it has settled. What is left is
+ * at the head of the queue on the next run.
+ */
+const NOTICE_CAMPAIGN_BATCH = 5;
+const NOTICE_ENTRY_BATCH = 25;
+
+/**
+ * What the campaign did to one wallet, and what it is owed, in one answer.
+ *
+ * TWO READS ARE NEEDED: claimable() answers zero for a wallet that never won and
+ * for a winner already paid (GiveawayManagerV2.sol:1458-1464), and prizeClaimed
+ * is the permanent mapping that separates them.
+ *
+ * Only ever called inside the claim window. Past it the creator may reclaim and
+ * claimable() reads zero for a winner who never claimed, so "not claimable and
+ * not claimed" would write LOST — once, and for ever — against somebody who won.
+ * notifySettlements retires those campaigns before reaching here.
+ */
+async function readOutcome(
+  giveawayId: bigint,
+  wallet: `0x${string}`,
+): Promise<{ outcome: EntryOutcome; claimable: bigint }> {
+  const claimable = await claimableFor(giveawayId, wallet);
+  if (claimable > 0n) return { outcome: 'WON', claimable };
+  const paid = await prizeAlreadyClaimed(giveawayId, wallet);
+  return { outcome: paid ? 'WON' : 'LOST', claimable: 0n };
+}
+
+/**
+ * What the winner won, in words, or null when it cannot be said precisely.
+ *
+ * feeToken IS the prize token for a TOKEN campaign (GiveawayManagerV2.sol:566),
+ * which is why GiveawayView has no separate prizeToken field. The amount is
+ * claimable() when there is one; once the prize is collected that reads zero and
+ * the even share stands in, within one base unit for every winner but the first.
+ *
+ * null is a deliberate answer: mail.ts turns it into "a share of the prize", and
+ * a notice that names no amount is worth far more than no notice at all.
+ */
+function prizeWords(
+  campaign: GiveawayView,
+  claimable: bigint,
+  meta: Erc20Meta | null,
+): string | null {
+  if (campaign.prizeKind === PrizeKind.NFT) return '1 item';
+  if (meta === null) return null;
+
+  const amount =
+    claimable > 0n
+      ? claimable
+      : largestWinnerShare(campaign.prizeAmount, campaign.winnersCount);
+
+  return `${formatUnits(amount, meta.decimals)} ${meta.symbol}`;
+}
+
+/**
+ * A participant whose data was erased has no address to write to: privacy/
+ * erase.ts writes `erased-<hex>@invalid`, a domain RFC 2606 reserves so that
+ * nothing tries to deliver to it. Without this, one refused post per erased
+ * entrant per run, for ever.
+ */
+function deliverable(email: string): boolean {
+  return email.length > 0 && !email.toLowerCase().endsWith('@invalid');
+}
+
+/**
+ * Records one entry's result and, if it has not been sent, sends it.
+ *
+ * THE ORDER IS THE POINT. The result is written first and independently of the
+ * email, because it is what entry/status reads to decide whether this
+ * participant is shown a prize panel — so a provider outage delays a notice and
+ * never leaves the page telling a loser that a prize is theirs.
+ *
+ * Then the provider budget (B8), then the notice, then the send: a denied spend
+ * must leave the row where it was, and a claim taken after the send would let
+ * two passes both send.
+ *
+ * 'denied' is told apart from 'skipped' because it is not about this entry: the
+ * ceiling belongs to the whole run, and the caller has to stop rather than ask
+ * again with the next one.
+ */
+async function notifyOutcome(
+  target: OutcomeTarget,
+  giveawayId: bigint,
+  campaign: GiveawayView,
+  meta: Erc20Meta | null,
+  log: Logger,
+): Promise<'sent' | 'skipped' | 'denied'> {
+  const detail = { giveaway_id: giveawayId.toString() };
+
+  // A result already on the row is not read again. It was written from the same
+  // contract state and cannot have changed.
+  let outcome = target.outcome;
+  let claimable = 0n;
+  if (outcome === null) {
+    const read = await readOutcome(giveawayId, target.walletAddress);
+    outcome = read.outcome;
+    claimable = read.claimable;
+    if (await recordOutcome(target.entryId, outcome)) {
+      await log.event('outcome.recorded', { ...detail, outcome });
+    }
+  } else if (outcome === 'WON') {
+    // Retrying a notice recorded by an earlier run. The amount is not on the
+    // row, so it is read again — winners only, on the rare retry path.
+    claimable = await claimableFor(giveawayId, target.walletAddress);
+  }
+
+  if (!deliverable(target.email)) {
+    // Nothing to send and nothing to retry. Claimed so the row leaves the queue
+    // rather than being reconsidered on every run for ever.
+    await claimNotice(target.entryId);
+    await log.event('outcome.failed', { ...detail, reason: 'no_deliverable_address' });
+    return 'skipped';
+  }
+
+  // B8: the one outbound provider call in the pipeline that counted against no
+  // ceiling, and the one that fans out per entrant — a settled campaign with a
+  // thousand entries is a thousand posts nothing was metering.
+  if (!(await claimSpend('email', 1, log))) return 'denied';
+
+  if (!(await claimNotice(target.entryId))) return 'skipped';
+
+  // E2 under D1, from the one function that decides it. Two places that both
+  // answer "may this prize rest in temporary custody" is two places that can
+  // disagree, and the one the participant would act on is this email.
+  const winnerShare =
+    claimable > 0n ? claimable : largestWinnerShare(campaign.prizeAmount, campaign.winnersCount);
+
+  const result = await sendSettlementEmail(target.email, {
+    giveawayId,
+    won: outcome === 'WON',
+    prize: outcome === 'WON' ? prizeWords(campaign, claimable, meta) : null,
+    requiresOwnWallet: policyFor(campaign.prizeKind, winnerShare, campaign.feeToken)
+      .requiresOwnWallet,
+    selfCustody: target.selfCustody,
+  });
+
+  if (!result.sent) {
+    await releaseNotice(target.entryId);
+    await log.event('outcome.failed', { ...detail, reason: 'mail_rejected' });
+    return 'skipped';
+  }
+
+  await log.event('outcome.notified', { ...detail, outcome });
+  return 'sent';
+}
+
+/**
+ * Retires the entries of a campaign that will never have a result worth sending:
+ * a cancelled one, which never settles, or one whose ninety-day claim window has
+ * closed, where claimable() reads zero for a winner who never claimed as well as
+ * for a loser and any answer would be a guess written once.
+ *
+ * Both columns, because they do different work: outcome gives the row a terminal
+ * value so the page stops waiting for one, outcome_notified_at is what takes it
+ * out of the queue. Nothing is sent — an email about a prize whose window has
+ * closed is worse than silence.
+ */
+async function retire(
+  targets: OutcomeTarget[],
+  giveawayId: bigint,
+  reason: string,
+  log: Logger,
+): Promise<void> {
+  for (const target of targets) {
+    if (target.outcome === null) await recordOutcome(target.entryId, 'VOID');
+    await claimNotice(target.entryId);
+  }
+  if (targets.length > 0) {
+    await log.event('outcome.recorded', {
+      giveaway_id: giveawayId.toString(),
+      outcome: 'VOID',
+      reason,
+      entries: targets.length,
+    });
+  }
+}
+
+/**
+ * Tells every entrant of a settled campaign what happened to their entry.
+ *
+ * WHY THIS EXISTS. Until it did, the only outbound email was a verification
+ * code and R3 forbids the bot from mentioning a prize, so a winner was never
+ * told; they found out by returning to the page of their own accord, or the
+ * ninety-day claim deadline ran down.
+ *
+ * WHY IT IS NOT A PHASE: SELF_CUSTODY_RECONCILE_MS in config.ts records the same
+ * decision. A sixth name in PIPELINE_PHASES changes the bound the G4 tests fix
+ * at five.
+ *
+ * WHY EVERY CAMPAIGN IS ACTED ON OR TOUCHED, never merely skipped: the queue
+ * holds campaigns that have not settled, and nothing else writes those rows, so
+ * one left alone stays at the head of a five-campaign batch for ever and the
+ * winners behind it are never told. The touch moves it to the back; 0010 orders
+ * on max(updated_at) so one write is enough.
+ */
+export async function notifySettlements(log: Logger, deadline: RunDeadline): Promise<number> {
+  const campaigns = await campaignsAwaitingOutcome(NOTICE_CAMPAIGN_BATCH);
+  if (campaigns.length === 0) return 0;
+
+  // Read at most once per pass, and only if a campaign gets as far as needing
+  // it. It is a constant in the deployed bytecode.
+  let claimWindowSeconds: bigint | null = null;
+
+  let sent = 0;
+  for (const giveawayId of campaigns) {
+    if (!deadline.hasTimeFor(SETTLEMENT_NOTICE_MS)) break;
+
+    // G4: one campaign's failure is not the pass's. Without this a single
+    // unreadable campaign ends the pass at the head of the queue, on every run.
+    let targets: OutcomeTarget[] = [];
+    try {
+      targets = await listAwaitingOutcome(giveawayId, NOTICE_ENTRY_BATCH);
+      if (targets.length === 0) continue;
+
+      const campaign = await readGiveaway(giveawayId);
+
+      if (campaign.status === GiveawayStatus.CANCELLED) {
+        await retire(targets, giveawayId, 'cancelled', log);
+        continue;
+      }
+
+      // OPEN, CLOSED, or mid-draw. No result yet, so the rows stay in the queue
+      // and the campaign goes to the back of it.
+      if (!campaign.isSettled) {
+        await touch(targets[0].entryId);
+        continue;
+      }
+
+      // Past CLAIM_DEADLINE the creator may reclaim and claimable() reads zero
+      // for a winner who never claimed, so the chain can no longer say who won.
+      // The same window processPrize refuses to act inside (claimClosed).
+      claimWindowSeconds ??= await claimDeadlineSeconds();
+      const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+      if (nowSeconds > campaign.settledAt + claimWindowSeconds) {
+        await retire(targets, giveawayId, 'claim_closed', log);
+        continue;
+      }
+
+      // Once per campaign, not once per winner: every winner is paid in the same
+      // token.
+      const meta =
+        campaign.prizeKind === PrizeKind.NFT ? null : await erc20Meta(campaign.feeToken);
+
+      let advanced = 0;
+      let denied = false;
+      for (const target of targets) {
+        if (!deadline.hasTimeFor(SETTLEMENT_NOTICE_MS)) break;
+        try {
+          const result = await notifyOutcome(target, giveawayId, campaign, meta, log);
+          // B8: the ceiling is the run's and not this entry's, and every entry
+          // that asks again after it is reached costs a denial event, an alert,
+          // and the webhook post behind the alert — which is under no ceiling of
+          // its own. Twenty-five entries by five campaigns, once a minute.
+          if (result === 'denied') {
+            denied = true;
+            break;
+          }
+          advanced += 1;
+          if (result === 'sent') sent += 1;
+        } catch (error) {
+          // One entrant's failure is not the campaign's. The row keeps whatever
+          // state it reached and the next run picks it up again.
+          await log.failure('outcome.failed', error, { giveaway_id: giveawayId.toString() });
+        }
+      }
+
+      // Nothing here was claimed, so nothing is moved: the queue is where this
+      // campaign should be when the ceiling lifts.
+      if (denied) break;
+
+      // G4 through the error path. A settled campaign whose entries all failed
+      // keeps its old timestamp and its place at the head of a batch of five, and
+      // the campaigns behind it are never reached — the same starvation the order
+      // key exists to prevent. One touch is enough; 0010 orders on max().
+      if (advanced === 0) await touch(targets[0].entryId);
+    } catch (error) {
+      await log.failure('outcome.failed', error, { giveaway_id: giveawayId.toString() });
+      // Out of the way as well as logged. A campaign that cannot be read holds a
+      // slot in a five-campaign batch, and a handful of them is the whole batch
+      // — the same starvation the order key exists to prevent, reached through
+      // the error path instead.
+      if (targets.length > 0) {
+        try {
+          await touch(targets[0].entryId);
+        } catch {
+          // The database that failed above is the one this would use.
+        }
+      }
+    }
+  }
+
+  return sent;
+}
+
+/**
+ * Runs the prize path for a bounded number of entries, then reports results.
  *
  * Every row the pass looks at is written, moved along or not, so the queue
  * advances and a prize waiting on a destination does not shadow the ones behind
  * it.
+ *
+ * THE PRIZE QUEUE GOES FIRST, AND THE ORDER IS ARITHMETIC RATHER THAN TASTE.
+ * 240_000 ms for a prize plus 52_000 ms for a notice is more than the 280_000 ms
+ * budget, so the two cannot both be guaranteed in one run and whichever runs
+ * first decides. Notices first meant 40_000 ms of notices was enough to make the
+ * prize guard false for the rest of the run — on the very run the rotation had
+ * given the prize stage the whole budget. Prizes first cannot do the same in
+ * reverse: the loop below stops as soon as fewer than 240_000 ms remain, so it
+ * always hands the notices a remainder far larger than one notice costs.
  */
 export async function processPrizes(log: Logger, deadline: RunDeadline): Promise<number> {
-  const pending = await listPendingPrizes(PRIZE_BATCH);
-  if (pending.length === 0) return 0;
-
-  // Read once per run rather than once per prize: it is a constant in the
-  // deployed bytecode, and a second read would only be a second chance for the
-  // RPC to fail.
-  const deadlineSeconds = await claimDeadlineSeconds();
-
   let delivered = 0;
-  for (const prize of pending) {
-    // G4: a prize can be a claim and a delivery, each with its own funding and
-    // its own receipt wait, so it is the most expensive unit the pipeline runs.
-    //
-    // The size of that unit is declared in config.ts beside the budget it has to
-    // fit inside, which is half of the fix: the reservation written here was
-    // 2 * ENTRY_WORST_CASE_MS = 300_000 ms against a budget of 280_000 ms, so it
-    // was false on the first millisecond of every run and this loop never ran its
-    // body once. No prize was ever claimed and none was ever delivered, and
-    // nothing said so — the stage returned 0 and looked like a stage with no work
-    // to do.
-    //
-    // The other half is that this stage no longer runs fifth every time. Even
-    // with the arithmetic right, 240_000 ms of a 280_000 ms budget is a
-    // reservation only a run that has spent almost nothing can meet, and four
-    // busy stages in front of it meant that under load it was never that run. The
-    // cron rotates which stage goes first (§7/G4), so one run in
-    // PHASE_STARVATION_BOUND_RUNS gives this loop the whole budget.
-    if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.processPrizes)) break;
+  const pending = await listPendingPrizes(PRIZE_BATCH);
 
-    try {
-      if (await processPrize(prize, log, deadlineSeconds)) delivered += 1;
-    } catch (error) {
-      await log.failure('prize.failed', error);
+  if (pending.length > 0) {
+    // Read once per run rather than once per prize: it is a constant in the
+    // deployed bytecode, and a second read would only be a second chance for the
+    // RPC to fail.
+    const deadlineSeconds = await claimDeadlineSeconds();
+
+    for (const prize of pending) {
+      // G4: a claim and a delivery, each funded and each awaited — the most
+      // expensive unit the pipeline runs. The reservation lives in config.ts
+      // beside the budget it has to fit inside, because written here it was
+      // 300_000 ms against 280_000 and this loop never ran its body once, and
+      // nothing said so. The cron rotates which stage leads (§7/G4), so one run
+      // in PHASE_STARVATION_BOUND_RUNS gives this loop the whole budget.
+      if (!deadline.hasTimeFor(PHASE_RESERVATION_MS.processPrizes)) break;
+
       try {
-        await touchCustody(prize.custody.entryId);
-      } catch {
-        // The database that failed above is the one this would use.
+        if (await processPrize(prize, log, deadlineSeconds)) delivered += 1;
+      } catch (error) {
+        await log.failure('prize.failed', error);
+        try {
+          await touchCustody(prize.custody.entryId);
+        } catch {
+          // The database that failed above is the one this would use.
+        }
       }
     }
   }
+
+  // Outside the prize queue entirely: a campaign whose winners all entered with
+  // their own wallets has no custody rows at all, so an early return on an empty
+  // prize queue would leave every entrant of it never told anything.
+  //
+  // Caught, because cron/process.ts runs phases without a try of its own and
+  // every database helper throws (G2). Unprotected, one failed notice pass took
+  // the prize stage down with it.
+  try {
+    await notifySettlements(log, deadline);
+  } catch (error) {
+    await log.failure('outcome.failed', error);
+  }
+
   return delivered;
 }

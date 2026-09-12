@@ -1,5 +1,5 @@
 /**
- * Migrations 0004, 0005 and 0006.
+ * Migrations 0004, 0005, 0006 and 0010.
  *
  * THERE IS NO POSTGRES AND NO DOCKER ON THIS MACHINE, so these functions are not
  * executed. What is checked here is everything that can be decided from the text
@@ -25,6 +25,7 @@ const read = (name) =>
 const SCHEMA = read('0004_bridge_v2_schema.sql');
 const FUNCTIONS = read('0005_bridge_v2_functions.sql');
 const GRANTS = read('0006_bridge_v2_grants.sql');
+const OUTCOMES = read('0010_bridge_v2_outcomes.sql');
 
 const source = (path) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8');
 
@@ -650,4 +651,108 @@ await test(['F2'], 'no migration contains anything shaped like a secret', () => 
       `${name} contains a key`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// 0010 — the settlement outcome, and the queue that reports it
+//
+// Nothing in test/bridge-v2 read this migration at all until now: it was written
+// in the same pass as the code that depends on it and shipped with no check of
+// any kind over its text.
+// ---------------------------------------------------------------------------
+
+await test(['I5'], '0010 revokes EXECUTE from PUBLIC before granting it to the one caller', () => {
+  // 0006's sweep runs over the functions that exist when 0006 runs. A function
+  // created afterwards is created outside that wall — Postgres grants EXECUTE on
+  // a new function to PUBLIC by default — so it has to rebuild it for itself, or
+  // anon can call it.
+  const revoke = OUTCOMES.indexOf('REVOKE ALL ON FUNCTION');
+  const grant = OUTCOMES.indexOf('GRANT EXECUTE ON FUNCTION');
+  assert.ok(revoke !== -1, 'nothing revokes EXECUTE from PUBLIC');
+  assert.ok(revoke < grant, 'the grant runs before the revoke, so it is undone');
+  assert.match(OUTCOMES, /REVOKE ALL ON FUNCTION public\.bridge_v2_campaigns_awaiting_outcome\(integer\) FROM PUBLIC/);
+  assert.match(OUTCOMES, /GRANT EXECUTE ON FUNCTION public\.bridge_v2_campaigns_awaiting_outcome\(integer\) TO service_role/);
+});
+
+await test(['I5'], '0010 is idempotent in every statement, like 0004 and 0007', () => {
+  const statements = statementsOnly(OUTCOMES);
+  assert.match(statements, /ADD COLUMN IF NOT EXISTS outcome text/);
+  assert.match(statements, /ADD COLUMN IF NOT EXISTS outcome_notified_at timestamptz/);
+  assert.match(statements, /CREATE INDEX IF NOT EXISTS bridge_v2_entries_outcome_pending_idx/);
+  assert.match(statements, /CREATE OR REPLACE FUNCTION bridge_v2_campaigns_awaiting_outcome/);
+  // The CHECK cannot say IF NOT EXISTS, so it says it the other way.
+  assert.match(statements, /WHEN duplicate_object THEN NULL/);
+});
+
+await test(['I5'], '0010 runs as its caller and resolves citext through both schemas', () => {
+  assert.ok(!/SECURITY DEFINER/i.test(OUTCOMES), 'the function runs as its owner');
+  assert.match(OUTCOMES, /SET search_path = public, extensions\n?AS \$fn\$/);
+});
+
+await test(['C8', 'G4'], 'the campaign queue is ordered by a key the pipeline can move', () => {
+  // THE FAILURE THIS FIXES. The queue necessarily contains campaigns that have
+  // not settled, because from the database "no result yet" and "settled but
+  // unreported" are the same row. CONFIRMED is terminal and nothing writes those
+  // rows on its own, so ordering by min(updated_at) pinned the oldest open
+  // campaigns to the head of a five-campaign batch for ever and a campaign that
+  // settled behind them was never reached — its winners never told, which is the
+  // failure this migration exists to remove.
+  const body = OUTCOMES.slice(
+    OUTCOMES.indexOf('CREATE OR REPLACE FUNCTION bridge_v2_campaigns_awaiting_outcome'),
+  );
+  assert.match(body, /ORDER BY max\(e\.updated_at\) ASC/);
+  assert.ok(!/ORDER BY min\(/.test(body), 'the order key is one nothing ever writes');
+  // The pipeline touches one entry of a campaign it cannot act on, and one write
+  // only moves max(). processor.ts is where that touch is.
+  assert.match(
+    source('lib/bridge-v2/processor.ts'),
+    /if \(!campaign\.isSettled\) \{\s*\n\s*await touch\(targets\[0\]\.entryId\);/,
+  );
+});
+
+await test(['C8'], 'the index carries the column the queue is ordered by', () => {
+  // A partial index on (giveaway_id) alone leaves the aggregate reading
+  // updated_at from the heap for every unreported entry on the platform, once a
+  // run. The sibling in 0004 carries its order key for the same reason.
+  assert.match(
+    OUTCOMES,
+    /CREATE INDEX IF NOT EXISTS bridge_v2_entries_outcome_pending_idx\s*\n\s*ON bridge_v2_entries \(giveaway_id, updated_at\)\s*\n\s*WHERE status = 'CONFIRMED' AND outcome_notified_at IS NULL/,
+  );
+  // And the per-campaign read has to use the same order, or the index serves one
+  // of the two queries.
+  assert.match(source('lib/bridge-v2/entries.ts'), /list_awaiting_outcome[\s\S]{0,600}\.order\('updated_at'/);
+});
+
+await test(['I5'], '0010 retires the entries whose prize story is already over', () => {
+  // Without this every CONFIRMED entry on the platform enters the queue on the
+  // first run, including ones whose custody was delivered or written off months
+  // ago — and the notice for those tells somebody to name a wallet for a prize
+  // that is not coming.
+  const statements = statementsOnly(OUTCOMES);
+  assert.match(statements, /UPDATE bridge_v2_entries e\s*\n\s*SET outcome = COALESCE\(/);
+  assert.match(statements, /outcome_notified_at = now\(\)/);
+  assert.match(
+    statements,
+    /c\.delivered_at IS NOT NULL OR c\.claimed_at IS NOT NULL OR c\.no_prize_at IS NOT NULL/,
+  );
+  // A claimed custody is a winner whose prize is already in the derived wallet;
+  // anything but WON there closes the one route that can still send it on.
+  assert.match(
+    statements,
+    /WHEN c\.delivered_at IS NOT NULL OR c\.claimed_at IS NOT NULL THEN 'WON' ELSE 'VOID' END/,
+  );
+  // And nothing already CONFIRMED when this file ran is ever emailed: the second
+  // statement claims the notice for the rest, whatever their custody says.
+  assert.match(
+    statements,
+    /UPDATE bridge_v2_entries e\s*\n\s*SET outcome_notified_at = now\(\)\s*\n\s*WHERE e\.status = 'CONFIRMED'\s*\n\s*AND e\.outcome_notified_at IS NULL;/,
+  );
+});
+
+await test(['F2'], '0010 contains nothing shaped like a secret', () => {
+  assert.ok(!/\b(0x)?[0-9a-fA-F]{64}\b/.test(OUTCOMES), '0010 contains a 32-byte hex value');
+  assert.ok(
+    !/(sb_secret_|sb_publishable_)[A-Za-z0-9_-]{4,}|eyJ[A-Za-z0-9_-]{10,}/.test(OUTCOMES),
+    '0010 contains a key',
+  );
 });

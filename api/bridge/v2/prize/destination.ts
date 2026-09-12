@@ -50,6 +50,26 @@ const route = handle('prize/destination', async ({ request, log }) => {
   const entry = await findEntry(session.participantId, giveawayId);
   if (entry === null) return refuse(404, 'No entry for this event.');
 
+  // A KNOWN NON-WINNER IS REFUSED, NOT "ANYBODY NOT YET A KNOWN WINNER", and the
+  // difference is a prize. The custody row below exists for every entrant from
+  // the moment they enter — it records the rule that would apply on a win — so
+  // reading it as permission let a loser write a destination, and the route is
+  // reachable whether or not the page shows the panel.
+  //
+  // But outcome is written by a scheduled pass, so between the draw landing and
+  // that pass a real winner's row still says nothing. `!== 'WON'` closed the one
+  // route they have to name a wallet during that window, and for every prize
+  // that requires their own wallet (custody.ts: every NFT, every token but USDC)
+  // the pipeline will not claim without one. NULL therefore keeps the behaviour
+  // this route already had; LOST and VOID are what is new.
+  if (entry.outcome === 'LOST' || entry.outcome === 'VOID') {
+    return refuse(404, 'No prize to send for this event.');
+  }
+
+  // The bridge holds no key for a self-custody entry and never claims or
+  // delivers for one, so a destination stored here would be read by nothing.
+  if (entry.selfCustody) return refuse(404, 'No prize to send for this event.');
+
   const custody = await readCustody(entry.id);
   if (custody === null) return refuse(404, 'No entry for this event.');
 

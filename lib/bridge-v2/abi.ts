@@ -704,13 +704,33 @@ export const VRF_COORDINATOR_V2_PLUS_ABI = [
  * E2 sends a prize at or above the threshold, and every NFT, to a wallet the
  * winner owns. The contract can only deliver to msg.sender, so the value passes
  * through the derived wallet and is handed on from there — which needs exactly
- * one function per prize kind and nothing else.
+ * one state-changing function per prize kind, and this list still carries
+ * exactly one.
+ *
+ * symbol() and decimals() are here for the settlement notice (mail.ts): 250000000
+ * is not an answer to "what did I win", and six decimals is right for USDC and
+ * wrong for whatever else a creator chose. Both are view, so H1 is untouched —
+ * nothing in this list can approve or move a third party's balance.
  *
  * H2 still holds: the destination of that transfer is the address the
  * participant confirmed through E4, read from the database, and the token or
  * collection is read from the chain. Neither is a parameter of any route.
  */
 export const ERC20_ABI = [
+  {
+    "type": "function",
+    "name": "symbol",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "string", "internalType": "string" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "decimals",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint8", "internalType": "uint8" }],
+    "stateMutability": "view"
+  },
   {
     "type": "function",
     "name": "balanceOf",

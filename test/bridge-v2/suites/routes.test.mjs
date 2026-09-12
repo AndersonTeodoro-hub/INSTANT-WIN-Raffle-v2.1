@@ -417,22 +417,26 @@ await test(['D1'], 'entry status is scoped to the session participant and to nob
   ]);
 });
 
+/** The row entry/status reads, with the result of the draw left to the caller. */
+function statusEntryRow(outcome) {
+  return {
+    id: 'entry-1',
+    participant_id: 'participant-1',
+    giveaway_id: '1',
+    status: 'CONFIRMED',
+    wallet_address: WALLET,
+    phone_hmac: 'a'.repeat(64),
+    root_index: '3',
+    tx_hash: '0xabc',
+    self_custody: false,
+    outcome,
+  };
+}
+
 await test(['D1', 'D7'], 'entry status returns the caller own address, hash and custody', async () => {
   fresh();
   liveSession();
-  db.on('bridge_v2_entries:select', () => ({
-    data: {
-      id: 'entry-1',
-      participant_id: 'participant-1',
-      giveaway_id: '1',
-      status: 'CONFIRMED',
-      wallet_address: WALLET,
-      phone_hmac: 'a'.repeat(64),
-      root_index: '3',
-      tx_hash: '0xabc',
-    },
-    error: null,
-  }));
+  db.on('bridge_v2_entries:select', () => ({ data: statusEntryRow('WON'), error: null }));
   db.on('bridge_v2_custody:select', () => ({
     data: {
       entry_id: 'entry-1',
@@ -462,6 +466,69 @@ await test(['D1', 'D7'], 'entry status returns the caller own address, hash and 
   // C5: the number was never stored, so its hash is not the participant's data
   // to hand back either.
   assert.ok(!JSON.stringify(body).includes('phone'), 'a phone field reached the client');
+});
+
+// ---------------------------------------------------------------------------
+// E2/D7 — who is shown a prize, and who is not
+// ---------------------------------------------------------------------------
+
+/**
+ * The bug this pair exists to keep closed.
+ *
+ * entry/status read bridge_v2_custody unconditionally and the page headed the
+ * result "Your prize". That row is written when the entry is OPENED — it records
+ * the custody rule that would apply on a win — so it existed for every entrant
+ * of every campaign, and everyone was told a prize was theirs: before any draw,
+ * and afterwards whether they had won or lost.
+ *
+ * The custody double below answers with a row in both tests. That is the point:
+ * the row is there, and it is no longer what decides.
+ */
+const CUSTODY_ROW = {
+  entry_id: 'entry-1',
+  prize_kind: 'TOKEN',
+  requires_own_wallet: false,
+  destination_address: null,
+  destination_confirmed_at: null,
+  custody_expires_at: null,
+  claimed_at: null,
+  claim_tx_hash: null,
+  delivered_at: null,
+  delivery_tx_hash: null,
+  custody_expired_alert_at: null,
+  no_prize_at: null,
+};
+
+async function statusBodyFor(outcome) {
+  fresh();
+  liveSession();
+  db.on('bridge_v2_entries:select', () => ({ data: statusEntryRow(outcome), error: null }));
+  db.on('bridge_v2_custody:select', () => ({ data: CUSTODY_ROW, error: null }));
+  return (
+    await entryStatus.POST(
+      request(url('entry/status'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }),
+    )
+  ).json();
+}
+
+await test(['D7', 'E2'], 'a losing entry is told it lost and is offered no prize', async () => {
+  const body = await statusBodyFor('LOST');
+  assert.equal(body.outcome, 'LOST');
+  assert.equal(body.custody, null, 'a loser was handed a custody row to act on');
+});
+
+await test(['D7', 'E2'], 'an undecided entry is offered no prize either', async () => {
+  // The campaign has not settled. Nobody has won anything yet, and the panel
+  // that asks for a destination wallet has nothing to ask about.
+  const body = await statusBodyFor(null);
+  assert.equal(body.outcome, null);
+  assert.equal(body.custody, null, 'a prize was offered before the draw');
+});
+
+await test(['D7'], 'a winning entry is told it won and keeps its custody row', async () => {
+  const body = await statusBodyFor('WON');
+  assert.equal(body.outcome, 'WON');
+  assert.equal(body.custody.prizeKind, 'TOKEN');
 });
 
 await test(['I2'], 'a campaign id past uint256 is a 400, never a 500', async () => {
@@ -632,6 +699,11 @@ function custodyReady() {
       phone_hmac: null,
       root_index: null,
       tx_hash: null,
+      // The two fields the route gates on. The custody row below has existed
+      // since the entry was opened and says only which rule would apply, never
+      // that a prize is owed — so it is not, and was never, permission.
+      self_custody: false,
+      outcome: 'WON',
     },
     error: null,
   }));
@@ -653,6 +725,41 @@ function custodyReady() {
     error: null,
   }));
 }
+
+await test(['E4', 'E2'], 'somebody who did not win cannot name a destination', async () => {
+  // The panel that offers this is hidden from a loser now, but a route is the
+  // boundary and this one is reachable without it. Before, the only gate was the
+  // custody row, which every entrant has from the moment they enter.
+  fresh();
+  custodyReady();
+  db.on('bridge_v2_entries:select', () => ({
+    data: {
+      id: 'entry-1',
+      participant_id: 'participant-1',
+      giveaway_id: '1',
+      status: 'CONFIRMED',
+      wallet_address: WALLET,
+      phone_hmac: null,
+      root_index: null,
+      tx_hash: null,
+      outcome: 'LOST',
+    },
+    error: null,
+  }));
+  let wrote = false;
+  db.on('bridge_v2_custody:update', () => {
+    wrote = true;
+    return { data: { entry_id: 'entry-1' }, error: null };
+  });
+  const response = await destination.POST(
+    request(url('prize/destination'), {
+      body: { giveawayId: '1', address: OWN_WALLET },
+      cookie: SESSION_COOKIE,
+    }),
+  );
+  assert.equal(response.status, 404);
+  assert.equal(wrote, false, 'a loser wrote a destination address');
+});
 
 await test(['E4'], 'proposing a destination stores it unconfirmed and echoes it back', async () => {
   fresh();
@@ -1510,4 +1617,86 @@ await test(['G6', 'H7'], 'the sweep borrows the pipeline lock and is skipped whe
   assert.equal(db.callsTo('bridge_v2_entries:select').length, 0, 'the sweep ran anyway');
   // And the checks still ran: monitoring matters most when the pipeline is busy.
   assert.notEqual(body.contractPaused, null);
+});
+
+/** The entry row prize/destination reads, with the two fields that gate it. */
+function destinationEntryRow({ outcome = 'WON', selfCustody = false } = {}) {
+  return {
+    data: {
+      id: 'entry-1',
+      participant_id: 'participant-1',
+      giveaway_id: '1',
+      status: 'CONFIRMED',
+      wallet_address: WALLET,
+      phone_hmac: null,
+      root_index: null,
+      tx_hash: null,
+      self_custody: selfCustody,
+      outcome,
+    },
+    error: null,
+  };
+}
+
+await test(['E4', 'E2'], 'a winner whose result is not recorded yet can still name a destination', async () => {
+  // THE WINDOW THIS KEEPS OPEN. outcome is written by a scheduled pass, so
+  // between the draw landing on chain and that pass a real winner's row still
+  // says nothing. Refusing everything that is not already 'WON' closed the only
+  // route they have to name a wallet during it — and for every prize that
+  // requires their own wallet (every NFT, every token but USDC) the pipeline
+  // will not claim without one, so the window ends at the ninety-day deadline
+  // with a prize nobody collected.
+  fresh();
+  custodyReady();
+  db.on('bridge_v2_entries:select', () => destinationEntryRow({ outcome: null }));
+  db.on('bridge_v2_custody:update', () => ({ data: { entry_id: 'entry-1' }, error: null }));
+  const response = await destination.POST(
+    request(url('prize/destination'), {
+      body: { giveawayId: '1', address: OWN_WALLET },
+      cookie: SESSION_COOKIE,
+    }),
+  );
+  assert.equal(response.status, 200, 'a winner was locked out of their own prize');
+});
+
+await test(['E2'], 'a self-custody entry is never asked for a destination', async () => {
+  // 07/09/2026 decision: the bridge holds no key for this address, so
+  // listPendingPrizes excludes it and nothing will ever read a destination
+  // stored for it. Accepting one makes somebody wait for a delivery that is not
+  // coming, while the claim window they have to act inside runs down.
+  fresh();
+  custodyReady();
+  db.on('bridge_v2_entries:select', () => destinationEntryRow({ selfCustody: true }));
+  let wrote = false;
+  db.on('bridge_v2_custody:update', () => {
+    wrote = true;
+    return { data: { entry_id: 'entry-1' }, error: null };
+  });
+  const response = await destination.POST(
+    request(url('prize/destination'), {
+      body: { giveawayId: '1', address: OWN_WALLET },
+      cookie: SESSION_COOKIE,
+    }),
+  );
+  assert.equal(response.status, 404);
+  assert.equal(wrote, false, 'a destination was stored for a wallet the bridge cannot claim from');
+});
+
+await test(['D7', 'E2'], 'entry status tells the page which kind of winner this is', async () => {
+  // Without it the page showed the destination form to a self-custody winner —
+  // the one person it is wrong for — because it had no way of telling them
+  // apart.
+  fresh();
+  liveSession();
+  db.on('bridge_v2_entries:select', () => ({
+    data: { ...statusEntryRow('WON'), self_custody: true },
+    error: null,
+  }));
+  db.on('bridge_v2_custody:select', () => ({ data: CUSTODY_ROW, error: null }));
+  const body = await (
+    await entryStatus.POST(
+      request(url('entry/status'), { body: { giveawayId: '1' }, cookie: SESSION_COOKIE }),
+    )
+  ).json();
+  assert.equal(body.selfCustody, true, 'the page cannot tell the two kinds of winner apart');
 });

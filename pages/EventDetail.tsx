@@ -20,6 +20,7 @@ import {
   requestCode,
   revokeSession,
   verifyCode,
+  type EntryOutcome,
   type EntryStatusResult,
 } from '../lib/eventcenter';
 
@@ -194,7 +195,68 @@ function AccountPanel({
   );
 }
 
-function ParticipatePanel({ giveawayId, onStatus }: { giveawayId: bigint; onStatus: (s: EntryStatusResult) => void }) {
+/**
+ * What the draw did to this visitor, said plainly. The page had no way of saying
+ * it: a winner was shown a panel headed "Your prize", and so was everybody else,
+ * because that panel was gated on a custody row written at entry time.
+ *
+ * A loss is not a blank. Somebody who entered, waited and lost is owed a
+ * sentence saying so, and the winners list above is how they check it.
+ */
+function OutcomePanel({
+  outcome,
+  awaiting,
+  selfCustody,
+}: {
+  outcome: EntryOutcome | null;
+  awaiting: boolean;
+  selfCustody: boolean;
+}) {
+  const c = useEventsCopy().detail.outcome;
+
+  if (awaiting) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-dark-border bg-dark-card p-5 text-sm text-gray-400">
+        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+        <span>{c.pending}</span>
+      </div>
+    );
+  }
+
+  // VOID is a cancelled campaign: no draw took place, so there is no result to
+  // report here. The status badge at the top of the page already says CANCELLED,
+  // and a second panel repeating it would only look like something went wrong.
+  if (outcome === null || outcome === 'VOID') return null;
+
+  if (outcome === 'LOST') {
+    return (
+      <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-2">
+        <h3 className="font-bold text-white">{c.lostTitle}</h3>
+        <p className="text-sm text-gray-400">{c.lostBody}</p>
+      </div>
+    );
+  }
+
+  // A self-custody winner is told something different: the bridge holds no key
+  // for their address and the destination form below is not shown to them, so
+  // the instruction they need is the email's — call claimPrize from that wallet.
+  return (
+    <div className="rounded-xl border border-success/40 bg-success/10 p-5 space-y-2">
+      <h3 className="font-bold text-success">{c.wonTitle}</h3>
+      <p className="text-sm text-gray-200">{selfCustody ? c.wonBodySelf : c.wonBody}</p>
+    </div>
+  );
+}
+
+function ParticipatePanel({
+  giveawayId,
+  awaitingOutcome,
+  onStatus,
+}: {
+  giveawayId: bigint;
+  awaitingOutcome: boolean;
+  onStatus: (s: EntryStatusResult) => void;
+}) {
   const c = useEventsCopy().detail.participate;
   const [status, setStatus] = useState<EntryStatusResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -214,12 +276,20 @@ function ParticipatePanel({ giveawayId, onStatus }: { giveawayId: bigint; onStat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [giveawayId]);
 
+  /*
+   * Two reasons to keep asking, and both of them end. ACTIVE_STATUSES is the
+   * entry still moving through its funnel; the second is the window this panel
+   * had no idea existed — entry CONFIRMED, campaign settled on chain, result not
+   * yet written down. It stops the moment outcome is not null, and never starts
+   * for a campaign that was cancelled or is still running.
+   */
   useEffect(() => {
-    if (!status || !ACTIVE_STATUSES.includes(status.status)) return;
+    if (!status) return;
+    if (!ACTIVE_STATUSES.includes(status.status) && !awaitingOutcome) return;
     const t = setInterval(refresh, POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.status]);
+  }, [status?.status, awaitingOutcome]);
 
   const enter = async () => {
     setError(null);
@@ -424,7 +494,25 @@ export const EventDetail: React.FC = () => {
     abi: GIVEAWAY_MANAGER_V2_ABI,
     functionName: 'getGiveaway',
     args: giveawayId !== null ? [giveawayId] : undefined,
-    query: { enabled: giveawayId !== null },
+    query: {
+      enabled: giveawayId !== null,
+      /*
+       * The draw arrives on its own, without a reload. This read used to happen
+       * once, so a page open while the campaign settled went on showing a
+       * countdown, and the winners block — gated on SETTLED — never appeared for
+       * the people most likely to be watching.
+       *
+       * A function rather than a number so the interval can stop: SETTLED and
+       * CANCELLED are terminal on the contract.
+       */
+      refetchInterval: (query: { state: { data: unknown } }) => {
+        const status = (query.state.data as { status?: number } | undefined)?.status;
+        if (status === undefined) return POLL_MS;
+        return status === GiveawayV2Status.SETTLED || status === GiveawayV2Status.CANCELLED
+          ? false
+          : POLL_MS;
+      },
+    },
   });
 
   const { data: effectiveEndTime } = useReadContract({
@@ -470,6 +558,34 @@ export const EventDetail: React.FC = () => {
   useEffect(() => {
     document.title = c.list.metaTitle;
   }, [c]);
+
+  /*
+   * Is this winner the visitor? Two addresses can be, and both deserve to see
+   * their own name: the wallet wagmi reports, and the address the bridge entry
+   * was made with, which entry/status returns to them and to nobody else.
+   * Compared case-insensitively — getWinners returns whatever casing the
+   * contract stored and useAccount returns EIP-55.
+   */
+  const { address: connected } = useAccount();
+  const isMine = (winner: string) => {
+    const address = winner.toLowerCase();
+    return (
+      address === connected?.toLowerCase() ||
+      address === entryStatusResult?.walletAddress?.toLowerCase()
+    );
+  };
+
+  const settled = g?.status === GiveawayV2Status.SETTLED;
+  const outcome = entryStatusResult?.outcome ?? null;
+
+  /*
+   * The gap between the draw landing on chain and the pipeline recording what it
+   * did to this entry — one pass of the cron, so seconds to a few minutes. The
+   * panel below keeps asking across it and stops the moment an answer arrives,
+   * which is why this is not simply "poll while settled".
+   */
+  const awaitingOutcome =
+    settled && entryStatusResult?.status === 'CONFIRMED' && outcome === null;
 
   if (giveawayId === null) return <div className="min-h-screen bg-black" />;
 
@@ -547,11 +663,31 @@ export const EventDetail: React.FC = () => {
                 <h3 className="font-bold text-white mb-3">{c.detail.previousWinners.title}</h3>
                 {Array.isArray(winners) && winners.length > 0 ? (
                   <ul className="space-y-1 font-mono text-sm text-gray-300">
-                    {(winners as `0x${string}`[]).map((w, i) => (
-                      <li key={`${w}-${i}`}>
-                        #{i + 1} {w}
-                      </li>
-                    ))}
+                    {(winners as `0x${string}`[]).map((w, i) => {
+                      // The one thing this list never did: tell you that one of
+                      // these rows is you. A winner had to recognise their own
+                      // address among strangers' to find out they had won.
+                      const mine = isMine(w);
+                      return (
+                        <li
+                          key={`${w}-${i}`}
+                          className={
+                            mine
+                              ? 'flex flex-wrap items-center gap-2 rounded-lg bg-success/10 px-2 py-1 text-success'
+                              : undefined
+                          }
+                        >
+                          <span className="break-all">
+                            #{i + 1} {w}
+                          </span>
+                          {mine && (
+                            <span className="rounded bg-success/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
+                              {c.detail.previousWinners.you}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500">{c.detail.previousWinners.empty}</p>
@@ -578,8 +714,17 @@ export const EventDetail: React.FC = () => {
                 {!acceptsEntries && g.status === GiveawayV2Status.OPEN && (
                   <ErrorBanner message={c.detail.participate.full} />
                 )}
-                <ParticipatePanel giveawayId={giveawayId} onStatus={setEntryStatusResult} />
-                {entryStatusResult?.custody && (
+                <ParticipatePanel
+                  giveawayId={giveawayId}
+                  awaitingOutcome={awaitingOutcome}
+                  onStatus={setEntryStatusResult}
+                />
+                <OutcomePanel
+                  outcome={outcome}
+                  awaiting={awaitingOutcome}
+                  selfCustody={entryStatusResult?.selfCustody === true}
+                />
+                {entryStatusResult?.custody && entryStatusResult.selfCustody !== true && (
                   <PrizePanel giveawayId={giveawayId} custody={entryStatusResult.custody} />
                 )}
               </>

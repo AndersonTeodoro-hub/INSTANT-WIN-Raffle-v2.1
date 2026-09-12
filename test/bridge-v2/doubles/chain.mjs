@@ -17,13 +17,14 @@
 
 import {
   ChainError,
+  cleanSymbol,
   encodeTokenPrizeData,
   giveawayIdFromLogs,
   planGas,
   rootIndexFromLogs,
 } from '../../../lib/bridge-v2/chain.ts';
 
-export { ChainError, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs };
+export { ChainError, cleanSymbol, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs };
 
 export const calls = [];
 
@@ -72,6 +73,9 @@ const DEFAULTS = () => ({
   slotPrice: 100_000n,
   erc20Allowance: 0n,
   erc20BalanceOf: 0n,
+  // The settlement notice's "what you won". null is the honest default for a
+  // token that implements neither, which mail.ts degrades around.
+  erc20Meta: { symbol: 'USDC', decimals: 6 },
   quoteApprove: { plan: plan(60_000n), data: '0xapprove' },
   quoteCreateGiveaway: { plan: plan(300_000n), data: '0xcreatecall' },
 });
@@ -135,6 +139,7 @@ export const currentCreationFee = (...args) => answer('currentCreationFee', args
 export const slotPrice = (...args) => answer('slotPrice', args);
 export const erc20Allowance = (...args) => answer('erc20Allowance', args);
 export const erc20BalanceOf = (...args) => answer('erc20BalanceOf', args);
+export const erc20Meta = (...args) => answer('erc20Meta', args);
 export const quoteApprove = (...args) => answer('quoteApprove', args);
 export const quoteCreateGiveaway = (...args) => answer('quoteCreateGiveaway', args);
 

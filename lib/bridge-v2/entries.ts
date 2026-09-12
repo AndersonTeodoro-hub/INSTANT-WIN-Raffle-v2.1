@@ -26,6 +26,18 @@ export type EntryStatus =
   | 'CONFIRMED'
   | 'FAILED';
 
+/**
+ * What a settled campaign did to this entry.
+ *
+ * NOT a status. status is the funnel the entry walks and it is complete at
+ * CONFIRMED; winning is a fact a third party produces afterwards, so it is a
+ * second column with its own lifecycle (migration 0010).
+ *
+ * VOID is a cancelled campaign: no draw happened, nobody won, nobody lost, and
+ * the entry needs a terminal value so it stops being asked about on every run.
+ */
+export type EntryOutcome = 'WON' | 'LOST' | 'VOID';
+
 export interface Entry {
   readonly id: string;
   readonly participantId: string;
@@ -37,6 +49,8 @@ export interface Entry {
   readonly txHash: string | null;
   /** 07/09/2026 decision: true once the participant declared their own address. */
   readonly selfCustody: boolean;
+  /** null until the campaign settles and the pipeline reads the result. */
+  readonly outcome: EntryOutcome | null;
 }
 
 interface EntryRow {
@@ -49,6 +63,7 @@ interface EntryRow {
   root_index: string | null;
   tx_hash: string | null;
   self_custody: boolean;
+  outcome: EntryOutcome | null;
 }
 
 /**
@@ -64,7 +79,7 @@ interface EntryRow {
  * bigint then happens from an exact decimal string.
  */
 const COLUMNS =
-  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash, self_custody';
+  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash, self_custody, outcome';
 
 function toEntry(row: EntryRow): Entry {
   return {
@@ -77,6 +92,11 @@ function toEntry(row: EntryRow): Entry {
     rootIndex: row.root_index === null ? null : BigInt(row.root_index),
     txHash: row.tx_hash,
     selfCustody: row.self_custody,
+    // ?? null rather than the raw value: a row selected before migration 0010
+    // ran, or by a test that builds rows by hand, carries undefined here, and
+    // `undefined` and `null` mean the same thing to every reader of this field
+    // while comparing differently.
+    outcome: row.outcome ?? null,
   };
 }
 
@@ -459,4 +479,169 @@ export async function touch(entryId: string): Promise<void> {
     .update({ updated_at: new Date().toISOString() })
     .eq('id', entryId)
     .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
+}
+
+// ---------------------------------------------------------------------------
+// settlement outcomes — migration 0010
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per campaign whose result has not reached every entrant.
+ *
+ * Grouped and ordered in the database, for the reason campaignsWithVerified
+ * states: a flat limit over entry rows lets one large campaign fill the window
+ * on every run and starve every campaign behind it.
+ *
+ * The queue necessarily contains campaigns that have not settled — from the
+ * database, "no result yet" and "settled but unreported" look identical — so the
+ * caller reads each one and touches the ones it cannot act on, which is what
+ * makes the order key (0010) move.
+ */
+export async function campaignsAwaitingOutcome(limit: number): Promise<bigint[]> {
+  const db = getDb();
+  const rows = checked(
+    'entry.campaigns_awaiting_outcome',
+    await db
+      .rpc('bridge_v2_campaigns_awaiting_outcome', { p_limit: limit })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as Array<{ giveaway_id: string }> | null;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => BigInt(row.giveaway_id));
+}
+
+/** An entry waiting to learn its result, or to have it sent. */
+export interface OutcomeTarget {
+  readonly entryId: string;
+  readonly walletAddress: `0x${string}`;
+  readonly selfCustody: boolean;
+  readonly outcome: EntryOutcome | null;
+  /** The canonical address on bridge_v2_participants. Never one from a request. */
+  readonly email: string;
+}
+
+interface OutcomeRow {
+  id: string;
+  wallet_address: string;
+  self_custody: boolean;
+  outcome: EntryOutcome | null;
+  participant: { email_canonical: string } | null;
+}
+
+/**
+ * The entries of one campaign that still need their result recorded or sent.
+ *
+ * ONE FILTER, NOT TWO: outcome_notified_at IS NULL covers both "result unknown"
+ * and "result known, notice unsent", because nothing writes that column before
+ * outcome. As an OR it would be the same rows in a form no partial index serves.
+ *
+ * Ordered by updated_at like every other queue here and like the campaign order
+ * in 0010, so one index serves both. The email is joined, and the join is inner
+ * because an entry whose participant is gone is not a person to write to.
+ */
+export async function listAwaitingOutcome(
+  giveawayId: bigint,
+  limit: number,
+): Promise<OutcomeTarget[]> {
+  const db = getDb();
+  const rows = checked(
+    'entry.list_awaiting_outcome',
+    await db
+      .from('bridge_v2_entries')
+      .select(
+        'id, wallet_address, self_custody, outcome, participant:bridge_v2_participants!inner(email_canonical)',
+      )
+      .eq('giveaway_id', giveawayId.toString())
+      .eq('status', 'CONFIRMED')
+      .is('outcome_notified_at', null)
+      .order('updated_at', { ascending: true })
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as OutcomeRow[] | null;
+
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    entryId: row.id,
+    walletAddress: row.wallet_address as `0x${string}`,
+    selfCustody: row.self_custody,
+    outcome: row.outcome ?? null,
+    email: row.participant?.email_canonical ?? '',
+  }));
+}
+
+/**
+ * Records what the campaign did to this entry.
+ *
+ * Conditional on the column still being NULL, so the value cannot be rewritten
+ * — not to arbitrate between two live runs (G6 allows only one), but for the run
+ * killed between reading the chain and writing the row, whose successor must not
+ * be able to write a second, different answer over the first.
+ *
+ * G2: false means the row already had an answer, and only that. A database error
+ * throws.
+ */
+export async function recordOutcome(entryId: string, outcome: EntryOutcome): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = checkedMaybe(
+    'entry.record_outcome',
+    await db
+      .from('bridge_v2_entries')
+      .update({ outcome, updated_at: now })
+      .eq('id', entryId)
+      .is('outcome', null)
+      .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
+}
+
+/**
+ * Claims the right to send this entry's notice, exactly once.
+ *
+ * The same shape as custody.claimCustodyExpiredAlert: reading the column and
+ * then writing it is the read-compare-write G1 forbids and would let two passes
+ * both send. Claimed BEFORE the email, so a run killed mid-send cannot produce a
+ * second "you won"; what that costs is a notice lost to a provider failure,
+ * which releaseNotice pays back.
+ */
+export async function claimNotice(entryId: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = checkedMaybe(
+    'entry.claim_notice',
+    await db
+      .from('bridge_v2_entries')
+      .update({ outcome_notified_at: now, updated_at: now })
+      .eq('id', entryId)
+      .is('outcome_notified_at', null)
+      .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
+}
+
+/**
+ * Puts a claimed notice back, because the provider did not accept it. Without
+ * it, every transient Resend failure is a result the participant is never told
+ * about — silently and permanently, since the row has left the queue.
+ *
+ * checked, like every other access here: a failure to release loses the notice
+ * for good, which is the silent database failure G2 exists to stop.
+ *
+ * ponytail: retries are unbounded, so an address refused for good costs one POST
+ * per run for ever. Add an attempt counter beside the column if the ops events
+ * ever show the same entry looping.
+ */
+export async function releaseNotice(entryId: string): Promise<void> {
+  const db = getDb();
+  checked(
+    'entry.release_notice',
+    await db
+      .from('bridge_v2_entries')
+      .update({ outcome_notified_at: null, updated_at: new Date().toISOString() })
+      .eq('id', entryId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
 }

@@ -38,7 +38,16 @@ export interface EventsCopy {
     timeLeftLabel: string;
     endedLabel: string;
     pausedBanner: string;
-    previousWinners: { title: string; empty: string };
+    previousWinners: { title: string; empty: string; you: string };
+    outcome: {
+      pending: string;
+      wonTitle: string;
+      wonBody: string;
+      /** The bridge holds no key for a self-custody wallet; only they can claim. */
+      wonBodySelf: string;
+      lostTitle: string;
+      lostBody: string;
+    };
     account: {
       signedInAs: string;
       signOut: string;
@@ -187,7 +196,18 @@ const en: EventsCopy = {
     timeLeftLabel: 'Entries close',
     endedLabel: 'Entries closed',
     pausedBanner: 'The platform is paused right now. Entries and new campaigns are on hold; claims and refunds are not affected.',
-    previousWinners: { title: 'Winners', empty: 'No winners drawn yet.' },
+    previousWinners: { title: 'Winners', empty: 'No winners drawn yet.', you: 'This is you' },
+    outcome: {
+      pending: 'The draw is done. Confirming what it means for your entry…',
+      wonTitle: 'You won',
+      wonBody:
+        'Your entry was drawn. Set the wallet your prize should go to below — we have also emailed you.',
+      wonBodySelf:
+        'Your entry was drawn. You entered with your own wallet, so the prize is yours to collect directly: call claimPrize on the contract from that wallet. We hold no key for it and cannot collect for you. The contract closes claims 90 days after the draw.',
+      lostTitle: 'Not this time',
+      lostBody:
+        'The draw is done and your entry was not among the winners. Nothing is owed and nothing is pending. The winners are listed above and the result is on Arbitrum, so you can check it yourself.',
+    },
     account: {
       signedInAs: 'Signed in as',
       signOut: 'Sign out',
@@ -344,7 +364,18 @@ const pt: EventsCopy = {
     timeLeftLabel: 'As entradas fecham',
     endedLabel: 'Entradas fechadas',
     pausedBanner: 'A plataforma está pausada neste momento. Entradas e novas campanhas estão suspensas; resgates e reembolsos não são afectados.',
-    previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.' },
+    previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.', you: 'É você' },
+    outcome: {
+      pending: 'O sorteio foi feito. A confirmar o que significa para a sua participação…',
+      wonTitle: 'Ganhou',
+      wonBody:
+        'A sua participação foi sorteada. Indique abaixo a carteira para onde enviar o prémio — também lhe enviámos um email.',
+      wonBodySelf:
+        'A sua participação foi sorteada. Entrou com a sua própria carteira, por isso o prémio é seu para levantar directamente: chame claimPrize no contrato a partir dessa carteira. Não temos a chave dela e não podemos levantar por si. O contrato fecha os resgates 90 dias após o sorteio.',
+      lostTitle: 'Não foi desta',
+      lostBody:
+        'O sorteio foi feito e a sua participação não saiu premiada. Não há nada em dívida nem nada pendente. Os vencedores estão listados acima e o resultado está na Arbitrum, por isso pode confirmá-lo por si.',
+    },
     account: {
       signedInAs: 'Sessão iniciada como',
       signOut: 'Terminar sessão',
@@ -501,7 +532,18 @@ const es: EventsCopy = {
     timeLeftLabel: 'Las entradas cierran',
     endedLabel: 'Entradas cerradas',
     pausedBanner: 'La plataforma está pausada en este momento. Las entradas y las campañas nuevas están suspendidas; los reclamos y reembolsos no se ven afectados.',
-    previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.' },
+    previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.', you: 'Eres tú' },
+    outcome: {
+      pending: 'El sorteo ya se hizo. Confirmando qué significa para tu participación…',
+      wonTitle: 'Has ganado',
+      wonBody:
+        'Tu participación fue sorteada. Indica abajo la wallet a la que enviar el premio — también te hemos enviado un correo.',
+      wonBodySelf:
+        'Tu participación fue sorteada. Entraste con tu propia wallet, así que el premio es tuyo para reclamarlo directamente: llama a claimPrize en el contrato desde esa wallet. No tenemos su clave y no podemos reclamarlo por ti. El contrato cierra los reclamos 90 días después del sorteo.',
+      lostTitle: 'Esta vez no',
+      lostBody:
+        'El sorteo ya se hizo y tu participación no resultó premiada. No se debe nada y no hay nada pendiente. Los ganadores están arriba y el resultado está en Arbitrum, así que puedes comprobarlo tú mismo.',
+    },
     account: {
       signedInAs: 'Sesión iniciada como',
       signOut: 'Cerrar sesión',

@@ -50,10 +50,33 @@ export interface EntryStartResult {
 export const entryStart = (giveawayId: bigint) =>
   call<EntryStartResult>('entry/start', { giveawayId: giveawayId.toString() });
 
+/**
+ * What a settled campaign did to one entry.
+ *
+ * Declared here rather than a third time in the page: this module is already the
+ * one place the page reads the shape of an API answer from, and a union written
+ * out at each use is a union that drifts at one of them. The server has its own
+ * copy in lib/bridge-v2/entries.ts, which is deliberate — that module imports a
+ * database client and must not be pulled into the browser bundle.
+ */
+export type EntryOutcome = 'WON' | 'LOST' | 'VOID';
+
 export interface EntryStatusResult {
   readonly status: string;
   readonly walletAddress?: string;
   readonly txHash?: string | null;
+  /**
+   * What the settled campaign did to this entry, or null while it is still
+   * undecided. The page reads this, never the presence of `custody`, which is
+   * the rule that would apply on a win and is written at entry time.
+   */
+  readonly outcome?: EntryOutcome | null;
+  /**
+   * 07/09/2026 decision: the participant entered with their own address, so the
+   * bridge holds no key for it and will never claim or deliver on their behalf.
+   * The advice the page gives has to be different, or it is wrong.
+   */
+  readonly selfCustody?: boolean;
   readonly custody: {
     prizeKind: 'TOKEN' | 'NFT';
     requiresOwnWallet: boolean;

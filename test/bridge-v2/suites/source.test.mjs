@@ -621,8 +621,28 @@ await test(['J6'], 'the code is in the body of the mail and never in its subject
   const subject = mail.match(/const CODE_SUBJECT = '([^']*)'/)?.[1];
   assert.ok(subject, 'there is no fixed subject');
   assert.ok(!/\$\{/.test(subject), 'the subject interpolates something');
-  assert.match(mail, /subject: CODE_SUBJECT/);
-  assert.match(mail, /text: codeBody\(code, ttlMinutes\)/);
+  // The two arguments in the order post() declares them: subject second, body
+  // third. Written against the call rather than an object literal since the
+  // settlement notices gave that call a second caller, and the property is the
+  // same one either way — the code is an argument to the body, never the subject.
+  assert.match(mail, /post\(to, CODE_SUBJECT, codeBody\(code, ttlMinutes\)\)/);
+  assert.match(mail, /subject,\s*\n\s*text,/, 'post does not pass a subject and a text');
+});
+
+await test(['J6', 'R3'], 'a settlement subject names the campaign and nothing else', () => {
+  // The notice may say what a verification code may not, because a settled
+  // campaign's winners are a public list on a public chain. What it may still
+  // not do is carry anything that is not already public, so the subject is
+  // allowed exactly one interpolation and it is the giveaway id.
+  const mail = codeOnly(read(`${root}lib/bridge-v2/mail.ts`));
+  const subjectFunction = mail.match(/function noticeSubject\([\s\S]*?\n\}/)?.[0] ?? '';
+  assert.ok(subjectFunction, 'there is no settlement subject');
+  const interpolations = [...subjectFunction.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1].trim());
+  assert.deepEqual(
+    [...new Set(interpolations)],
+    ['notice.giveawayId'],
+    'the settlement subject carries something other than the campaign id',
+  );
 });
 
 await test(['J7'], 'the sender is configured, and is not the shared provider address', () => {

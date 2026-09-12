@@ -40,7 +40,15 @@ import {
 
 suite('engine');
 
-const V2 = ['0004_bridge_v2_schema.sql', '0005_bridge_v2_functions.sql', '0006_bridge_v2_grants.sql'];
+const V2 = [
+  '0004_bridge_v2_schema.sql',
+  '0005_bridge_v2_functions.sql',
+  '0006_bridge_v2_grants.sql',
+  // 0010 alters bridge_v2_entries and adds a function of its own. Nothing in
+  // this suite read it at all until now: it shipped with no check over its text
+  // and none over its behaviour.
+  '0010_bridge_v2_outcomes.sql',
+];
 const V1 = ['0001_bridge_schema.sql', '0002_funder_locks.sql', '0003_bridge_grants.sql'];
 
 /** A well-formed address that is not anybody's. */
@@ -124,13 +132,13 @@ const funders = async (count) => {
 // 1. applying the three migrations
 // ===========================================================================
 
-await test(['I5', 'I6'], '0004, 0005 and 0006 apply in order to an empty target-shaped database', async () => {
+await test(['I5', 'I6'], '0004, 0005, 0006 and 0010 apply in order to an empty target-shaped database', async () => {
   // Applied above, before any test ran, because everything below needs them.
   // What is asserted here is that they left behind what they claim to create.
   const tables = await bridgeTables(target);
   assert.equal(tables.length, 16, `0004 declares sixteen tables, the catalog holds ${tables.length}`);
   const functions = await bridgeFunctions(target);
-  assert.equal(functions.length, 21, `0005 defines twenty-one functions, the catalog holds ${functions.length}`);
+  assert.equal(functions.length, 22, `0005 and 0010 define twenty-two functions, the catalog holds ${functions.length}`);
   const sequences = await rows(
     `SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'S' AND c.relname LIKE 'bridge\\_v2\\_%'`,
@@ -138,7 +146,7 @@ await test(['I5', 'I6'], '0004, 0005 and 0006 apply in order to an empty target-
   assert.equal(sequences.length, 3, 'three sequences: wallet index, run, ops events');
 });
 
-await test(['I6'], 'applying the three again changes nothing and raises nothing', async () => {
+await test(['I6'], 'applying them again changes nothing and raises nothing', async () => {
   const before = await rows(
     `SELECT count(*)::int AS tables FROM pg_tables
       WHERE schemaname = 'public' AND tablename LIKE 'bridge\\_v2\\_%'`,
@@ -155,7 +163,7 @@ await test(['I6'], 'applying the three again changes nothing and raises nothing'
   );
   assert.deepEqual(after, before, 'a re-application created or dropped a table');
   const functions = await bridgeFunctions(target);
-  assert.equal(functions.length, 21, 'a re-application left a second overload of some function behind');
+  assert.equal(functions.length, 22, 'a re-application left a second overload of some function behind');
 });
 
 await test(['I6'], '0004 installs citext itself when the project does not already carry it', async () => {
@@ -196,7 +204,7 @@ await test(['I5'], 'every function runs as its caller and resolves citext throug
 });
 
 // ===========================================================================
-// 2. the twenty-one functions
+// 2. the twenty-two functions
 // ===========================================================================
 
 // --- bridge_v2_rate_limit_hit ---------------------------------------------
@@ -1220,6 +1228,155 @@ await test([], 'citext resolves from the extensions schema, which is where the t
     await client.query(`RESET search_path`).catch(() => {});
     client.release();
   }
+});
+
+
+/** A campaign id no other test in this file uses. */
+const gid = () => String(9_000_000 + ++counter);
+
+// ===========================================================================
+// 8. 0010 — the settlement outcome, executed
+// ===========================================================================
+
+await test(['I5'], '0010 adds the two columns and the constraint they need', async () => {
+  const columns = await rows(
+    `SELECT column_name, data_type FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'bridge_v2_entries'
+        AND column_name IN ('outcome', 'outcome_notified_at') ORDER BY column_name`,
+  );
+  assert.deepEqual(columns.map((row) => row.column_name), ['outcome', 'outcome_notified_at']);
+
+  const who = await participant();
+  const id = await entry(who, gid(), 'CONFIRMED');
+  await q(`UPDATE bridge_v2_entries SET outcome = 'WON' WHERE id = $1`, [id]);
+  let refused = null;
+  try {
+    await q(`UPDATE bridge_v2_entries SET outcome = 'MAYBE' WHERE id = $1`, [id]);
+  } catch (error) {
+    refused = error;
+  }
+  assert.ok(refused !== null, 'the CHECK accepts a value the code never writes');
+});
+
+await test(['C8', 'G4'], 'the campaign queue serves the least recently looked at first', async () => {
+  // THE STARVATION THIS ORDER EXISTS TO PREVENT, executed rather than asserted.
+  // The queue necessarily holds campaigns that have not settled, CONFIRMED is
+  // terminal, and nothing writes those rows on its own — so with min(updated_at)
+  // the oldest open campaign holds the head of the batch on every run for ever.
+  // A settled campaign behind it would never be reached and its winners never
+  // told, which is the failure the whole migration exists to remove.
+  const who = await participant();
+  const open = gid();
+  const settledLater = gid();
+
+  const openEntry = await entry(who, open, 'CONFIRMED');
+  await q(`UPDATE bridge_v2_entries SET updated_at = now() - interval '30 days' WHERE id = $1`, [openEntry]);
+  const lateEntry = await entry(who, settledLater, 'CONFIRMED');
+  await q(`UPDATE bridge_v2_entries SET updated_at = now() - interval '1 hour' WHERE id = $1`, [lateEntry]);
+
+  const before = (await rows(`SELECT giveaway_id FROM bridge_v2_campaigns_awaiting_outcome(1000)`))
+    .map((row) => row.giveaway_id);
+  assert.ok(before.indexOf(open) < before.indexOf(settledLater), 'the longest waiting campaign is not first');
+
+  // What the pipeline does to a campaign it cannot act on: one touch, one row.
+  await q(`UPDATE bridge_v2_entries SET updated_at = now() WHERE id = $1`, [openEntry]);
+
+  const after = (await rows(`SELECT giveaway_id FROM bridge_v2_campaigns_awaiting_outcome(1000)`))
+    .map((row) => row.giveaway_id);
+  assert.ok(
+    after.indexOf(settledLater) < after.indexOf(open),
+    'one touch did not move the campaign out of the way, so the queue cannot advance',
+  );
+});
+
+await test(['C8'], 'a campaign whose entries have all been notified leaves the queue', async () => {
+  const who = await participant();
+  const done = gid();
+  const id = await entry(who, done, 'CONFIRMED');
+  const listed = async () =>
+    (await rows(`SELECT giveaway_id FROM bridge_v2_campaigns_awaiting_outcome(1000)`))
+      .map((row) => row.giveaway_id);
+
+  assert.ok((await listed()).includes(done), 'an unreported campaign is not in the queue');
+  await q(`UPDATE bridge_v2_entries SET outcome = 'LOST', outcome_notified_at = now() WHERE id = $1`, [id]);
+  assert.ok(!(await listed()).includes(done), 'a fully reported campaign is still in the queue');
+});
+
+await test(['I5'], '0010 leaves the function callable by service_role and by nobody else', async () => {
+  const privileges = await one(
+    `SELECT has_function_privilege('anon',          p.oid, 'EXECUTE') AS anon,
+            has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+            has_function_privilege('service_role',  p.oid, 'EXECUTE') AS service,
+            EXISTS (SELECT 1 FROM aclexplode(p.proacl) acl
+                     WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') AS public
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = 'bridge_v2_campaigns_awaiting_outcome'`,
+  );
+  assert.deepEqual(privileges, { anon: false, authenticated: false, service: true, public: false });
+});
+
+await test(['C8', 'I6'], "0010's backfill decides every shape of custody, and queues none of them", async () => {
+  // THE RISKIEST STATEMENT IN THE FILE AND THE ONLY ONE NOTHING EXECUTED. Every
+  // application until now was against an empty database, so the UPDATE never
+  // touched a row and sql.test.mjs could only read its text. It runs once, over
+  // whatever production already holds, and both of its mistakes are one-way:
+  // an outcome written over a live winner cannot be taken back, and an email
+  // about a campaign that ended months ago cannot be unsent.
+  const campaign = gid();
+
+  // One entrant each: a participant enters a campaign once (0004's unique key).
+  const shaped = async (claimed, delivered, noPrize) => {
+    const id = await entry(await participant(), campaign, 'CONFIRMED');
+    await q(
+      `INSERT INTO bridge_v2_custody
+         (entry_id, prize_kind, requires_own_wallet, claimed_at, delivered_at, no_prize_at)
+       VALUES ($1, 'TOKEN', false, ${claimed}, ${delivered}, ${noPrize})`,
+      [id],
+    );
+    return id;
+  };
+  const NO = 'NULL';
+  const YES = 'now()';
+
+  const delivered = await shaped(YES, YES, NO);
+  const lost = await shaped(NO, NO, YES);
+  const claimedOnly = await shaped(YES, NO, NO);
+  const openCustody = await shaped(NO, NO, NO);
+  // And the fifth shape, which is no custody row at all: an entry of a campaign
+  // that has not drawn yet.
+  const none = await entry(await participant(), campaign, 'CONFIRMED');
+
+  const applied = await applyMigration(target, '0010_bridge_v2_outcomes.sql');
+  assert.ok(applied.ok, `0010 did not re-apply: ${applied.ok ? '' : `${applied.at} ${applied.text}`}`);
+
+  const outcomeOf = (id) => scalar(`SELECT outcome FROM bridge_v2_entries WHERE id = $1`, [id]);
+
+  assert.equal(await outcomeOf(delivered), 'WON', 'a prize that reached its winner is not a win');
+  assert.equal(await outcomeOf(lost), 'VOID', 'an entry owed nothing kept an outcome that says otherwise');
+  assert.equal(
+    await outcomeOf(claimedOnly),
+    'WON',
+    'a prize already in the derived wallet was written off — VOID is what the destination route refuses, so the winner loses the only form that could still send it anywhere',
+  );
+  assert.equal(
+    await outcomeOf(openCustody),
+    null,
+    'the backfill guessed a result the database cannot know, over a campaign that may still be open',
+  );
+  assert.equal(await outcomeOf(none), null, 'the backfill guessed a result for an entry with no custody at all');
+
+  // WHAT ALL FIVE HAVE IN COMMON. Whatever was decided, none of them is left in
+  // the queue: the first run after the migration emails nobody about a campaign
+  // that predates it.
+  const waiting = await rows(
+    `SELECT id FROM bridge_v2_entries WHERE giveaway_id = $1 AND outcome_notified_at IS NULL`,
+    [campaign],
+  );
+  assert.equal(waiting.length, 0, `${waiting.length} entries older than the migration are still owed an email`);
+
+  const queued = (await rows(`SELECT giveaway_id FROM bridge_v2_campaigns_awaiting_outcome(1000)`))
+    .map((row) => row.giveaway_id);
+  assert.ok(!queued.includes(campaign), 'a campaign that predates the migration is in the notice queue');
 });
 
 }

@@ -52,6 +52,12 @@ export type OpsKind =
   | 'prize.failed'
   | 'sweep.done'
   | 'cleanup.done'
+  // The result of a settled campaign, per entry, and the email that reports it.
+  // outcome.recorded carries no address and no email — K4: the ops table takes
+  // the giveaway and the answer, never the person.
+  | 'outcome.recorded'
+  | 'outcome.notified'
+  | 'outcome.failed'
   // 07/09/2026 decision: a creator without a wallet, creator/campaign/submit.ts.
   | 'creator_campaign.confirmed'
   | 'creator_campaign.failed'

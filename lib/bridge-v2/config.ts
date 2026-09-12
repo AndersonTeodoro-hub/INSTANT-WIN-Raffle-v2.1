@@ -341,6 +341,19 @@ export type PipelinePhase = keyof typeof PHASE_RESERVATION_MS;
 export const SELF_CUSTODY_RECONCILE_MS = 2 * RPC_TIMEOUT_MS;
 
 /**
+ * What one settlement notice costs: the two reads that decide whether a wallet
+ * won, the one email, and the writes around them. It signs nothing and waits for
+ * no receipt.
+ *
+ * NOT a pipeline phase, for the reason stated directly above: a sixth name in
+ * the rotation changes the bound the G4 tests fix at five. It runs inside
+ * processPrizes, the stage about campaigns that have settled — and after its
+ * queue, because 240_000 + 52_000 does not fit in a 280_000 ms run and whichever
+ * goes first takes the budget.
+ */
+export const SETTLEMENT_NOTICE_MS = 2 * RPC_TIMEOUT_MS + HTTP_TIMEOUT_MS + 3 * DB_TIMEOUT_MS;
+
+/**
  * The phases in their declared order, which is the order a run prefers: the two
  * reconciliations first, so an entry that has already landed is not looked at
  * again by the stages behind them; prizes last, because they are the one stage
@@ -418,6 +431,9 @@ export const SWEEP_WORST_CASE_MS = 5 * RPC_TIMEOUT_MS;
 const EVERY_RESERVATION_MS: Record<string, number> = {
   ...PHASE_RESERVATION_MS,
   sweep: SWEEP_WORST_CASE_MS,
+  // Not a phase, checked anyway: the unit that disappeared was the one whose
+  // reservation nobody compared against the budget.
+  settlementNotice: SETTLEMENT_NOTICE_MS,
 };
 
 export const LARGEST_UNIT_MS = Math.max(...Object.values(EVERY_RESERVATION_MS));
