@@ -215,7 +215,7 @@ const en: EventsCopy = {
     },
     trust: {
       draw: 'Winners are drawn by Chainlink VRF',
-      custody: 'The contract holds the prize until it is claimed',
+      custody: 'The creator deposits the prize into the contracts when creating the campaign',
       free: 'Entering is free — the creator funds the prize',
     },
   },
@@ -231,7 +231,7 @@ const en: EventsCopy = {
     endedLabel: 'Entries closed',
     pausedBanner: 'The platform is paused right now. Entries and new campaigns are on hold; claims and refunds are not affected.',
     byCreator: 'Campaign by',
-    freeToEnter: 'Entering costs you nothing. Whoever created this campaign funded the prize up front and it is already sitting in the contract.',
+    freeToEnter: 'There is no entry fee. If you enter through our bridge, it pays the gas for you; if you enter with your own wallet, you pay the gas yourself. Whoever created this campaign deposited the prize into the contracts when they created it.',
     entriesLabel: 'Places taken',
     yourEntry: 'Your entry',
     steps: {
@@ -239,7 +239,7 @@ const en: EventsCopy = {
       entry: 'Enter the draw',
       prize: 'Where your prize goes',
     },
-    proofLine: 'The winner is drawn by Chainlink VRF: nobody picks it and nobody can change it — not the creator, and not us. The prize is held by the contract rather than by either of us, and the winner has 90 days after the draw to collect it. Once that window closes, the contract lets the creator reclaim a prize that was never claimed.',
+    proofLine: 'Winners are drawn by Chainlink VRF, and no function in the contract lets anyone choose or change them — not the creator, and not us. Only a drawn address can claim its prize, and only within 90 days of the draw; after that, the creator can take back whatever was never claimed. If the campaign is cancelled, the creator can take the prize back. In an NFT campaign with fewer winners than items, the creator can also take back the items nobody won. If you entered through our bridge, the drawn address is one of the bridge’s wallets: only the bridge can claim that prize, and it sends it on only to a wallet you have confirmed.',
     previousWinners: { title: 'Winners', empty: 'No winners drawn yet.', you: 'This is you' },
     outcome: {
       pending: 'The draw is done. Confirming what it means for your entry…',
@@ -372,7 +372,7 @@ const en: EventsCopy = {
     },
     reloadPrompt: 'Additional slots to buy',
     nextStep: 'Next step',
-    noActions: 'Running. Nothing needs you right now.',
+    noActions: 'No pending step to show right now.',
   },
 };
 
@@ -408,7 +408,7 @@ const pt: EventsCopy = {
     },
     trust: {
       draw: 'Os vencedores são sorteados pela Chainlink VRF',
-      custody: 'O contrato guarda o prémio até ser reclamado',
+      custody: 'Quem cria a campanha deposita o prémio nos contratos ao criá-la',
       free: 'Participar é grátis — o prémio é pago por quem criou',
     },
   },
@@ -424,7 +424,7 @@ const pt: EventsCopy = {
     endedLabel: 'Entradas fechadas',
     pausedBanner: 'A plataforma está pausada neste momento. Entradas e novas campanhas estão suspensas; resgates e reembolsos não são afectados.',
     byCreator: 'Campanha de',
-    freeToEnter: 'Participar não lhe custa nada. Quem criou esta campanha pagou o prémio à cabeça e ele já está dentro do contrato.',
+    freeToEnter: 'Não há taxa de participação. Se participar através da nossa ponte, é ela que paga o gas; se participar com a sua própria carteira, paga o gas você mesmo. Quem criou esta campanha depositou o prémio nos contratos ao criá-la.',
     entriesLabel: 'Lugares ocupados',
     yourEntry: 'A sua participação',
     steps: {
@@ -432,7 +432,7 @@ const pt: EventsCopy = {
       entry: 'Entre no sorteio',
       prize: 'Para onde vai o seu prémio',
     },
-    proofLine: 'O vencedor é sorteado pela Chainlink VRF: ninguém o escolhe e ninguém o pode trocar — nem quem criou a campanha, nem nós. O prémio fica guardado pelo contrato e não por nenhum dos dois, e o vencedor tem 90 dias após o sorteio para o levantar. Fechado esse prazo, o contrato deixa quem criou a campanha recuperar um prémio que nunca foi reclamado.',
+    proofLine: 'Os vencedores são sorteados pela Chainlink VRF e nenhuma função do contrato permite que alguém os escolha ou troque — nem quem criou a campanha, nem nós. Só um endereço sorteado pode levantar o seu prémio, e só nos 90 dias após o sorteio; depois disso, quem criou a campanha pode recuperar o que nunca foi levantado. Se a campanha for cancelada, quem a criou pode recuperar o prémio. Numa campanha NFT com menos vencedores do que itens, pode também recuperar os itens que ninguém ganhou. Se participou através da nossa ponte, o endereço sorteado é uma das carteiras da ponte: só a ponte pode levantar esse prémio, e só o envia para uma carteira que tenha confirmado.',
     previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.', you: 'É você' },
     outcome: {
       pending: 'O sorteio foi feito. A confirmar o que significa para a sua participação…',
@@ -565,7 +565,7 @@ const pt: EventsCopy = {
     },
     reloadPrompt: 'Slots adicionais a comprar',
     nextStep: 'Próximo passo',
-    noActions: 'A correr. Nada precisa de você agora.',
+    noActions: 'Nenhum passo pendente para mostrar agora.',
   },
 };
 
@@ -601,7 +601,7 @@ const es: EventsCopy = {
     },
     trust: {
       draw: 'Los ganadores los sortea Chainlink VRF',
-      custody: 'El contrato guarda el premio hasta que se reclama',
+      custody: 'Quien crea la campaña deposita el premio en los contratos al crearla',
       free: 'Participar es gratis — el premio lo paga quien creó la campaña',
     },
   },
@@ -617,7 +617,7 @@ const es: EventsCopy = {
     endedLabel: 'Entradas cerradas',
     pausedBanner: 'La plataforma está pausada en este momento. Las entradas y las campañas nuevas están suspendidas; los reclamos y reembolsos no se ven afectados.',
     byCreator: 'Campaña de',
-    freeToEnter: 'Participar no te cuesta nada. Quien creó esta campaña pagó el premio por adelantado y ya está dentro del contrato.',
+    freeToEnter: 'No hay tarifa de participación. Si participas a través de nuestro puente, él paga el gas por ti; si participas con tu propia wallet, pagas el gas tú. Quien creó esta campaña depositó el premio en los contratos al crearla.',
     entriesLabel: 'Lugares ocupados',
     yourEntry: 'Tu participación',
     steps: {
@@ -625,7 +625,7 @@ const es: EventsCopy = {
       entry: 'Entra en el sorteo',
       prize: 'Adónde va tu premio',
     },
-    proofLine: 'Al ganador lo sortea Chainlink VRF: nadie lo elige y nadie lo puede cambiar — ni quien creó la campaña, ni nosotros. El premio lo guarda el contrato y no ninguno de los dos, y el ganador tiene 90 días después del sorteo para cobrarlo. Cerrado ese plazo, el contrato permite a quien creó la campaña recuperar un premio que nunca se reclamó.',
+    proofLine: 'Los ganadores los sortea Chainlink VRF y ninguna función del contrato permite que alguien los elija o los cambie — ni quien creó la campaña, ni nosotros. Solo una dirección sorteada puede cobrar su premio, y solo dentro de los 90 días después del sorteo; pasado ese plazo, quien creó la campaña puede recuperar lo que nunca se cobró. Si la campaña se cancela, quien la creó puede recuperar el premio. En una campaña NFT con menos ganadores que ítems, también puede recuperar los ítems que nadie ganó. Si participaste a través de nuestro puente, la dirección sorteada es una de las wallets del puente: solo el puente puede cobrar ese premio, y solo lo envía a una wallet que hayas confirmado.',
     previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.', you: 'Eres tú' },
     outcome: {
       pending: 'El sorteo ya se hizo. Confirmando qué significa para tu participación…',
@@ -758,7 +758,7 @@ const es: EventsCopy = {
     },
     reloadPrompt: 'Cupos adicionales a comprar',
     nextStep: 'Próximo paso',
-    noActions: 'En marcha. Nada te necesita ahora.',
+    noActions: 'Ningún paso pendiente que mostrar ahora.',
   },
 };
 

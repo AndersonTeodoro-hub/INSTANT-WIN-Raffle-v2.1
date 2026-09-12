@@ -269,8 +269,8 @@ const en: AppCopy = {
       total: 'Total',
       drawIn: 'Draw in',
       closing: 'Closing now',
-      drawing: 'Draw under way',
-      footnote: 'Nothing to keep safe. Your ticket lives on Arbitrum under your name, and so does anything it wins.',
+      drawing: 'Round ended',
+      footnote: 'There is no paper ticket to lose: tickets are recorded on Arbitrum against the wallet that buys them, and only that wallet can claim what they win or their refund. Keep that wallet safe.',
       oddsHint: 'Your odds move as other players buy into the same round.',
     },
     proof: {
@@ -428,8 +428,8 @@ const pt: AppCopy = {
       total: 'Total',
       drawIn: 'Sorteio em',
       closing: 'Fechando agora',
-      drawing: 'Sorteio em andamento',
-      footnote: 'Não há nada para guardar. Seu bilhete fica na Arbitrum no seu nome, e o que ele ganhar também.',
+      drawing: 'Rodada encerrada',
+      footnote: 'Não há bilhete de papel para perder: os bilhetes ficam registrados na Arbitrum na carteira que os compra, e só essa carteira pode sacar o que eles ganharem ou o reembolso deles. Guarde bem essa carteira.',
       oddsHint: 'Suas chances mudam conforme outros jogadores entram na mesma rodada.',
     },
     proof: {
@@ -585,8 +585,8 @@ const es: AppCopy = {
       total: 'Total',
       drawIn: 'Sorteo en',
       closing: 'Cerrando ahora',
-      drawing: 'Sorteo en curso',
-      footnote: 'No hay nada que guardar. Tu boleto vive en Arbitrum a tu nombre, y lo que gane también.',
+      drawing: 'Ronda terminada',
+      footnote: 'No hay boleto de papel que perder: los boletos quedan registrados en Arbitrum a nombre de la wallet que los compra, y solo esa wallet puede retirar lo que ganen o su reembolso. Guarda bien esa wallet.',
       oddsHint: 'Tus probabilidades cambian a medida que otros jugadores entran en la misma ronda.',
     },
     proof: {
