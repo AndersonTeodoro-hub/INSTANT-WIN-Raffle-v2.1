@@ -94,8 +94,8 @@ export const Navbar: React.FC = () => {
                 </div>
             </div>
 
-            {/* Abaixo de sm a barra não tem espaço para três alvos de 44px: o
-                selector passa a viver no menu mobile, logo abaixo. */}
+            {/* Abaixo de sm a barra não tem espaço para um quarto alvo de 44px:
+                o selector passa para a tira própria, logo abaixo da barra. */}
             <LangSwitch className="hidden sm:inline-flex" />
 
             <ShareButton variant="icon" />
@@ -111,6 +111,20 @@ export const Navbar: React.FC = () => {
                 <Menu className="w-6 h-6" />
             </button>
         </div>
+      </div>
+
+      {/*
+        Selector de idioma em telemóvel.
+
+        Vivia dentro do menu hambúrguer, o que o tornava inalcançável sem abrir
+        um menu — e o idioma tem de estar ao alcance em todas as páginas, sem
+        abrir nada. Não cabe na barra abaixo de sm (a 390px a linha já leva
+        marca, partilha, wallet e o botão do menu), por isso desce para uma tira
+        própria. É o mesmo padrão de duas linhas que o header do Event Center já
+        usa em telemóvel, e é o mesmo componente — não há segunda implementação.
+      */}
+      <div className="sm:hidden flex justify-center border-t border-dark-border/60 py-1">
+        <LangSwitch />
       </div>
 
       {/* Mobile Menu */}
@@ -129,10 +143,6 @@ export const Navbar: React.FC = () => {
                     </div>
                 </Link>
             ))}
-
-            <div className="sm:hidden mt-2 pt-3 border-t border-dark-border flex justify-center">
-                <LangSwitch />
-            </div>
         </div>
       )}
     </nav>
