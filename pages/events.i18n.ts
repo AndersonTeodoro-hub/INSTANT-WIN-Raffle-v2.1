@@ -239,7 +239,7 @@ const en: EventsCopy = {
       entry: 'Enter the draw',
       prize: 'Where your prize goes',
     },
-    proofLine: 'The winner is drawn by Chainlink VRF and the prize stays in the contract until it is claimed. Nobody can pick a winner, change one, or stop a prize being collected — not the creator, and not us.',
+    proofLine: 'The winner is drawn by Chainlink VRF: nobody picks it and nobody can change it — not the creator, and not us. The prize is held by the contract rather than by either of us, and the winner has 90 days after the draw to collect it. Once that window closes, the contract lets the creator reclaim a prize that was never claimed.',
     previousWinners: { title: 'Winners', empty: 'No winners drawn yet.', you: 'This is you' },
     outcome: {
       pending: 'The draw is done. Confirming what it means for your entry…',
@@ -432,7 +432,7 @@ const pt: EventsCopy = {
       entry: 'Entre no sorteio',
       prize: 'Para onde vai o seu prémio',
     },
-    proofLine: 'O vencedor é sorteado pela Chainlink VRF e o prémio fica no contrato até ser reclamado. Ninguém pode escolher um vencedor, trocá-lo, ou impedir que um prémio seja levantado — nem quem criou a campanha, nem nós.',
+    proofLine: 'O vencedor é sorteado pela Chainlink VRF: ninguém o escolhe e ninguém o pode trocar — nem quem criou a campanha, nem nós. O prémio fica guardado pelo contrato e não por nenhum dos dois, e o vencedor tem 90 dias após o sorteio para o levantar. Fechado esse prazo, o contrato deixa quem criou a campanha recuperar um prémio que nunca foi reclamado.',
     previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.', you: 'É você' },
     outcome: {
       pending: 'O sorteio foi feito. A confirmar o que significa para a sua participação…',
@@ -625,7 +625,7 @@ const es: EventsCopy = {
       entry: 'Entra en el sorteo',
       prize: 'Adónde va tu premio',
     },
-    proofLine: 'Al ganador lo sortea Chainlink VRF y el premio se queda en el contrato hasta que se reclama. Nadie puede elegir un ganador, cambiarlo, ni impedir que se cobre un premio — ni quien creó la campaña, ni nosotros.',
+    proofLine: 'Al ganador lo sortea Chainlink VRF: nadie lo elige y nadie lo puede cambiar — ni quien creó la campaña, ni nosotros. El premio lo guarda el contrato y no ninguno de los dos, y el ganador tiene 90 días después del sorteo para cobrarlo. Cerrado ese plazo, el contrato permite a quien creó la campaña recuperar un premio que nunca se reclamó.',
     previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.', you: 'Eres tú' },
     outcome: {
       pending: 'El sorteo ya se hizo. Confirmando qué significa para tu participación…',
