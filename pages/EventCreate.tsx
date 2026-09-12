@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { encodeAbiParameters, formatUnits, parseEventLogs, parseUnits } from 'viem';
-import { ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { CONTRACTS, USDC_ABI } from '../constants';
 import {
   ERC20_META_ABI,
@@ -12,24 +12,17 @@ import {
   GiveawayV2PrizeKind,
 } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
-import { ConnectWallet } from '../components/ConnectWallet';
-import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { LangSwitch } from '../components/LangSwitch';
+import { Banner } from '../components/Banner';
+import { EventShell } from '../components/EventShell';
+import { Step } from '../components/Step';
 import { useEventsCopy } from './events.i18n';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
-function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-      <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-      <span>{message}</span>
-    </div>
-  );
-}
-
 const inputClass =
-  'w-full min-h-[48px] rounded-lg border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-gray-500';
+  'w-full min-h-[52px] rounded-xl border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-400 focus:border-gray-500';
+
+const labelClass = 'block text-sm text-gray-400 mb-2';
 
 /** Aprovação ERC-20 (approve por montante) — módulo de prémio ou núcleo, taxa ou slots. */
 function Erc20Approval({
@@ -63,22 +56,22 @@ function Erc20Approval({
   const done = amountNeeded === 0n || ((allowance as bigint | undefined) ?? 0n) >= amountNeeded;
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-black/30 px-4 py-3">
-      <span className="text-sm text-gray-300 flex items-center gap-2">
-        {done && <CheckCircle2 className="w-4 h-4 text-success shrink-0" />}
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dark-border px-4 py-3">
+      <span className="flex items-center gap-2 min-w-0 text-sm text-gray-300">
+        {done && <CheckCircle2 className="w-4 h-4 text-success shrink-0" aria-hidden="true" />}
         {done ? doneLabel : label}
       </span>
       {!done && (
         <Button
           variant="outline"
-          className="text-sm px-4 py-2"
+          className="shrink-0 px-4 py-2 text-sm"
           isLoading={isPending || confirming}
           onClick={() => writeContract({ address: token, abi: USDC_ABI, functionName: 'approve', args: [spender, amountNeeded] })}
         >
           {label}
         </Button>
       )}
-      {error && <span className="text-xs text-red-400">{error.message.slice(0, 80)}</span>}
+      {error && <span className="w-full text-xs text-red-400">{error.message.slice(0, 80)}</span>}
     </div>
   );
 }
@@ -115,22 +108,22 @@ function NftApproval({
   const done = approved === true;
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-black/30 px-4 py-3">
-      <span className="text-sm text-gray-300 flex items-center gap-2">
-        {done && <CheckCircle2 className="w-4 h-4 text-success shrink-0" />}
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dark-border px-4 py-3">
+      <span className="flex items-center gap-2 min-w-0 text-sm text-gray-300">
+        {done && <CheckCircle2 className="w-4 h-4 text-success shrink-0" aria-hidden="true" />}
         {done ? doneLabel : label}
       </span>
       {!done && (
         <Button
           variant="outline"
-          className="text-sm px-4 py-2"
+          className="shrink-0 px-4 py-2 text-sm"
           isLoading={isPending || confirming}
           onClick={() => writeContract({ address: collection, abi, functionName: 'setApprovalForAll', args: [operator, true] })}
         >
           {label}
         </Button>
       )}
-      {error && <span className="text-xs text-red-400">{error.message.slice(0, 80)}</span>}
+      {error && <span className="w-full text-xs text-red-400">{error.message.slice(0, 80)}</span>}
     </div>
   );
 }
@@ -317,254 +310,291 @@ export const EventCreate: React.FC = () => {
     });
   };
 
+  /*
+   * Estado visual das etapas, derivado do que já está calculado acima. Nenhuma
+   * destas expressões entra em `canSubmit` nem em nada que assine: servem só
+   * para o marcador da etapa fechar em verde quando ela está preenchida.
+   */
+  const prizeStageDone = prizeAmountUnits > 0n && (!isNft || declaredValueUnits > 0n);
+  const rulesStageDone = durationSeconds > 0n && slotCapNum > 0 && winnersCount > 0;
+
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
+    <EventShell width="narrow" back={{ to: '/events', label: copy.nav.link }} wallet>
+      <h1 className="font-display font-bold text-[clamp(2.1rem,6vw,3rem)] leading-tight tracking-tight">
+        {c.title}
+      </h1>
+      <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-400">{c.intro}</p>
 
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] flex items-center justify-between gap-3">
-          <Link to="/events" className="text-sm text-gray-400 hover:text-white">
-            ← {copy.nav.link}
-          </Link>
-          <div className="flex items-center gap-3">
-            <PublicNavLinks />
-            <LangSwitch />
-            <ConnectWallet />
-          </div>
-        </div>
-      </header>
+      <div className="mt-8 space-y-3">
+        {!isConnected && <Banner message={c.connectPrompt} tone="notice" />}
+        {paused === true && <Banner message={c.pausedBanner} tone="notice" />}
+        {moduleRegistered === false && <Banner message={c.moduleNotRegistered} />}
+      </div>
 
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-2xl py-10 space-y-6">
-        <div>
-          <h1 className="font-display font-bold text-3xl sm:text-4xl mb-2">{c.title}</h1>
-          <p className="text-gray-400 leading-relaxed">{c.intro}</p>
-        </div>
+      {isConnected && (
+        <ol className="mt-10">
 
-        {!isConnected && <ErrorBanner message={c.connectPrompt} />}
-        {paused === true && <ErrorBanner message={c.pausedBanner} />}
-        {moduleRegistered === false && <ErrorBanner message={c.moduleNotRegistered} />}
-
-        {isConnected && (
-          <>
-            <div className="space-y-2">
-              <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">{c.prizeType.label}</p>
-              <div className="grid grid-cols-3 gap-2">
-                {(['token', 'erc721', 'erc1155'] as PrizeType[]).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setPrizeType(t)}
-                    className={`min-h-[44px] rounded-lg border px-3 text-sm font-bold ${
-                      prizeType === t ? 'border-gray-400 bg-white/[0.04] text-white' : 'border-dark-border text-gray-400'
-                    }`}
-                  >
-                    {t === 'token' ? c.prizeType.token : t === 'erc721' ? c.prizeType.nft721 : c.prizeType.nft1155}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {prizeType === 'token' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.token.addressLabel}</label>
-                  <input value={tokenAddress} onChange={(e) => setTokenAddress(e.target.value)} className={`${inputClass} font-mono text-sm`} />
-                  <p className="mt-2 text-sm text-gray-500">{c.token.addressHint}</p>
-                </div>
-                <div>
-                  <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.token.amountLabel}</label>
-                  <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={`${inputClass} font-mono text-lg`} />
-                </div>
-              </div>
-            )}
-
-            {prizeType === 'erc721' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.nft721.collectionLabel}</label>
-                  <input value={collection} onChange={(e) => setCollection(e.target.value)} placeholder="0x…" className={`${inputClass} font-mono text-sm`} />
-                </div>
-                <div>
-                  <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.nft721.idsLabel}</label>
-                  <textarea rows={4} value={tokenIds} onChange={(e) => setTokenIds(e.target.value)} className={`${inputClass} font-mono text-sm py-3`} />
-                  <p className="mt-2 text-sm text-gray-500">{c.nft721.idsHint}</p>
-                </div>
-              </div>
-            )}
-
-            {prizeType === 'erc1155' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.nft1155.collectionLabel}</label>
-                  <input value={collection} onChange={(e) => setCollection(e.target.value)} placeholder="0x…" className={`${inputClass} font-mono text-sm`} />
-                </div>
-                <div className="space-y-2">
-                  <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500">{c.nft1155.itemsLabel}</label>
-                  {items.map((it, i) => (
-                    <div key={i} className="flex gap-2">
-                      <input
-                        placeholder={c.nft1155.idLabel}
-                        value={it.id}
-                        onChange={(e) => setItems((arr) => arr.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)))}
-                        className={`${inputClass} font-mono text-sm`}
-                      />
-                      <input
-                        placeholder={c.nft1155.amountLabel}
-                        value={it.amount}
-                        onChange={(e) => setItems((arr) => arr.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
-                        className={`${inputClass} font-mono text-sm w-32`}
-                      />
-                      {items.length > 1 && (
-                        <button type="button" onClick={() => setItems((arr) => arr.filter((_, j) => j !== i))} className="text-gray-500 hover:text-white px-2">
-                          ✕
-                        </button>
-                      )}
-                    </div>
+          {/* ============ 1. O PRÉMIO ============ */}
+          <Step index={1} title={c.stages.prize} done={prizeStageDone} headingLevel={2}>
+            <div className="space-y-5">
+              <div>
+                <p className={labelClass}>{c.prizeType.label}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['token', 'erc721', 'erc1155'] as PrizeType[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setPrizeType(t)}
+                      aria-pressed={prizeType === t}
+                      className={`min-h-[48px] rounded-lg border px-3 text-sm transition-colors ${
+                        prizeType === t
+                          ? 'border-gray-400 bg-white/[0.05] font-bold text-white'
+                          : 'border-dark-border text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {t === 'token' ? c.prizeType.token : t === 'erc721' ? c.prizeType.nft721 : c.prizeType.nft1155}
+                    </button>
                   ))}
-                  <button type="button" onClick={() => setItems((arr) => [...arr, { id: '', amount: '1' }])} className="text-sm text-gray-400 hover:text-white underline">
-                    {c.nft1155.addRow}
-                  </button>
-                  <p className="text-sm text-gray-500">{c.nft1155.itemsHint}</p>
                 </div>
               </div>
-            )}
 
-            {isNft && (
-              <div>
-                <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.declaredValueLabel}</label>
-                <input value={declaredValue} onChange={(e) => setDeclaredValue(e.target.value)} inputMode="decimal" className={`${inputClass} font-mono text-lg`} />
-                <p className="mt-2 text-sm text-gray-500">{c.declaredValueHint}</p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.durationLabel}</label>
-                <div className="flex gap-3">
-                  <input value={durationValue} onChange={(e) => setDurationValue(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono flex-1 min-w-0`} />
-                  <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as 'hours' | 'days')} className={`${inputClass} !w-28 shrink-0`}>
-                    <option value="hours">{c.durationHours}</option>
-                    <option value="days">{c.durationDays}</option>
-                  </select>
-                </div>
-                {minDuration !== undefined && maxDuration !== undefined && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {Number(minDuration) / 3600}–{Number(maxDuration) / 3600}h
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.slotCapLabel}</label>
-                <input value={slotCap} onChange={(e) => setSlotCap(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono`} />
-                {minParticipants !== undefined && maxParticipants !== undefined && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {minParticipants.toString()}–{maxParticipants.toString()}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">{c.winnersLabel}</label>
-              {isNft ? (
-                <>
-                  <p className="font-mono text-lg text-white">{winnersCount || '—'}</p>
-                  <p className="text-sm text-gray-500">{c.winnersAutoNft}</p>
-                </>
-              ) : (
-                <input value={winnersInput} onChange={(e) => setWinnersInput(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono text-lg`} />
-              )}
-              {maxWinners !== undefined && winnersCount > Number(maxWinners) && (
-                <ErrorBanner message={`${c.winnersLabel} > ${maxWinners.toString()}`} />
-              )}
-            </div>
-
-            <div className="rounded-xl border border-dark-border bg-black/30 p-4 space-y-2">
-              <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">{c.costTitle}</p>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">{c.costFee}</span>
-                <span className="font-mono text-white">
-                  {formatUnits(fee, isNft ? 6 : tokenDecimals)} {isNft ? 'USDC' : ''}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">{c.costSlots}</span>
-                <span className="font-mono text-white">{formatUnits(slots, 6)} USDC</span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
               {prizeType === 'token' && (
-                <Erc20Approval
-                  token={tokenAddr}
-                  spender={CONTRACTS.ERC20_PRIZE_MODULE}
-                  amountNeeded={prizeAmountUnits}
-                  label={c.approveModuleCta}
-                  doneLabel={c.approveModuleDone}
-                />
-              )}
-              {prizeType === 'erc721' && ADDRESS_RE.test(collection.trim()) && (
-                <NftApproval
-                  collection={collectionAddr}
-                  abi={ERC721_ABI}
-                  operator={CONTRACTS.ERC721_PRIZE_MODULE}
-                  label={c.approveModuleCta}
-                  doneLabel={c.approveModuleDone}
-                />
-              )}
-              {prizeType === 'erc1155' && ADDRESS_RE.test(collection.trim()) && (
-                <NftApproval
-                  collection={collectionAddr}
-                  abi={ERC1155_ABI}
-                  operator={CONTRACTS.ERC1155_PRIZE_MODULE}
-                  label={c.approveModuleCta}
-                  doneLabel={c.approveModuleDone}
-                />
+                <>
+                  <div>
+                    <label className={labelClass} htmlFor="token-address">{c.token.addressLabel}</label>
+                    <input id="token-address" value={tokenAddress} onChange={(e) => setTokenAddress(e.target.value)} className={`${inputClass} font-mono text-sm`} />
+                    <p className="mt-2 text-xs text-gray-400">{c.token.addressHint}</p>
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="token-amount">{c.token.amountLabel}</label>
+                    <input id="token-amount" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={`${inputClass} font-mono text-2xl tabular-nums`} />
+                  </div>
+                </>
               )}
 
-              {feeTokenIsUsdc ? (
-                <Erc20Approval
-                  token={CONTRACTS.USDC}
-                  spender={CONTRACTS.GIVEAWAY_MANAGER_V2}
-                  amountNeeded={fee + slots}
-                  label={c.approveFeeCta}
-                  doneLabel={c.approveFeeDone}
-                />
-              ) : (
+              {prizeType === 'erc721' && (
                 <>
+                  <div>
+                    <label className={labelClass} htmlFor="c721">{c.nft721.collectionLabel}</label>
+                    <input id="c721" value={collection} onChange={(e) => setCollection(e.target.value)} placeholder="0x…" className={`${inputClass} font-mono text-sm`} />
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="ids721">{c.nft721.idsLabel}</label>
+                    <textarea id="ids721" rows={4} value={tokenIds} onChange={(e) => setTokenIds(e.target.value)} className={`${inputClass} font-mono text-sm py-3`} />
+                    <p className="mt-2 text-xs text-gray-400">{c.nft721.idsHint}</p>
+                  </div>
+                </>
+              )}
+
+              {prizeType === 'erc1155' && (
+                <>
+                  <div>
+                    <label className={labelClass} htmlFor="c1155">{c.nft1155.collectionLabel}</label>
+                    <input id="c1155" value={collection} onChange={(e) => setCollection(e.target.value)} placeholder="0x…" className={`${inputClass} font-mono text-sm`} />
+                  </div>
+                  <div>
+                    <p className={labelClass}>{c.nft1155.itemsLabel}</p>
+                    <div className="space-y-2">
+                      {items.map((it, i) => (
+                        <div key={i} className="flex gap-2">
+                          <input
+                            placeholder={c.nft1155.idLabel}
+                            aria-label={c.nft1155.idLabel}
+                            value={it.id}
+                            onChange={(e) => setItems((arr) => arr.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)))}
+                            className={`${inputClass} font-mono text-sm`}
+                          />
+                          <input
+                            placeholder={c.nft1155.amountLabel}
+                            aria-label={c.nft1155.amountLabel}
+                            value={it.amount}
+                            onChange={(e) => setItems((arr) => arr.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
+                            className={`${inputClass} font-mono text-sm !w-28 shrink-0`}
+                          />
+                          {items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setItems((arr) => arr.filter((_, j) => j !== i))}
+                              aria-label={c.nft1155.removeRow}
+                              className="shrink-0 min-w-[44px] text-gray-400 hover:text-white"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setItems((arr) => [...arr, { id: '', amount: '1' }])} className="mt-2 min-h-[44px] text-sm text-gray-400 hover:text-white underline underline-offset-2">
+                      {c.nft1155.addRow}
+                    </button>
+                    <p className="mt-1 text-xs text-gray-400">{c.nft1155.itemsHint}</p>
+                  </div>
+                </>
+              )}
+
+              {isNft && (
+                <div>
+                  <label className={labelClass} htmlFor="declared">{c.declaredValueLabel}</label>
+                  <input id="declared" value={declaredValue} onChange={(e) => setDeclaredValue(e.target.value)} inputMode="decimal" className={`${inputClass} font-mono text-2xl tabular-nums`} />
+                  <p className="mt-2 max-w-[58ch] text-xs leading-relaxed text-gray-400">{c.declaredValueHint}</p>
+                </div>
+              )}
+            </div>
+          </Step>
+
+          {/* ============ 2. AS REGRAS ============ */}
+          <Step index={2} title={c.stages.rules} done={rulesStageDone} headingLevel={2}>
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass} htmlFor="duration">{c.durationLabel}</label>
+                  <div className="flex gap-2">
+                    <input id="duration" value={durationValue} onChange={(e) => setDurationValue(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono flex-1 min-w-0 tabular-nums`} />
+                    <select
+                      value={durationUnit}
+                      onChange={(e) => setDurationUnit(e.target.value as 'hours' | 'days')}
+                      aria-label={c.durationLabel}
+                      className={`${inputClass} !w-28 shrink-0`}
+                    >
+                      <option value="hours">{c.durationHours}</option>
+                      <option value="days">{c.durationDays}</option>
+                    </select>
+                  </div>
+                  {minDuration !== undefined && maxDuration !== undefined && (
+                    <p className="mt-2 font-mono text-xs text-gray-400 tabular-nums">
+                      {Number(minDuration) / 3600}–{Number(maxDuration) / 3600}h
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className={labelClass} htmlFor="slotcap">{c.slotCapLabel}</label>
+                  <input id="slotcap" value={slotCap} onChange={(e) => setSlotCap(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono tabular-nums`} />
+                  {minParticipants !== undefined && maxParticipants !== undefined && (
+                    <p className="mt-2 font-mono text-xs text-gray-400 tabular-nums">
+                      {minParticipants.toString()}–{maxParticipants.toString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass} htmlFor="winners">{c.winnersLabel}</label>
+                {isNft ? (
+                  <>
+                    <p className="font-mono text-2xl text-white tabular-nums">{winnersCount || '—'}</p>
+                    <p className="mt-1 text-xs text-gray-400">{c.winnersAutoNft}</p>
+                  </>
+                ) : (
+                  <input id="winners" value={winnersInput} onChange={(e) => setWinnersInput(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono text-2xl tabular-nums`} />
+                )}
+                {maxWinners !== undefined && winnersCount > Number(maxWinners) && (
+                  <div className="mt-3">
+                    <Banner message={`${c.winnersLabel} > ${maxWinners.toString()}`} />
+                  </div>
+                )}
+              </div>
+
+              <p className="max-w-[58ch] text-xs leading-relaxed text-gray-400">{c.slotCapHint}</p>
+            </div>
+          </Step>
+
+          {/* ============ 3. FINANCIAR E LANÇAR ============ */}
+          <Step index={3} title={c.stages.funding} headingLevel={2} last>
+            <div className="space-y-5">
+              <dl className="rounded-xl border border-dark-border bg-dark-card p-4">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <dt className="text-gray-400">{c.costFee}</dt>
+                  <dd className="font-mono text-white tabular-nums">
+                    {formatUnits(fee, isNft ? 6 : tokenDecimals)} {isNft ? 'USDC' : ''}
+                  </dd>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between gap-3 text-sm">
+                  <dt className="text-gray-400">{c.costSlots}</dt>
+                  <dd className="font-mono text-white tabular-nums">{formatUnits(slots, 6)} USDC</dd>
+                </div>
+                {feeTokenIsUsdc && (
+                  <div className="mt-3 pt-3 border-t border-dark-border flex items-baseline justify-between gap-3">
+                    <dt className="text-sm text-gray-300">{c.costTotal}</dt>
+                    <dd className="font-mono text-lg font-bold text-brand tabular-nums">
+                      {formatUnits(fee + slots, 6)} USDC
+                    </dd>
+                  </div>
+                )}
+              </dl>
+
+              <div className="space-y-2">
+                {prizeType === 'token' && (
                   <Erc20Approval
                     token={tokenAddr}
-                    spender={CONTRACTS.GIVEAWAY_MANAGER_V2}
-                    amountNeeded={fee}
-                    label={c.approveFeeCta}
-                    doneLabel={c.approveFeeDone}
+                    spender={CONTRACTS.ERC20_PRIZE_MODULE}
+                    amountNeeded={prizeAmountUnits}
+                    label={c.approveModuleCta}
+                    doneLabel={c.approveModuleDone}
                   />
+                )}
+                {prizeType === 'erc721' && ADDRESS_RE.test(collection.trim()) && (
+                  <NftApproval
+                    collection={collectionAddr}
+                    abi={ERC721_ABI}
+                    operator={CONTRACTS.ERC721_PRIZE_MODULE}
+                    label={c.approveModuleCta}
+                    doneLabel={c.approveModuleDone}
+                  />
+                )}
+                {prizeType === 'erc1155' && ADDRESS_RE.test(collection.trim()) && (
+                  <NftApproval
+                    collection={collectionAddr}
+                    abi={ERC1155_ABI}
+                    operator={CONTRACTS.ERC1155_PRIZE_MODULE}
+                    label={c.approveModuleCta}
+                    doneLabel={c.approveModuleDone}
+                  />
+                )}
+
+                {feeTokenIsUsdc ? (
                   <Erc20Approval
                     token={CONTRACTS.USDC}
                     spender={CONTRACTS.GIVEAWAY_MANAGER_V2}
-                    amountNeeded={slots}
-                    label={c.approveSlotsCta}
-                    doneLabel={c.approveSlotsDone}
+                    amountNeeded={fee + slots}
+                    label={c.approveFeeCta}
+                    doneLabel={c.approveFeeDone}
                   />
-                </>
-              )}
+                ) : (
+                  <>
+                    <Erc20Approval
+                      token={tokenAddr}
+                      spender={CONTRACTS.GIVEAWAY_MANAGER_V2}
+                      amountNeeded={fee}
+                      label={c.approveFeeCta}
+                      doneLabel={c.approveFeeDone}
+                    />
+                    <Erc20Approval
+                      token={CONTRACTS.USDC}
+                      spender={CONTRACTS.GIVEAWAY_MANAGER_V2}
+                      amountNeeded={slots}
+                      label={c.approveSlotsCta}
+                      doneLabel={c.approveSlotsDone}
+                    />
+                  </>
+                )}
+              </div>
+
+              {writeError && <Banner message={writeError.message.slice(0, 200)} />}
+              {isSuccess && !createdId && <Banner message={c.success} tone="success" />}
+
+              <Button
+                variant="connect"
+                className="w-full min-h-[56px] rounded-xl text-base"
+                disabled={!canSubmit}
+                isLoading={isPending || confirming}
+                onClick={create}
+              >
+                {isPending || confirming ? c.submitting : c.submitCta}
+              </Button>
             </div>
-
-            {writeError && <ErrorBanner message={writeError.message.slice(0, 200)} />}
-            {isSuccess && !createdId && <p className="text-sm text-success">{c.success}</p>}
-
-            <Button variant="success" className="w-full py-4" disabled={!canSubmit} isLoading={isPending || confirming} onClick={create}>
-              {isPending || confirming ? c.submitting : c.submitCta}
-            </Button>
-          </>
-        )}
-      </main>
-
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
-        <div className="container mx-auto px-4 text-center">
-          <PublicFooterNav />
-        </div>
-      </footer>
-    </div>
+          </Step>
+        </ol>
+      )}
+    </EventShell>
   );
 };

@@ -24,8 +24,16 @@ export interface EventsCopy {
       winners: string;
       slots: string;
       view: string;
+      /** Sufixo do contador de vagas do cartão: "1 240 slots left". */
+      slotsLeft: string;
+      full: string;
     };
     status: Record<'OPEN' | 'CLOSED' | 'DRAW_REQUESTED' | 'SEED_RECEIVED' | 'SETTLED' | 'CANCELLED', string>;
+    /**
+     * As três garantias, ditas à entrada em vez de espalhadas pelas páginas.
+     * São factos do contrato, não promessas de marketing.
+     */
+    trust: { draw: string; custody: string; free: string };
   };
   detail: {
     back: string;
@@ -38,6 +46,15 @@ export interface EventsCopy {
     timeLeftLabel: string;
     endedLabel: string;
     pausedBanner: string;
+    /** "Campanha de" + endereço do criador. Quem pagou o prémio tem nome. */
+    byCreator: string;
+    freeToEnter: string;
+    entriesLabel: string;
+    /** Cabeçalho da espinha de participação. */
+    yourEntry: string;
+    /** Títulos dos três passos. O funil é uma sequência a sério. */
+    steps: { identity: string; entry: string; prize: string };
+    proofLine: string;
     previousWinners: { title: string; empty: string; you: string };
     outcome: {
       pending: string;
@@ -110,6 +127,8 @@ export interface EventsCopy {
     connectPrompt: string;
     pausedBanner: string;
     moduleNotRegistered: string;
+    /** Rótulos das três etapas do formulário de criação. Também uma sequência. */
+    stages: { prize: string; rules: string; funding: string };
     prizeType: { label: string; token: string; nft721: string; nft1155: string };
     token: { addressLabel: string; addressHint: string; amountLabel: string };
     nft721: { collectionLabel: string; idsLabel: string; idsHint: string };
@@ -158,6 +177,9 @@ export interface EventsCopy {
       reclaimUnclaimed: string;
     };
     reloadPrompt: string;
+    /** O painel do criador lidera com o que falta fazer, não com o estado. */
+    nextStep: string;
+    noActions: string;
   };
 }
 
@@ -175,7 +197,14 @@ const en: EventsCopy = {
     loading: 'Reading campaigns from the chain…',
     error: 'Could not read campaigns from the chain. Try again in a moment.',
     contractLabel: 'GiveawayManagerV2 contract',
-    card: { prize: 'Prize', winners: 'Winners', slots: 'Slots', view: 'View event' },
+    card: {
+      prize: 'Prize',
+      winners: 'Winners',
+      slots: 'Slots',
+      view: 'View event',
+      slotsLeft: 'places left',
+      full: 'Full',
+    },
     status: {
       OPEN: 'Open',
       CLOSED: 'Closing',
@@ -183,6 +212,11 @@ const en: EventsCopy = {
       SEED_RECEIVED: 'Drawing',
       SETTLED: 'Settled',
       CANCELLED: 'Cancelled',
+    },
+    trust: {
+      draw: 'Winners are drawn by Chainlink VRF',
+      custody: 'The contract holds the prize until it is claimed',
+      free: 'Entering is free — the creator funds the prize',
     },
   },
   detail: {
@@ -196,6 +230,16 @@ const en: EventsCopy = {
     timeLeftLabel: 'Entries close',
     endedLabel: 'Entries closed',
     pausedBanner: 'The platform is paused right now. Entries and new campaigns are on hold; claims and refunds are not affected.',
+    byCreator: 'Campaign by',
+    freeToEnter: 'Entering costs you nothing. Whoever created this campaign funded the prize up front and it is already sitting in the contract.',
+    entriesLabel: 'Places taken',
+    yourEntry: 'Your entry',
+    steps: {
+      identity: 'Identify yourself',
+      entry: 'Enter the draw',
+      prize: 'Where your prize goes',
+    },
+    proofLine: 'The winner is drawn by Chainlink VRF and the prize stays in the contract until it is claimed. Nobody can pick a winner, change one, or stop a prize being collected — not the creator, and not us.',
     previousWinners: { title: 'Winners', empty: 'No winners drawn yet.', you: 'This is you' },
     outcome: {
       pending: 'The draw is done. Confirming what it means for your entry…',
@@ -270,6 +314,7 @@ const en: EventsCopy = {
     connectPrompt: 'Connect a wallet to create a giveaway.',
     pausedBanner: 'Campaign creation opens at launch. The contract is live and verified on Arbiscan; the entry flow is being finished.',
     moduleNotRegistered: 'This prize module is not registered on the contract yet. Creation is disabled.',
+    stages: { prize: 'The prize', rules: 'The rules', funding: 'Fund and launch' },
     prizeType: { label: 'Prize type', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
     token: { addressLabel: 'Token address', addressHint: 'USDC by default. Paste another ERC-20 address to use it instead.', amountLabel: 'Prize amount' },
     nft721: { collectionLabel: 'Collection address', idsLabel: 'Token IDs', idsHint: 'One per line. Each becomes one winner’s prize.' },
@@ -326,6 +371,8 @@ const en: EventsCopy = {
       reclaimUnclaimed: 'Reclaim unclaimed prize',
     },
     reloadPrompt: 'Additional slots to buy',
+    nextStep: 'Next step',
+    noActions: 'Running. Nothing needs you right now.',
   },
 };
 
@@ -343,7 +390,14 @@ const pt: EventsCopy = {
     loading: 'A ler campanhas da cadeia…',
     error: 'Não foi possível ler as campanhas da cadeia. Tente novamente daqui a pouco.',
     contractLabel: 'Contrato GiveawayManagerV2',
-    card: { prize: 'Prémio', winners: 'Vencedores', slots: 'Slots', view: 'Ver evento' },
+    card: {
+      prize: 'Prémio',
+      winners: 'Vencedores',
+      slots: 'Slots',
+      view: 'Ver evento',
+      slotsLeft: 'lugares livres',
+      full: 'Esgotado',
+    },
     status: {
       OPEN: 'Aberto',
       CLOSED: 'A fechar',
@@ -351,6 +405,11 @@ const pt: EventsCopy = {
       SEED_RECEIVED: 'A sortear',
       SETTLED: 'Liquidado',
       CANCELLED: 'Cancelado',
+    },
+    trust: {
+      draw: 'Os vencedores são sorteados pela Chainlink VRF',
+      custody: 'O contrato guarda o prémio até ser reclamado',
+      free: 'Participar é grátis — o prémio é pago por quem criou',
     },
   },
   detail: {
@@ -364,6 +423,16 @@ const pt: EventsCopy = {
     timeLeftLabel: 'As entradas fecham',
     endedLabel: 'Entradas fechadas',
     pausedBanner: 'A plataforma está pausada neste momento. Entradas e novas campanhas estão suspensas; resgates e reembolsos não são afectados.',
+    byCreator: 'Campanha de',
+    freeToEnter: 'Participar não lhe custa nada. Quem criou esta campanha pagou o prémio à cabeça e ele já está dentro do contrato.',
+    entriesLabel: 'Lugares ocupados',
+    yourEntry: 'A sua participação',
+    steps: {
+      identity: 'Identifique-se',
+      entry: 'Entre no sorteio',
+      prize: 'Para onde vai o seu prémio',
+    },
+    proofLine: 'O vencedor é sorteado pela Chainlink VRF e o prémio fica no contrato até ser reclamado. Ninguém pode escolher um vencedor, trocá-lo, ou impedir que um prémio seja levantado — nem quem criou a campanha, nem nós.',
     previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.', you: 'É você' },
     outcome: {
       pending: 'O sorteio foi feito. A confirmar o que significa para a sua participação…',
@@ -438,6 +507,7 @@ const pt: EventsCopy = {
     connectPrompt: 'Ligue uma carteira para criar um sorteio.',
     pausedBanner: 'A criação de campanhas abre no lançamento. O contrato está no ar e verificado no Arbiscan; o fluxo de entrada está a ser terminado.',
     moduleNotRegistered: 'Este módulo de prémio ainda não está registado no contrato. A criação está desactivada.',
+    stages: { prize: 'O prémio', rules: 'As regras', funding: 'Financiar e lançar' },
     prizeType: { label: 'Tipo de prémio', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
     token: { addressLabel: 'Endereço do token', addressHint: 'USDC por defeito. Cole outro endereço ERC-20 para usar esse.', amountLabel: 'Montante do prémio' },
     nft721: { collectionLabel: 'Endereço da colecção', idsLabel: 'IDs dos tokens', idsHint: 'Um por linha. Cada um torna-se o prémio de um vencedor.' },
@@ -494,6 +564,8 @@ const pt: EventsCopy = {
       reclaimUnclaimed: 'Recuperar prémio não reclamado',
     },
     reloadPrompt: 'Slots adicionais a comprar',
+    nextStep: 'Próximo passo',
+    noActions: 'A correr. Nada precisa de você agora.',
   },
 };
 
@@ -511,7 +583,14 @@ const es: EventsCopy = {
     loading: 'Leyendo campañas de la cadena…',
     error: 'No se pudieron leer las campañas de la cadena. Intenta de nuevo en un momento.',
     contractLabel: 'Contrato GiveawayManagerV2',
-    card: { prize: 'Premio', winners: 'Ganadores', slots: 'Cupos', view: 'Ver evento' },
+    card: {
+      prize: 'Premio',
+      winners: 'Ganadores',
+      slots: 'Cupos',
+      view: 'Ver evento',
+      slotsLeft: 'lugares libres',
+      full: 'Completo',
+    },
     status: {
       OPEN: 'Abierto',
       CLOSED: 'Cerrando',
@@ -519,6 +598,11 @@ const es: EventsCopy = {
       SEED_RECEIVED: 'Sorteando',
       SETTLED: 'Liquidado',
       CANCELLED: 'Cancelado',
+    },
+    trust: {
+      draw: 'Los ganadores los sortea Chainlink VRF',
+      custody: 'El contrato guarda el premio hasta que se reclama',
+      free: 'Participar es gratis — el premio lo paga quien creó la campaña',
     },
   },
   detail: {
@@ -532,6 +616,16 @@ const es: EventsCopy = {
     timeLeftLabel: 'Las entradas cierran',
     endedLabel: 'Entradas cerradas',
     pausedBanner: 'La plataforma está pausada en este momento. Las entradas y las campañas nuevas están suspendidas; los reclamos y reembolsos no se ven afectados.',
+    byCreator: 'Campaña de',
+    freeToEnter: 'Participar no te cuesta nada. Quien creó esta campaña pagó el premio por adelantado y ya está dentro del contrato.',
+    entriesLabel: 'Lugares ocupados',
+    yourEntry: 'Tu participación',
+    steps: {
+      identity: 'Identifícate',
+      entry: 'Entra en el sorteo',
+      prize: 'Adónde va tu premio',
+    },
+    proofLine: 'Al ganador lo sortea Chainlink VRF y el premio se queda en el contrato hasta que se reclama. Nadie puede elegir un ganador, cambiarlo, ni impedir que se cobre un premio — ni quien creó la campaña, ni nosotros.',
     previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.', you: 'Eres tú' },
     outcome: {
       pending: 'El sorteo ya se hizo. Confirmando qué significa para tu participación…',
@@ -606,6 +700,7 @@ const es: EventsCopy = {
     connectPrompt: 'Conecta una wallet para crear un sorteo.',
     pausedBanner: 'La creación de campañas abre en el lanzamiento. El contrato está activo y verificado en Arbiscan; el flujo de entrada se está terminando.',
     moduleNotRegistered: 'Este módulo de premio aún no está registrado en el contrato. La creación está desactivada.',
+    stages: { prize: 'El premio', rules: 'Las reglas', funding: 'Financiar y lanzar' },
     prizeType: { label: 'Tipo de premio', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
     token: { addressLabel: 'Dirección del token', addressHint: 'USDC por defecto. Pega otra dirección ERC-20 para usar esa.', amountLabel: 'Monto del premio' },
     nft721: { collectionLabel: 'Dirección de la colección', idsLabel: 'IDs de los tokens', idsHint: 'Uno por línea. Cada uno se convierte en el premio de un ganador.' },
@@ -662,6 +757,8 @@ const es: EventsCopy = {
       reclaimUnclaimed: 'Recuperar premio no reclamado',
     },
     reloadPrompt: 'Cupos adicionales a comprar',
+    nextStep: 'Próximo paso',
+    noActions: 'En marcha. Nada te necesita ahora.',
   },
 };
 

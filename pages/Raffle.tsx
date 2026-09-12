@@ -6,8 +6,13 @@ import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { ClaimPanel, PreviousRound } from '../components/RoundPanels';
 import { RecentWinners } from '../components/RecentWinners';
-import { Clock, Ticket, Activity, Info, AlertTriangle, CheckCircle2, Percent, Sprout } from 'lucide-react';
+import { Clock, Ticket, Info, AlertTriangle, CheckCircle2, ExternalLink, Sprout } from 'lucide-react';
 import { useAppCopy } from './app.i18n';
+
+const ARBISCAN = 'https://arbiscan.io/address/';
+
+/** Último minuto: o relógio do talão passa a âmbar. Puramente visual. */
+const CLOSING_WINDOW_SECONDS = 60;
 
 export const Raffle: React.FC = () => {
   const { address, isConnected } = useAccount();
@@ -213,239 +218,314 @@ export const Raffle: React.FC = () => {
         ? c.raffle.ctaAlreadyEntered
         : fallback;
 
+  /*
+   * Derivações só de apresentação, a partir do estado que já existe acima.
+   * Nenhuma delas lê nada: o relógio é o mesmo, a ronda é a mesma.
+   */
+  const closingSoon = canBuy && timeLeft > 0 && timeLeft <= CLOSING_WINDOW_SECONDS;
+  const qty = parseInt(ticketAmount) || 0;
+  const holder = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '—';
+
+  /** Rótulo impresso no talão onde um bilhete de papel traria a data do sorteio. */
+  const drawLabel = isTransitioning
+    ? c.raffle.ticket.drawing
+    : closingSoon
+      ? c.raffle.ticket.closing
+      : c.raffle.ticket.drawIn;
+
   return (
-    <div className="max-w-3xl mx-auto py-6 sm:py-8">
+    <div className="max-w-3xl mx-auto pt-2 pb-8">
 
-      {/* ================= PRIMEIRA DOBRA ================= */}
+      {/* ============ O PRÉMIO: o que uma lotaria anuncia primeiro ============ */}
 
-      <div className="text-center mb-6">
-        <div className="inline-flex items-center gap-2 bg-dark-input border border-dark-border px-3 py-1.5 rounded-lg mb-4">
-          <span className={`w-2 h-2 rounded-full ${isTransitioning ? 'bg-gray-600' : 'bg-gray-400 animate-pulse'}`} />
-          <span className={`font-mono text-[10px] sm:text-xs font-bold tracking-widest uppercase ${isTransitioning ? 'text-gray-500' : 'text-gray-300'}`}>
-            {statusLabel}
-          </span>
-        </div>
-
-        <p className="font-mono text-[10px] sm:text-xs text-gray-500 uppercase tracking-[0.2em] mb-1">
-          {c.raffle.currentPrizePool}
+      <div className="text-center">
+        <p className="inline-flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.16em] uppercase text-gray-400">
+          <span
+            aria-hidden="true"
+            className={`w-1.5 h-1.5 rounded-full ${
+              isTransitioning ? 'bg-gray-600' : 'bg-success animate-pulse'
+            }`}
+          />
+          {roundId !== undefined && (
+            <span className="text-gray-400">
+              {c.raffle.ticket.round} {roundId.toString()}
+            </span>
+          )}
+          {statusLabel}
         </p>
 
-        {/* Herói absoluto. clamp() escala de 360px ao desktop sem overflow. */}
-        <h1 className="font-mono font-bold text-brand tracking-tighter leading-none tabular-nums text-[clamp(3.25rem,16vw,7rem)]">
+        <h1 className="mt-5 font-mono font-bold text-brand tracking-tighter leading-[0.9] tabular-nums text-[clamp(3.5rem,17vw,7.5rem)]">
           {formatUnits(totalPool, 6)}
-          <span className="block font-sans text-base sm:text-xl text-gray-600 font-normal tracking-normal mt-2">
-            USDC
-          </span>
         </h1>
+        <p className="mt-1 font-display text-2xl font-bold tracking-wide text-gray-400">USDC</p>
+        <p className="mt-3 text-sm text-gray-400">{c.raffle.currentPrizePool}</p>
 
         {seed > 0n && (
-          <div className="mt-4 inline-flex items-center gap-2 border border-success/30 bg-success/5 px-3 py-1.5 rounded-lg max-w-full">
-            <Sprout className="w-3 h-3 text-success shrink-0" />
+          <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-success/25 bg-success/[0.06] px-3 py-1.5 max-w-full">
+            <Sprout className="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
             {/* "Seeded round" é selo de marca: fica em inglês nos três idiomas. */}
-            <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-success truncate">
+            <span className="font-mono text-[11px] font-medium text-success truncate">
               Seeded round · {formatUnits(seed, 6)} {c.raffle.seededCarriedIn}
             </span>
-          </div>
+          </p>
         )}
       </div>
 
-      {/* Relógio e bilhetes, colados ao bloco de compra */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="bg-dark-card border border-dark-border rounded-xl px-3 py-3 flex flex-col items-center">
-          <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase text-gray-500 mb-1">
-            <Clock className="w-3 h-3 shrink-0" /> {c.raffle.timeLeft}
-          </span>
-          <span className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
-            {isTransitioning ? (
-              <span className="text-brand text-sm animate-pulse">{c.dashboard.closing}</span>
+      {/* ==================== O BILHETE ==================== */}
+
+      <section aria-label={c.raffle.ticket.title} className="mt-10 sm:mt-12 mx-auto max-w-[30rem]">
+        <div className="rounded-2xl border border-brand/20 bg-dark-ticket shadow-[0_1px_0_0_rgba(245,158,11,0.06)_inset]">
+
+          {/* Cabeça do talão: marca impressa à esquerda, série à direita. */}
+          <div className="flex items-baseline justify-between gap-3 px-6 pt-5">
+            <span className="font-display text-lg font-bold tracking-tight text-white">Instant Win</span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400 tabular-nums">
+              {c.raffle.ticket.round} {roundId?.toString() ?? '—'}
+            </span>
+          </div>
+
+          <div className="px-6 pt-4 pb-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+              {c.raffle.ticket.holder}
+            </p>
+            {needsUsername ? (
+              <Link
+                to="/play/identity"
+                className="mt-1 inline-flex items-center gap-2 font-mono text-base text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand"
+              >
+                {c.raffle.ticket.holderNone}
+              </Link>
             ) : (
-              formatTime(timeLeft)
+              <p className="mt-1 font-mono text-base text-white tabular-nums">{holder}</p>
             )}
-          </span>
-        </div>
+          </div>
 
-        <div className="bg-dark-card border border-dark-border rounded-xl px-3 py-3 flex flex-col items-center">
-          <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase text-gray-500 mb-1">
-            <Ticket className="w-3 h-3 shrink-0" /> {c.raffle.tickets}
-          </span>
-          <span className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
-            {ticketCount.toString()}
-          </span>
-          <span className="font-mono text-[10px] text-gray-500">
-            {participantCount.toString()}{' '}
-            {Number(participantCount) === 1 ? c.raffle.playerOne : c.raffle.playerMany}
-          </span>
-        </div>
-      </div>
+          {/* O rasgão. As meias-luas mordem as duas margens do talão. */}
+          <div className="ticket-tear" />
 
-      {/* Bloco de compra — CTA único e dominante */}
-      <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8 mb-3">
-        {needsUsername && (
-          <div className="mb-4 flex items-start gap-3 bg-dark-input border border-brand/30 rounded-xl p-4">
-            <AlertTriangle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
-            <div className="text-sm min-w-0">
-              <p className="text-white font-bold">{c.raffle.needUsernameTitle}</p>
-              <p className="text-gray-400">
-                {c.raffle.needUsernameBody}{' '}
-                <Link to="/play/identity" className="text-brand font-bold underline hover:text-amber-400">
-                  {c.raffle.needUsernameLink}
-                </Link>
-                .
+          <div className="px-6 pt-6 pb-6">
+
+            {alreadyEntered && (
+              <p className="mb-5 flex items-start gap-3 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" aria-hidden="true" />
+                <span className="min-w-0 text-gray-300">
+                  <span className="font-bold text-white">{c.raffle.alreadyEnteredTitle}</span>{' '}
+                  {((myTickets ?? 0n) as bigint).toString()}{' '}
+                  {((myTickets ?? 0n) as bigint) === 1n ? c.raffle.ticketOne : c.raffle.ticketMany}{' '}
+                  {c.raffle.inRound} {roundId?.toString()}. {c.raffle.onePerWallet}
+                </span>
               </p>
+            )}
+
+            {needsUsername && (
+              <p className="mb-5 flex items-start gap-3 text-sm">
+                <AlertTriangle className="w-4 h-4 text-brand shrink-0 mt-0.5" aria-hidden="true" />
+                <span className="min-w-0 text-gray-300">
+                  <span className="font-bold text-white">{c.raffle.needUsernameTitle}</span>{' '}
+                  {c.raffle.needUsernameBody}{' '}
+                  <Link to="/play/identity" className="text-brand font-medium underline underline-offset-2">
+                    {c.raffle.needUsernameLink}
+                  </Link>
+                  .
+                </span>
+              </p>
+            )}
+
+            {/* Quantidade: o número que o jogador escreve no bilhete. */}
+            <div className="flex items-end justify-between gap-4 border-b border-dark-border pb-5">
+              <label className="min-w-0">
+                <span className="block font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                  {c.raffle.tickets}
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={ticketAmount}
+                  onChange={(e) => setTicketAmount(e.target.value)}
+                  aria-label={c.raffle.ariaTicketCount}
+                  className="mt-1 w-full bg-transparent font-mono text-5xl font-bold text-white outline-none tabular-nums placeholder:text-gray-600 focus-visible:text-brand disabled:text-gray-400"
+                  placeholder="0"
+                  min="1"
+                  max="100"
+                  disabled={!canPurchase}
+                />
+              </label>
+              <p className="shrink-0 pb-3 font-mono text-[11px] text-gray-400">{c.raffle.priceLine}</p>
+            </div>
+
+            {/* Total e chances, lado a lado como num talão. */}
+            <dl className="grid grid-cols-2 gap-4 py-5">
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                  {c.raffle.ticket.total}
+                </dt>
+                <dd className="mt-1 font-mono text-xl font-bold text-white tabular-nums">
+                  {formatUnits(totalCost, 6)}{' '}
+                  <span className="text-xs font-normal text-gray-400">USDC</span>
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                  {c.raffle.yourOdds}
+                </dt>
+                <dd className="mt-1 font-mono text-xl font-bold text-white tabular-nums">
+                  {isConnected && !needsUsername
+                    ? `${(Number((oddsBps ?? 0n) as bigint) / 100).toFixed(1)}%`
+                    : '—'}
+                </dd>
+              </div>
+            </dl>
+
+            {needsApproval() ? (
+              <Button
+                variant="connect"
+                className="w-full min-h-[56px] rounded-xl text-base"
+                onClick={handleApprove}
+                isLoading={isApproving || approvingTx}
+                disabled={!isConnected || !canPurchase}
+              >
+                {ctaLabel(`${c.raffle.ctaApprovePre} ${formatUnits(totalCost, 6)} USDC`)}
+              </Button>
+            ) : (
+              <Button
+                variant="connect"
+                className="w-full min-h-[56px] rounded-xl text-base"
+                onClick={handleBuy}
+                isLoading={isBuying || buyingTx}
+                disabled={!isConnected || !canPurchase}
+              >
+                {ctaLabel(
+                  !canBuy
+                    ? c.raffle.ctaWaitNextRound
+                    : `${c.raffle.ctaBuyPre} ${ticketAmount} ${
+                        qty === 1 ? c.raffle.ticketOne : c.raffle.ticketMany
+                      }`,
+                )}
+              </Button>
+            )}
+
+            {/* O relógio, onde um bilhete de papel traz a data do sorteio. */}
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                {drawLabel}
+              </span>
+              <span
+                className={`font-mono text-xl font-bold tabular-nums ${
+                  isTransitioning
+                    ? 'text-gray-400'
+                    : closingSoon
+                      ? 'text-brand animate-pulse'
+                      : 'text-white'
+                }`}
+              >
+                {isTransitioning ? '00:00:00' : formatTime(timeLeft)}
+              </span>
             </div>
           </div>
-        )}
-
-        {alreadyEntered && (
-          <div className="mb-4 flex items-start gap-3 bg-dark-input border border-success/30 rounded-xl p-4">
-            <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
-            <div className="text-sm min-w-0">
-              <p className="text-white font-bold">{c.raffle.alreadyEnteredTitle}</p>
-              <p className="text-gray-400">
-                {((myTickets ?? 0n) as bigint).toString()}{' '}
-                {((myTickets ?? 0n) as bigint) === 1n ? c.raffle.ticketOne : c.raffle.ticketMany}{' '}
-                {c.raffle.inRound} {roundId?.toString()}. {c.raffle.onePerWallet}
-              </p>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-dark-input rounded-xl p-4 sm:p-6 border border-dark-border mb-4">
-          <div className="flex justify-between items-center gap-2 mb-3">
-            <span className="font-mono text-[10px] sm:text-xs font-bold text-gray-500 uppercase">
-              {c.raffle.priceLine}
-            </span>
-            <span className="font-mono text-[10px] sm:text-xs font-bold text-gray-400 uppercase tabular-nums">
-              {c.raffle.cost} {formatUnits(totalCost, 6)}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              inputMode="numeric"
-              value={ticketAmount}
-              onChange={(e) => setTicketAmount(e.target.value)}
-              aria-label={c.raffle.ariaTicketCount}
-              className="bg-transparent font-mono text-3xl sm:text-4xl font-bold text-white outline-none w-full min-w-0 tabular-nums placeholder:text-gray-800"
-              placeholder="0"
-              min="1"
-              max="100"
-              disabled={!canPurchase}
-            />
-            <span className="font-mono text-xs font-bold text-white bg-black/50 px-3 py-2 rounded border border-dark-border shrink-0">
-              {c.raffle.ticketsChip}
-            </span>
-          </div>
         </div>
 
-        {needsApproval() ? (
-          <Button
-            variant="primary"
-            className="w-full min-h-[56px] py-4 text-base sm:text-lg"
-            onClick={handleApprove}
-            isLoading={isApproving || approvingTx}
-            disabled={!isConnected || !canPurchase}
-          >
-            {ctaLabel(`${c.raffle.ctaApprovePre} ${formatUnits(totalCost, 6)} USDC`)}
-          </Button>
-        ) : (
-          <Button
-            variant="primary"
-            className="w-full min-h-[56px] py-4 text-base sm:text-lg"
-            onClick={handleBuy}
-            isLoading={isBuying || buyingTx}
-            disabled={!isConnected || !canPurchase}
-          >
-            {ctaLabel(
-              !canBuy
-                ? c.raffle.ctaWaitNextRound
-                : `${c.raffle.ctaBuyPre} ${ticketAmount} ${
-                    parseInt(ticketAmount) === 1 ? c.raffle.ticketOne : c.raffle.ticketMany
-                  }`,
-            )}
-          </Button>
-        )}
-
-        {/* Odds live, imediatamente a seguir ao CTA */}
-        {isConnected && !needsUsername && (
-          <div className="mt-4 flex items-center justify-between gap-3 bg-dark-input border border-dark-border rounded-xl px-4 py-3 min-h-[44px]">
-            <span className="flex items-center gap-2 font-mono text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider">
-              <Percent className="w-3 h-3 shrink-0" /> {c.raffle.yourOdds}
-            </span>
-            <span className="font-mono text-lg sm:text-xl font-bold text-brand tabular-nums">
-              {(Number((oddsBps ?? 0n) as bigint) / 100).toFixed(1)}%
-            </span>
-          </div>
-        )}
+        <p className="mt-4 px-2 text-center text-xs leading-relaxed text-gray-400">
+          {c.raffle.ticket.footnote}
+        </p>
       </section>
 
-      {/* Gancho: a próxima ronda já tem dinheiro dentro */}
-      {((pendingCarry ?? 0n) as bigint) > 0n && (
-        <div className="mb-6 flex items-center gap-3 bg-dark-card border border-dark-border rounded-xl px-4 py-3">
-          <Sprout className="w-4 h-4 text-success shrink-0" />
-          <p className="font-mono text-xs sm:text-sm text-gray-300">
-            {c.raffle.nextRoundStartsWith}{' '}
-            <span className="text-brand font-bold tabular-nums">
+      {/* Quem mais está nesta ronda, e o que a próxima já tem dentro. */}
+      <div className="mt-8 mx-auto max-w-[30rem] space-y-2">
+        <p className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-dark-card px-4 py-3 text-sm">
+          <span className="flex items-center gap-2 text-gray-400">
+            <Ticket className="w-4 h-4 shrink-0 text-gray-400" aria-hidden="true" />
+            {c.raffle.tickets}
+          </span>
+          <span className="font-mono text-gray-300 tabular-nums">
+            {ticketCount.toString()}
+            <span className="text-gray-400">
+              {' / '}
+              {participantCount.toString()}{' '}
+              {Number(participantCount) === 1 ? c.raffle.playerOne : c.raffle.playerMany}
+            </span>
+          </span>
+        </p>
+
+        {((pendingCarry ?? 0n) as bigint) > 0n && (
+          <p className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-dark-card px-4 py-3 text-sm">
+            <span className="flex items-center gap-2 text-gray-400">
+              <Sprout className="w-4 h-4 shrink-0 text-success" aria-hidden="true" />
+              {c.raffle.nextRoundStartsWith}
+            </span>
+            <span className="font-mono font-bold text-brand tabular-nums">
               {formatUnits((pendingCarry ?? 0n) as bigint, 6)} USDC
             </span>
           </p>
-        </div>
-      )}
+        )}
 
-      {/* ================= ABAIXO DA DOBRA ================= */}
+        <p className="pt-1 text-center text-xs text-gray-400">{c.raffle.ticket.oddsHint}</p>
+      </div>
 
-      <div className="space-y-4 sm:space-y-6">
-        <RecentWinners />
+      {/* ================= O QUE ACONTECEU E O QUE É SEU ================= */}
 
+      <div className="mt-12 space-y-4 sm:space-y-5">
         <ClaimPanel currentRoundId={roundId} />
         <PreviousRound currentRoundId={roundId} />
+        <RecentWinners />
 
-        <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
-          <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-success shrink-0" /> {c.raffle.roundFacts}
-          </h3>
+        {/* A prova. Uma lotaria em papel não tem esta secção. */}
+        <section className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-7">
+          <h2 className="font-display text-2xl font-bold tracking-tight text-white">
+            {c.raffle.roundFacts}
+          </h2>
+          <p className="mt-3 max-w-[58ch] text-sm leading-relaxed text-gray-400">
+            {c.raffle.proof.line}
+          </p>
 
-          <dl className="space-y-4">
+          <dl className="mt-6 divide-y divide-dark-border border-y border-dark-border">
             {/* Valores de protocolo (Arbitrum One, Chainlink VRF) não se traduzem. */}
             {([
               [c.raffle.factNetwork, 'Arbitrum One'],
               [c.raffle.factRandomness, 'Chainlink VRF'],
               [c.raffle.factRounds, c.raffle.factRoundsValue],
             ] as const).map(([k, v]) => (
-              <div key={k} className="flex justify-between items-center gap-3">
-                <dt className="font-mono text-xs sm:text-sm text-gray-500 uppercase tracking-wider">{k}</dt>
-                <dd className="font-mono text-sm text-white font-bold text-right">{v}</dd>
+              <div key={k} className="flex items-center justify-between gap-3 py-3">
+                <dt className="text-sm text-gray-400">{k}</dt>
+                <dd className="font-mono text-sm text-white">{v}</dd>
               </div>
             ))}
           </dl>
 
-          <div className="mt-6 bg-dark-input rounded-xl p-4 border border-dark-border">
-            <p className="font-mono text-[10px] text-gray-500 mb-3 font-bold uppercase tracking-widest">
-              {c.raffle.prizeSplit}
-            </p>
-            <div className="space-y-2">
-              {([
-                [c.raffle.first, 50n, 'text-brand'],
-                [c.raffle.second, 18n, 'text-brand'],
-                [c.raffle.third, 7n, 'text-brand'],
-              ] as const).map(([label, pct, cls]) => (
-                <div key={label} className="flex justify-between gap-3 text-sm">
-                  <span className="font-mono text-gray-400">
-                    {label} ({pct.toString()}%)
-                  </span>
-                  <span className={`font-mono tabular-nums ${cls}`}>
-                    {formatUnits((totalPool * pct) / 100n, 6)} USDC
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+            {c.raffle.prizeSplit}
+          </p>
+          <dl className="mt-2 space-y-1.5">
+            {([
+              [c.raffle.first, 50n],
+              [c.raffle.second, 18n],
+              [c.raffle.third, 7n],
+            ] as const).map(([label, pct]) => (
+              <div key={label} className="flex items-baseline justify-between gap-3 text-sm">
+                <dt className="text-gray-400">
+                  {label} <span className="font-mono text-xs text-gray-400">{pct.toString()}%</span>
+                </dt>
+                <dd className="font-mono font-bold text-brand tabular-nums">
+                  {formatUnits((totalPool * pct) / 100n, 6)} USDC
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          <a
+            href={`${ARBISCAN}${CONTRACTS.RAFFLE_MANAGER}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 inline-flex items-center gap-2 min-h-[44px] text-sm font-medium text-success hover:text-success-hover transition-colors"
+          >
+            {c.raffle.proof.verifyCta}
+            <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+          </a>
         </section>
 
-        <p className="flex items-start gap-2 font-mono text-[11px] leading-relaxed text-gray-600 px-1">
-          <Info className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{c.raffle.disclaimer}</span>
+        <p className="flex items-start gap-3 px-1 text-xs leading-relaxed text-gray-400">
+          <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span className="max-w-[70ch]">{c.raffle.disclaimer}</span>
         </p>
       </div>
     </div>

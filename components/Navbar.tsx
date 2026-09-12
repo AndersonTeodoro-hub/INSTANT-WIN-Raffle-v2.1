@@ -5,46 +5,8 @@ import { ShareButton } from './ShareButton';
 import { Menu, Zap, Ticket, User } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAccount } from 'wagmi';
-import { useLang, LANGS, LANG_LABEL } from '../pages/landing.i18n';
+import { LangSwitch } from './LangSwitch';
 import { useAppCopy } from '../pages/app.i18n';
-
-/**
- * Selector de idioma da app.
- *
- * Mesmo mecanismo da landing (`useLang`, mesma chave de localStorage), mas
- * neutro: aqui o âmbar está reservado a valores de prémio e ao CTA de compra, e
- * um terceiro âmbar na barra roubava-lhes a atenção. O estado activo distingue-se
- * por fundo e peso, não por cor.
- */
-const LangSwitch: React.FC<{ label: string; className?: string }> = ({ label, className = '' }) => {
-  const [lang, setLang] = useLang();
-
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className={clsx(
-        'inline-flex items-center rounded-lg border border-dark-border bg-dark-input/60 p-0.5',
-        className,
-      )}
-    >
-      {LANGS.map((l) => (
-        <button
-          key={l}
-          type="button"
-          onClick={() => setLang(l)}
-          aria-pressed={lang === l}
-          className={clsx(
-            'flex items-center justify-center min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-md transition-colors',
-            lang === l ? 'bg-dark-card text-white' : 'text-gray-400 hover:text-white',
-          )}
-        >
-          {LANG_LABEL[l]}
-        </button>
-      ))}
-    </div>
-  );
-};
 
 export const Navbar: React.FC = () => {
   const location = useLocation();
@@ -68,7 +30,7 @@ export const Navbar: React.FC = () => {
             instalada, que corre sem barra de endereço. */}
         <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2">
           <span className="hidden min-[400px]:inline font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
-            INSTANT WIN
+            Instant Win
           </span>
           <svg
             width="18"
@@ -101,7 +63,7 @@ export const Navbar: React.FC = () => {
                         to={item.path}
                         className={clsx(
                             "text-sm font-medium transition-colors hover:text-brand",
-                            isActive ? "text-white" : "text-gray-500"
+                            isActive ? "text-white" : "text-gray-400"
                         )}
                     >
                         {item.label}
@@ -113,19 +75,28 @@ export const Navbar: React.FC = () => {
         {/* Right Side: Status & Wallet */}
         <div className="flex items-center gap-4">
             {/* Network Status Indicator (Visual only as per screenshot) */}
+            {/* Estado da ligação. O ponto verde só acende quando há mesmo uma
+                wallet ligada — antes pulsava sempre, o que dizia "ligado" a
+                quem não estava. */}
             <div className="hidden lg:flex flex-col items-end mr-2">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{c.nav.status}</span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider">{c.nav.status}</span>
                 <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
-                    <span className="text-xs font-mono text-gray-400">
-                        {isConnected && address ? `${address.slice(0,6)}...${address.slice(-4)}` : c.nav.notConnected}
+                    <span
+                        aria-hidden="true"
+                        className={clsx(
+                            'w-1.5 h-1.5 rounded-full',
+                            isConnected && address ? 'bg-success' : 'bg-gray-600',
+                        )}
+                    />
+                    <span className="text-xs font-mono text-gray-400 tabular-nums">
+                        {isConnected && address ? `${address.slice(0,6)}…${address.slice(-4)}` : c.nav.notConnected}
                     </span>
                 </div>
             </div>
 
             {/* Abaixo de sm a barra não tem espaço para três alvos de 44px: o
                 selector passa a viver no menu mobile, logo abaixo. */}
-            <LangSwitch label={c.nav.ariaLanguage} className="hidden sm:inline-flex" />
+            <LangSwitch className="hidden sm:inline-flex" />
 
             <ShareButton variant="icon" />
 
@@ -160,7 +131,7 @@ export const Navbar: React.FC = () => {
             ))}
 
             <div className="sm:hidden mt-2 pt-3 border-t border-dark-border flex justify-center">
-                <LangSwitch label={c.nav.ariaLanguage} />
+                <LangSwitch />
             </div>
         </div>
       )}

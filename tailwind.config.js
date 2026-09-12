@@ -32,6 +32,10 @@ export default {
           card: '#0F0F11',   // Dark Gray Card
           border: '#1E1E22', // Subtle Border
           input: '#18181B',  // Input Background
+          // Papel do bilhete. Deliberadamente mais claro e mais quente que
+          // `card`: o bilhete da lotaria tem de se ler como um objecto em cima
+          // da página, não como mais um painel dentro dela.
+          ticket: '#15151A',
         }
       },
       backgroundImage: {

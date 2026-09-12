@@ -19,3 +19,74 @@ input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/*
+ * Foco visível, em toda a app.
+ *
+ * Não havia nenhum: os botões e os inputs herdavam o contorno do browser e
+ * vários matavam-no com `focus:outline-none`, o que deixa quem navega por
+ * teclado sem saber onde está. Âmbar porque é a cor de atenção da casa, e
+ * `:focus-visible` para o rato não o acender a cada clique.
+ */
+:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/*
+ * Picotado do bilhete da lotaria.
+ *
+ * Uma linha tracejada com duas meias-luas a morder as margens — o rasgão de um
+ * talão a sério. Feito só em CSS porque um bilhete desenhado em imagem não
+ * escala com o texto nem acompanha o tema, e porque não vale uma dependência.
+ *
+ * As meias-luas são preenchidas com o preto da página (`--tear-ground`), por
+ * isso o elemento só funciona sobre o fundo da página: é para isso que existe.
+ */
+.ticket-tear {
+  position: relative;
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    #2a2a31 0 6px,
+    transparent 6px 13px
+  );
+}
+
+.ticket-tear::before,
+.ticket-tear::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background-color: #000000;
+  transform: translateY(-50%);
+}
+
+.ticket-tear::before {
+  left: -9px;
+}
+
+.ticket-tear::after {
+  right: -9px;
+}
+
+/*
+ * Chão de acessibilidade: quem pede menos movimento no sistema operativo não
+ * leva nenhum. O relógio da lotaria acelera visualmente no último minuto e a
+ * lista de vencedores aparece com transição — nada disso é informação, por isso
+ * nada disso se perde ao ser desligado.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

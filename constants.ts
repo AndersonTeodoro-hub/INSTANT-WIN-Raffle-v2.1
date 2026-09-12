@@ -9,10 +9,19 @@ if (!PROJECT_ID) {
   throw new Error('VITE_WC_PROJECT_ID não definida — configurar no Vercel ou em .env.local');
 }
 
+/*
+ * Identidade que a wallet mostra ao utilizador na janela de aprovação.
+ *
+ * `url` TEM de ser o domínio a sério do site. Estava `instantwin.finance`, que
+ * não é o domínio deste produto (é instntwin.com, o mesmo do og:image, do
+ * ShareButton e do WinCard), e o WalletConnect avisava em toda a sessão:
+ * "the configured metadata.url differs from the actual page url". Em produção
+ * era isso que aparecia a quem estava a assinar.
+ */
 const metadata = {
   name: 'Instant Win',
   description: 'Arbitrum Raffle Protocol',
-  url: 'https://instantwin.finance',
+  url: 'https://instntwin.com',
   icons: ['https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png']
 };
 

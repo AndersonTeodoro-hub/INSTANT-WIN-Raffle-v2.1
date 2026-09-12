@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
-import { Loader2, ExternalLink, ShieldAlert } from 'lucide-react';
+import { Check, Loader2, ExternalLink } from 'lucide-react';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2PrizeKind } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
+import { Banner } from '../components/Banner';
+import { EventShell } from '../components/EventShell';
+import { Step } from '../components/Step';
 import { ShareButton } from '../components/ShareButton';
-import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { LangSwitch } from '../components/LangSwitch';
 import { useEventsCopy } from './events.i18n';
 import {
   confirmDestination,
@@ -30,13 +31,43 @@ const POLL_MS = 6000;
 
 const ACTIVE_STATUSES = ['AWAITING_CONTACT', 'VERIFIED', 'ELIGIBLE', 'FUNDING', 'SUBMITTED'];
 
-function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-      <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-      <span>{message}</span>
-    </div>
-  );
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+/**
+ * Contagem decrescente até um instante que já foi lido da cadeia.
+ *
+ * Não lê nada: recebe o `effectiveEndTime` que a página já tem e conta no
+ * cliente, como o relógio da lotaria. Serve as duas chaves de i18n que existiam
+ * desde o início e nunca tinham chegado ao ecrã — a página não dizia a ninguém
+ * quanto tempo faltava para as entradas fecharem.
+ */
+function useCountdown(target: bigint | undefined): number | null {
+  const [left, setLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (target === undefined) {
+      setLeft(null);
+      return;
+    }
+    const end = Number(target);
+    const tick = () => setLeft(Math.max(0, end - Math.floor(Date.now() / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [target]);
+
+  return left;
+}
+
+/** Dias e horas enquanto falta mais de um dia; relógio a seguir. */
+function formatWindow(seconds: number): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (d > 0) return `${d}d ${pad(h)}h`;
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
 /** Login por email + código, e o painel de conta uma vez com sessão. */
@@ -131,32 +162,31 @@ function AccountPanel({
 
   if (loggedIn) {
     return (
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-        <span>
-          {c.signedInAs} {email ? <span className="text-gray-400 font-mono">{email}</span> : null}
-        </span>
-        <button type="button" onClick={signOut} disabled={busy} className="hover:text-white underline underline-offset-2 disabled:opacity-50">
-          {c.signOut}
-        </button>
-        <button type="button" onClick={exportData} disabled={busy} className="hover:text-white underline underline-offset-2 disabled:opacity-50">
-          {c.exportData}
-        </button>
-        <button type="button" onClick={eraseData} disabled={busy} className="text-red-400/70 hover:text-red-400 underline underline-offset-2 disabled:opacity-50">
-          {c.deleteData}
-        </button>
-        {notice && <span className="text-success">{notice}</span>}
-        {error && <span className="text-red-400">{error}</span>}
+      <div className="space-y-2">
+        <p className="text-sm text-gray-300">
+          {c.signedInAs} {email ? <span className="font-mono text-white">{email}</span> : null}
+        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400">
+          <button type="button" onClick={signOut} disabled={busy} className="min-h-[32px] hover:text-white underline underline-offset-2 disabled:opacity-50">
+            {c.signOut}
+          </button>
+          <button type="button" onClick={exportData} disabled={busy} className="min-h-[32px] hover:text-white underline underline-offset-2 disabled:opacity-50">
+            {c.exportData}
+          </button>
+          <button type="button" onClick={eraseData} disabled={busy} className="min-h-[32px] text-red-400/70 hover:text-red-400 underline underline-offset-2 disabled:opacity-50">
+            {c.deleteData}
+          </button>
+          {notice && <span className="text-success">{notice}</span>}
+          {error && <span className="text-red-400">{error}</span>}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-4">
-      <div>
-        <h3 className="font-bold text-white mb-1">{c.loginTitle}</h3>
-        <p className="text-sm text-gray-400">{c.loginBody}</p>
-      </div>
-      {error && <ErrorBanner message={error} />}
+    <div className="space-y-4">
+      <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.loginBody}</p>
+      {error && <Banner message={error} />}
       {step === 'email' ? (
         <div className="flex flex-col sm:flex-row gap-3">
           <input
@@ -164,15 +194,16 @@ function AccountPanel({
             value={emailInput}
             onChange={(e) => setEmailInput(e.target.value)}
             placeholder={c.emailPlaceholder}
-            className="flex-1 min-h-[48px] rounded-lg border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-600"
+            aria-label={c.emailLabel}
+            className="flex-1 min-h-[52px] rounded-xl border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-400 focus:border-gray-500"
           />
-          <Button variant="primary" onClick={sendCode} isLoading={busy} className="sm:w-auto">
+          <Button variant="connect" onClick={sendCode} isLoading={busy} className="min-h-[52px] rounded-xl sm:w-auto sm:px-8">
             {c.sendCode}
           </Button>
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-sm text-gray-400">{c.codeSentTitle}</p>
+          <p className="text-sm text-gray-300">{c.codeSentTitle}</p>
           <div className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
@@ -180,13 +211,14 @@ function AccountPanel({
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="000000"
-              className="flex-1 min-h-[48px] rounded-lg border border-dark-border bg-dark-input px-4 text-white font-mono tracking-widest"
+              aria-label={c.codeLabel}
+              className="flex-1 min-h-[52px] rounded-xl border border-dark-border bg-dark-input px-4 font-mono text-lg tracking-[0.3em] text-white tabular-nums focus:border-gray-500"
             />
-            <Button variant="primary" onClick={verify} isLoading={busy} className="sm:w-auto">
+            <Button variant="connect" onClick={verify} isLoading={busy} className="min-h-[52px] rounded-xl sm:w-auto sm:px-8">
               {c.verify}
             </Button>
           </div>
-          <button type="button" onClick={sendCode} className="text-sm text-gray-500 hover:text-white underline">
+          <button type="button" onClick={sendCode} className="min-h-[44px] text-sm text-gray-400 hover:text-white underline underline-offset-2">
             {c.resend}
           </button>
         </div>
@@ -216,10 +248,10 @@ function OutcomePanel({
 
   if (awaiting) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-dark-border bg-dark-card p-5 text-sm text-gray-400">
-        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+      <p className="flex items-center gap-3 rounded-xl border border-dark-border bg-dark-card p-5 text-sm text-gray-400">
+        <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden="true" />
         <span>{c.pending}</span>
-      </div>
+      </p>
     );
   }
 
@@ -230,9 +262,9 @@ function OutcomePanel({
 
   if (outcome === 'LOST') {
     return (
-      <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-2">
-        <h3 className="font-bold text-white">{c.lostTitle}</h3>
-        <p className="text-sm text-gray-400">{c.lostBody}</p>
+      <div className="rounded-xl border border-dark-border bg-dark-card p-6">
+        <h2 className="font-display text-2xl font-bold tracking-tight text-white">{c.lostTitle}</h2>
+        <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.lostBody}</p>
       </div>
     );
   }
@@ -241,9 +273,11 @@ function OutcomePanel({
   // for their address and the destination form below is not shown to them, so
   // the instruction they need is the email's — call claimPrize from that wallet.
   return (
-    <div className="rounded-xl border border-success/40 bg-success/10 p-5 space-y-2">
-      <h3 className="font-bold text-success">{c.wonTitle}</h3>
-      <p className="text-sm text-gray-200">{selfCustody ? c.wonBodySelf : c.wonBody}</p>
+    <div className="rounded-xl border border-brand/30 bg-brand/[0.06] p-6">
+      <h2 className="font-display text-3xl font-bold tracking-tight text-brand">{c.wonTitle}</h2>
+      <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-200">
+        {selfCustody ? c.wonBodySelf : c.wonBody}
+      </p>
     </div>
   );
 }
@@ -319,33 +353,40 @@ function ParticipatePanel({
     FAILED: c.statusFailed,
   };
 
+  const confirmed = status.status === 'CONFIRMED';
+
   return (
-    <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-4">
-      <h3 className="font-bold text-white">{c.title}</h3>
+    <div className="space-y-4">
       {status.status === 'NONE' ? (
         <>
-          <p className="text-sm text-gray-400">{c.intro}</p>
-          {error && <ErrorBanner message={error} />}
-          <Button variant="success" onClick={enter} isLoading={busy} className="w-full sm:w-auto">
+          <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.intro}</p>
+          {error && <Banner message={error} />}
+          <Button variant="connect" onClick={enter} isLoading={busy} className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8">
             {c.ctaEnter}
           </Button>
         </>
       ) : (
         <>
-          <p className="text-sm text-gray-300">{label[status.status] ?? status.status}</p>
+          <p
+            className={`text-base ${
+              confirmed ? 'font-bold text-success' : 'text-gray-200'
+            }`}
+          >
+            {label[status.status] ?? status.status}
+          </p>
           {status.status === 'AWAITING_CONTACT' && (
             <div className="space-y-2">
-              {error && <ErrorBanner message={error} />}
+              {error && <Banner message={error} />}
               <Button
-                variant="primary"
+                variant="connect"
                 onClick={enter}
                 isLoading={busy}
-                className="inline-flex items-center gap-2 w-full sm:w-auto"
+                className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8"
               >
                 {telegramUrl ? c.openTelegramAgain : c.openTelegram}
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
               </Button>
-              <p className="text-xs text-gray-500">{c.telegramExpiredHint}</p>
+              <p className="text-xs text-gray-400">{c.telegramExpiredHint}</p>
             </div>
           )}
           {status.txHash && (
@@ -353,15 +394,17 @@ function ParticipatePanel({
               href={`${ARBISCAN}/tx/${status.txHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-between gap-2 rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-xs text-success hover:border-success/40"
+              className="flex items-center justify-between gap-2 rounded-lg border border-dark-border px-4 py-3 font-mono text-xs text-success hover:border-success/40 transition-colors"
             >
-              <span>{c.txLabel}: {status.txHash.slice(0, 10)}…{status.txHash.slice(-8)}</span>
-              <ExternalLink className="w-4 h-4 shrink-0" />
+              <span className="truncate">
+                {c.txLabel} {short(status.txHash)}
+              </span>
+              <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
             </a>
           )}
         </>
       )}
-      <p className="text-xs text-gray-500 leading-relaxed">{c.walletGapNotice}</p>
+      <p className="max-w-[62ch] text-xs leading-relaxed text-gray-400">{c.walletGapNotice}</p>
     </div>
   );
 }
@@ -407,18 +450,22 @@ function PrizePanel({ giveawayId, custody }: { giveawayId: bigint; custody: NonN
   };
 
   return (
-    <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-4">
-      <h3 className="font-bold text-white">{c.title}</h3>
-      <p className="text-sm text-gray-400">{custody.requiresOwnWallet ? c.requiresOwnWallet : c.belowThreshold}</p>
+    <div className="space-y-4">
+      <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">
+        {custody.requiresOwnWallet ? c.requiresOwnWallet : c.belowThreshold}
+      </p>
       {!custody.requiresOwnWallet && custody.custodyExpiresAt && (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-400">
           {c.expiresOn} {new Date(custody.custodyExpiresAt).toLocaleDateString()}
         </p>
       )}
-      {error && <ErrorBanner message={error} />}
+      {error && <Banner message={error} />}
       {confirmed ? (
-        <p className="text-sm text-success font-mono break-all">
-          {c.confirmed} {proposed}
+        <p className="flex items-start gap-2 font-mono text-sm text-success break-all">
+          <Check className="w-4 h-4 shrink-0 mt-0.5" strokeWidth={3} aria-hidden="true" />
+          <span>
+            {c.confirmed} {proposed}
+          </span>
         </p>
       ) : (
         <div className="space-y-3">
@@ -428,27 +475,28 @@ function PrizePanel({ giveawayId, custody }: { giveawayId: bigint; custody: NonN
               value={addr}
               onChange={(e) => setAddr(e.target.value)}
               placeholder={c.destinationPlaceholder}
-              className="flex-1 min-h-[48px] rounded-lg border border-dark-border bg-dark-input px-4 text-white font-mono text-sm"
+              aria-label={c.destinationLabel}
+              className="flex-1 min-h-[52px] rounded-xl border border-dark-border bg-dark-input px-4 font-mono text-sm text-white focus:border-gray-500"
             />
             {address && (
               <button
                 type="button"
                 onClick={() => setAddr(address)}
-                className="text-xs text-gray-500 hover:text-white underline whitespace-nowrap self-center"
+                className="min-h-[44px] shrink-0 self-center font-mono text-xs text-gray-400 hover:text-white underline underline-offset-2 whitespace-nowrap"
               >
-                {address.slice(0, 6)}…{address.slice(-4)}
+                {short(address)}
               </button>
             )}
           </div>
           {proposed && proposed.toLowerCase() === addr.trim().toLowerCase() ? (
             <>
-              <p className="text-xs text-gray-500">{c.confirmExplainer}</p>
-              <Button variant="success" onClick={confirm} isLoading={busy} className="w-full sm:w-auto">
+              <p className="max-w-[58ch] text-xs leading-relaxed text-gray-400">{c.confirmExplainer}</p>
+              <Button variant="success" onClick={confirm} isLoading={busy} className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8">
                 {c.confirmCta}
               </Button>
             </>
           ) : (
-            <Button variant="primary" onClick={propose} isLoading={busy} className="w-full sm:w-auto">
+            <Button variant="connect" onClick={propose} isLoading={busy} className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8">
               {c.proposeCta}
             </Button>
           )}
@@ -587,6 +635,9 @@ export const EventDetail: React.FC = () => {
   const awaitingOutcome =
     settled && entryStatusResult?.status === 'CONFIRMED' && outcome === null;
 
+  /** Relógio das entradas, a partir do instante que já foi lido acima. */
+  const secondsLeft = useCountdown(effectiveEndTime as bigint | undefined);
+
   if (giveawayId === null) return <div className="min-h-screen bg-black" />;
 
   const acceptsEntries =
@@ -596,73 +647,118 @@ export const EventDetail: React.FC = () => {
     (slotsRemaining as bigint | undefined) !== undefined &&
     (slotsRemaining as bigint) > 0n;
 
+  const left = slotsRemaining as bigint | undefined;
+  const taken = g && left !== undefined ? g.slotCap - Number(left) : null;
+  const filledPct = taken !== null && g?.slotCap > 0 ? Math.min(100, (taken / g.slotCap) * 100) : 0;
+  const entryStep = entryStatusResult?.status;
+
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
-
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] flex items-center justify-between gap-3">
-          <Link to="/events" className="text-sm text-gray-400 hover:text-white">
-            {c.detail.back}
-          </Link>
-          <div className="flex items-center gap-3">
-            <PublicNavLinks />
-            <LangSwitch />
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-3xl py-10 space-y-6">
-        {paused === true && <ErrorBanner message={c.detail.pausedBanner} />}
+    <EventShell back={{ to: '/events', label: c.nav.link }}>
+      <div className="space-y-6">
+        {paused === true && <Banner message={c.detail.pausedBanner} tone="notice" />}
 
         {isLoading && (
-          <div className="flex items-center gap-3 text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin" /> {c.detail.loading}
-          </div>
+          <p className="flex items-center gap-3 text-gray-400">
+            <Loader2 className="w-5 h-5 animate-spin shrink-0" aria-hidden="true" /> {c.detail.loading}
+          </p>
         )}
 
-        {!isLoading && (!g || g.status === GiveawayV2Status.NONE) && <ErrorBanner message={c.detail.notFound} />}
+        {!isLoading && (!g || g.status === GiveawayV2Status.NONE) && <Banner message={c.detail.notFound} />}
 
         {g && g.status !== GiveawayV2Status.NONE && (
           <>
-            <div className="rounded-xl border border-dark-border bg-dark-card p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">#{giveawayId.toString()}</p>
-                <ShareButton url={`${window.location.origin}/events/${giveawayId.toString()}`} />
+            {/* ============ O CONVITE ============ */}
+
+            <div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p
+                    className={`font-mono text-[11px] uppercase tracking-[0.14em] ${
+                      g.status === GiveawayV2Status.OPEN ? 'text-success' : 'text-gray-400'
+                    }`}
+                  >
+                    {c.list.status[
+                      (['NONE', 'OPEN', 'CLOSED', 'DRAW_REQUESTED', 'SEED_RECEIVED', 'SETTLED', 'CANCELLED'] as const)[
+                        g.status
+                      ] as keyof typeof c.list.status
+                    ] ?? ''}
+                  </p>
+                  {/* O prémio é o assunto da página, por isso é o h1. A página
+                      não tinha nenhum: começava em h3 e um leitor de ecrã não
+                      tinha por onde se orientar. */}
+                  <p className="mt-3 text-sm text-gray-400">{c.detail.prizeLabel}</p>
+                  <h1 className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.75rem,11vw,4.5rem)] break-all">
+                    {formatUnits(displayAmount ?? 0n, decimals)}
+                    <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
+                  </h1>
+                </div>
+                <ShareButton
+                  className="shrink-0 text-gray-400 hover:text-white"
+                  url={`${window.location.origin}/events/${giveawayId.toString()}`}
+                />
               </div>
-              <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500">{c.detail.prizeLabel}</p>
-              <p className="font-mono text-3xl font-bold text-brand break-all">
-                {formatUnits(displayAmount ?? 0n, decimals)} {symbol}
+
+              {/* Quem pagou o prémio tem nome, e o nome liga à prova. */}
+              <p className="mt-5 flex flex-wrap items-baseline gap-x-2 text-sm text-gray-400">
+                {c.detail.byCreator}
+                <a
+                  href={`${ARBISCAN}/address/${g.creator}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-gray-300 underline decoration-dark-border underline-offset-4 hover:text-white hover:decoration-gray-500"
+                >
+                  {short(g.creator)}
+                </a>
               </p>
-              <dl className="grid grid-cols-2 gap-4 pt-2">
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-gray-500">{c.detail.winnersLabel}</dt>
-                  <dd className="font-mono text-lg text-white">{g.winnersCount}</dd>
-                </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-gray-500">{c.detail.slotsLabel}</dt>
-                  <dd className="font-mono text-lg text-white">
-                    {slotsRemaining !== undefined ? (slotsRemaining as bigint).toString() : '…'}/{g.slotCap}
-                  </dd>
-                </div>
-              </dl>
-              <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500 pt-2">{c.detail.contractLabel}</p>
-              <a
-                href={`${ARBISCAN}/address/${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between gap-2 rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-xs text-gray-300 hover:border-gray-600"
-              >
-                <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
-                <ExternalLink className="w-4 h-4 shrink-0" />
-              </a>
+
+              <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-300">
+                {c.detail.freeToEnter}
+              </p>
             </div>
 
+            {/* Lugares e tempo: o que decide se ainda vale a pena entrar. */}
+            <div className="grid gap-4 sm:grid-cols-3 rounded-xl border border-dark-border bg-dark-card p-5">
+              <div className="sm:col-span-2">
+                <p className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm text-gray-400">{c.detail.entriesLabel}</span>
+                  <span className="font-mono text-sm text-white tabular-nums">
+                    {taken !== null ? taken.toLocaleString('en-US') : '…'}
+                    <span className="text-gray-400"> / {g.slotCap.toLocaleString('en-US')}</span>
+                  </span>
+                </p>
+                <div aria-hidden="true" className="mt-3 h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${acceptsEntries ? 'bg-brand/70' : 'bg-gray-700'}`}
+                    style={{ width: `${filledPct}%` }}
+                  />
+                </div>
+              </div>
+              <div className="sm:border-l sm:border-dark-border sm:pl-5">
+                {/* `null` é "ainda não sei", não "fechou": dizer que as entradas
+                    fecharam enquanto a leitura não chegou seria mentir a quem
+                    ainda podia entrar. */}
+                <p className="text-sm text-gray-400">
+                  {secondsLeft === null || secondsLeft > 0 ? c.detail.timeLeftLabel : c.detail.endedLabel}
+                </p>
+                <p className="mt-1 font-mono text-lg font-bold text-white tabular-nums">
+                  {secondsLeft === null ? '…' : secondsLeft > 0 ? formatWindow(secondsLeft) : '—'}
+                </p>
+                <p className="mt-3 text-sm text-gray-400">
+                  {c.detail.winnersLabel}{' '}
+                  <span className="font-mono text-white tabular-nums">{g.winnersCount}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* ============ QUEM GANHOU ============ */}
+
             {g.status === GiveawayV2Status.SETTLED && (
-              <div className="rounded-xl border border-dark-border bg-dark-card p-6">
-                <h3 className="font-bold text-white mb-3">{c.detail.previousWinners.title}</h3>
+              <div className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-6">
+                <h2 className="font-display text-2xl font-bold tracking-tight text-white">
+                  {c.detail.previousWinners.title}
+                </h2>
                 {Array.isArray(winners) && winners.length > 0 ? (
-                  <ul className="space-y-1 font-mono text-sm text-gray-300">
+                  <ol className="mt-4 divide-y divide-dark-border border-y border-dark-border">
                     {(winners as `0x${string}`[]).map((w, i) => {
                       // The one thing this list never did: tell you that one of
                       // these rows is you. A winner had to recognise their own
@@ -671,73 +767,121 @@ export const EventDetail: React.FC = () => {
                       return (
                         <li
                           key={`${w}-${i}`}
-                          className={
-                            mine
-                              ? 'flex flex-wrap items-center gap-2 rounded-lg bg-success/10 px-2 py-1 text-success'
-                              : undefined
-                          }
+                          className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-3 ${
+                            mine ? '-mx-3 px-3 bg-brand/[0.07]' : ''
+                          }`}
                         >
-                          <span className="break-all">
-                            #{i + 1} {w}
+                          <span className="font-mono text-xs text-gray-400 tabular-nums w-5 shrink-0">
+                            {i + 1}
+                          </span>
+                          <span
+                            className={`font-mono text-sm break-all min-w-0 ${
+                              mine ? 'text-brand' : 'text-gray-300'
+                            }`}
+                          >
+                            {w}
                           </span>
                           {mine && (
-                            <span className="rounded bg-success/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest">
+                            <span className="shrink-0 rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black">
                               {c.detail.previousWinners.you}
                             </span>
                           )}
                         </li>
                       );
                     })}
-                  </ul>
+                  </ol>
                 ) : (
-                  <p className="text-sm text-gray-500">{c.detail.previousWinners.empty}</p>
+                  <p className="mt-3 text-sm text-gray-400">{c.detail.previousWinners.empty}</p>
                 )}
               </div>
             )}
 
-            <AccountPanel
-              loggedIn={loggedIn}
-              email={email}
-              onLoggedIn={(e) => {
-                setEmail(e);
-                setLoggedIn(true);
-              }}
-              onSignedOut={() => {
-                setLoggedIn(false);
-                setEntryStatusResult(null);
-                setEmail(null);
-              }}
-            />
+            {/* ============ A SUA PARTICIPAÇÃO ============ */}
 
             {loggedIn && sessionChecked && (
-              <>
-                {!acceptsEntries && g.status === GiveawayV2Status.OPEN && (
-                  <ErrorBanner message={c.detail.participate.full} />
-                )}
-                <ParticipatePanel
-                  giveawayId={giveawayId}
-                  awaitingOutcome={awaitingOutcome}
-                  onStatus={setEntryStatusResult}
-                />
-                <OutcomePanel
-                  outcome={outcome}
-                  awaiting={awaitingOutcome}
-                  selfCustody={entryStatusResult?.selfCustody === true}
-                />
-                {entryStatusResult?.custody && entryStatusResult.selfCustody !== true && (
-                  <PrizePanel giveawayId={giveawayId} custody={entryStatusResult.custody} />
-                )}
-              </>
+              <OutcomePanel
+                outcome={outcome}
+                awaiting={awaitingOutcome}
+                selfCustody={entryStatusResult?.selfCustody === true}
+              />
             )}
+
+            <div className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-7">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-white">
+                {c.detail.yourEntry}
+              </h2>
+
+              <ol className="mt-6">
+                <Step index={1} title={c.detail.steps.identity} done={loggedIn}>
+                  <AccountPanel
+                    loggedIn={loggedIn}
+                    email={email}
+                    onLoggedIn={(e) => {
+                      setEmail(e);
+                      setLoggedIn(true);
+                    }}
+                    onSignedOut={() => {
+                      setLoggedIn(false);
+                      setEntryStatusResult(null);
+                      setEmail(null);
+                    }}
+                  />
+                </Step>
+
+                <Step
+                  index={2}
+                  title={c.detail.steps.entry}
+                  done={entryStep === 'CONFIRMED'}
+                  last={!(loggedIn && sessionChecked && entryStatusResult?.custody && entryStatusResult.selfCustody !== true)}
+                >
+                  {loggedIn && sessionChecked ? (
+                    <>
+                      {/* Condição inalterada: o aviso de esgotado continua a
+                          depender só de `acceptsEntries` e do estado OPEN. */}
+                      {!acceptsEntries && g.status === GiveawayV2Status.OPEN && (
+                        <div className="mb-4">
+                          <Banner message={c.detail.participate.full} tone="notice" />
+                        </div>
+                      )}
+                      <ParticipatePanel
+                        giveawayId={giveawayId}
+                        awaitingOutcome={awaitingOutcome}
+                        onStatus={setEntryStatusResult}
+                      />
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">{c.detail.participate.intro}</p>
+                  )}
+                </Step>
+
+                {loggedIn && sessionChecked && entryStatusResult?.custody && entryStatusResult.selfCustody !== true && (
+                  <Step index={3} title={c.detail.steps.prize} done={entryStatusResult.custody.destinationConfirmed} last>
+                    <PrizePanel giveawayId={giveawayId} custody={entryStatusResult.custody} />
+                  </Step>
+                )}
+              </ol>
+            </div>
+
+            {/* ============ A PROVA ============ */}
+
+            <div className="rounded-xl border border-dark-border p-5 sm:p-6">
+              <p className="max-w-[66ch] text-sm leading-relaxed text-gray-400">{c.detail.proofLine}</p>
+              <a
+                href={`${ARBISCAN}/address/${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 flex items-center justify-between gap-3 min-h-[44px] font-mono text-[11px] text-gray-400 hover:text-success transition-colors"
+              >
+                <span className="flex flex-wrap items-baseline gap-x-2 min-w-0">
+                  <span className="text-gray-400">{c.detail.contractLabel}</span>
+                  <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
+                </span>
+                <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+              </a>
+            </div>
           </>
         )}
-      </main>
-
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
-        <div className="container mx-auto px-4 space-y-4 text-center">
-          <PublicFooterNav />
-        </div>
-      </footer>
-    </div>
+      </div>
+    </EventShell>
   );
 };

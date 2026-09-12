@@ -12,7 +12,7 @@ import { formatUnits } from 'viem';
 import { CONTRACTS, RAFFLE_ABI, RAFFLE_DEPLOY_BLOCK, RoundState, PRIZE_AWARDED_EVENT } from '../constants';
 import { Button } from './Button';
 import { WinCard } from './WinCard';
-import { Gift, Undo2, Trophy, Dices, Ban } from 'lucide-react';
+import { Gift, Undo2, Trophy, Ban } from 'lucide-react';
 import { useAppCopy } from '../pages/app.i18n';
 
 const TICKET_PRICE = 1_000_000n;
@@ -94,24 +94,24 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
   const busy = isPending || confirming;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
-      <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
-        <Gift className="w-5 h-5 text-brand" /> {c.claim.title}
-      </h3>
+    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-7">
+      <h2 className="font-display text-2xl font-bold text-white tracking-tight mb-5 flex items-center gap-2">
+        <Gift className="w-5 h-5 text-brand shrink-0" aria-hidden="true" /> {c.claim.title}
+      </h2>
 
       {/* Recibo de vitória: há prémio por reclamar, ou um claim acabou de confirmar. */}
       {(prize > 0n || isSuccess) && <WinCard fallbackAmount={prize} claimTxHash={isSuccess ? hash : undefined} />}
 
-      <div className="bg-dark-input rounded-xl p-6 border border-dark-border mb-4">
-        <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">{c.claim.claimable}</p>
-        <p className="font-mono text-4xl font-bold text-brand tabular-nums">
-          {usdc(prize)} <span className="text-lg text-gray-600 font-normal">USDC</span>
+      <div className="flex items-baseline justify-between gap-3 border-y border-dark-border py-4 mb-4">
+        <p className="text-sm text-gray-400">{c.claim.claimable}</p>
+        <p className="font-mono text-3xl font-bold text-brand tabular-nums">
+          {usdc(prize)} <span className="text-sm text-gray-400 font-normal">USDC</span>
         </p>
       </div>
 
       <Button
         variant="success"
-        className="w-full py-4"
+        className="w-full min-h-[52px] rounded-xl"
         disabled={prize === 0n || busy}
         isLoading={busy}
         onClick={() =>
@@ -126,17 +126,17 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
       </Button>
 
       {refundables.length > 0 && (
-        <div className="mt-6 space-y-3">
-          <p className="text-xs text-gray-500 font-bold uppercase tracking-wider flex items-center gap-2">
-            <Undo2 className="w-3 h-3" /> {c.claim.refundsTitle}
+        <div className="mt-6 space-y-2">
+          <p className="text-sm text-gray-400 flex items-center gap-2">
+            <Undo2 className="w-4 h-4 shrink-0 text-gray-400" aria-hidden="true" /> {c.claim.refundsTitle}
           </p>
           {refundables.map((r) => (
             <div
               key={r.id.toString()}
-              className="flex items-center justify-between gap-3 bg-dark-input rounded-xl p-3 border border-dark-border"
+              className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-white/[0.02] px-4 py-3"
             >
               <div>
-                <p className="text-xs text-gray-500 font-bold uppercase">{c.claim.round}{r.id.toString()}</p>
+                <p className="font-mono text-xs text-gray-400 tabular-nums">{c.claim.round}{r.id.toString()}</p>
                 <p className="font-mono font-bold text-brand tabular-nums">{usdc(r.amount)} USDC</p>
               </div>
               <Button
@@ -229,40 +229,45 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
   if (!prevId || state === undefined || state === RoundState.NONE || state === RoundState.OPEN) return null;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-8">
-      <h3 className="font-display text-2xl sm:text-3xl font-bold text-white uppercase tracking-tight mb-5 flex items-center gap-2">
-        {state === RoundState.DRAWING && <Dices className="w-5 h-5 text-blue-500 animate-pulse" />}
-        {state === RoundState.SETTLED && <Trophy className="w-5 h-5 text-brand" />}
-        {state === RoundState.CANCELLED && <Ban className="w-5 h-5 text-gray-500" />}
+    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-7">
+      <h2 className="font-display text-2xl font-bold text-white tracking-tight mb-5 flex items-center gap-2">
+        {/* Sem dados nem roleta: o ícone do sorteio a decorrer é a taça apagada. */}
+        {state === RoundState.DRAWING && <Trophy className="w-5 h-5 text-action shrink-0 animate-pulse" aria-hidden="true" />}
+        {state === RoundState.SETTLED && <Trophy className="w-5 h-5 text-brand shrink-0" aria-hidden="true" />}
+        {state === RoundState.CANCELLED && <Ban className="w-5 h-5 text-gray-400 shrink-0" aria-hidden="true" />}
         {c.previousRound.round}{prevId.toString()}
-      </h3>
+      </h2>
 
       {state === RoundState.DRAWING && (
-        <p className="text-blue-400 font-bold uppercase tracking-wider text-sm animate-pulse">
-          {c.previousRound.drawing}
-        </p>
+        <p className="text-sm text-action animate-pulse">{c.previousRound.drawing}</p>
       )}
 
       {state === RoundState.CANCELLED && (
-        <p className="text-sm text-gray-400">{c.previousRound.cancelled}</p>
+        <p className="max-w-[62ch] text-sm leading-relaxed text-gray-400">{c.previousRound.cancelled}</p>
       )}
 
       {state === RoundState.SETTLED && (
-        <div className="space-y-3">
-          <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
-            {c.previousRound.settledPoolPre} {usdc(pool)} USDC
+        <div>
+          <p className="text-sm text-gray-400">
+            {c.previousRound.settledPoolPre}{' '}
+            <span className="font-mono text-gray-300 tabular-nums">{usdc(pool)} USDC</span>
           </p>
           {winners && winners.length > 0 ? (
-            winners.map((w) => (
-              <div key={w.rank} className="flex items-center justify-between text-sm">
-                <span className="text-gray-400">
-                  #{w.rank} <span className="font-mono text-gray-500">{short(w.winner)}</span>
-                </span>
-                <span className="text-brand font-mono font-bold">{usdc(w.amount)} USDC</span>
-              </div>
-            ))
+            <ol className="mt-4 divide-y divide-dark-border border-y border-dark-border">
+              {winners.map((w) => (
+                <li key={w.rank} className="flex items-center justify-between gap-3 py-3 text-sm">
+                  <span className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono text-xs text-gray-400 tabular-nums">{w.rank}</span>
+                    <span className="font-mono text-gray-300 truncate">{short(w.winner)}</span>
+                  </span>
+                  <span className="font-mono font-bold text-brand tabular-nums shrink-0">
+                    {usdc(w.amount)} USDC
+                  </span>
+                </li>
+              ))}
+            </ol>
           ) : (
-            <p className="text-sm text-gray-500">{c.previousRound.winnersSettled}</p>
+            <p className="mt-3 text-sm text-gray-400">{c.previousRound.winnersSettled}</p>
           )}
         </div>
       )}

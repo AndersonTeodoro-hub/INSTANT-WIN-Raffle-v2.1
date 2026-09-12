@@ -92,6 +92,32 @@ export interface AppCopy {
     second: string;
     third: string;
     disclaimer: string;
+    /**
+     * O talão. Rótulos impressos num bilhete a sério — curtos, porque é o que
+     * cabe num talão, e em maiúsculas pequenas por ser tipografia de bilhete e
+     * não decoração. Tudo o que já existia (bilhetes, custo, chances, tempo)
+     * continua a vir das chaves acima; aqui só está o que o talão acrescenta.
+     */
+    ticket: {
+      title: string;
+      holder: string;
+      /** Ainda sem username: o bilhete existe, o nome dele é que falta. */
+      holderNone: string;
+      round: string;
+      total: string;
+      drawIn: string;
+      /** Último minuto da ronda. */
+      closing: string;
+      /** Ronda expirada, à espera do fecho on-chain. */
+      drawing: string;
+      footnote: string;
+      oddsHint: string;
+    };
+    /** O que a prova on-chain dá e uma lotaria em papel não dá. */
+    proof: {
+      line: string;
+      verifyCta: string;
+    };
   };
   winners: {
     title: string;
@@ -193,7 +219,7 @@ const en: AppCopy = {
   },
   raffle: {
     statusLoading: 'Loading Round',
-    statusLive: 'Live Pool Arbitrum',
+    statusLive: 'Open for entries',
     statusEnded: 'Round Ended · Awaiting Close',
     statusDrawing: 'Drawing Winners…',
     statusSettled: 'Round Settled',
@@ -235,6 +261,22 @@ const en: AppCopy = {
     third: '3rd',
     disclaimer:
       'Prizes are credited on-chain the moment a round settles and stay yours until you claim them. Draws are settled by Chainlink VRF on Arbitrum One. 100% on-chain.',
+    ticket: {
+      title: 'Your ticket',
+      holder: 'Holder',
+      holderNone: 'Name your ticket first',
+      round: 'Round',
+      total: 'Total',
+      drawIn: 'Draw in',
+      closing: 'Closing now',
+      drawing: 'Draw under way',
+      footnote: 'Nothing to keep safe. Your ticket lives on Arbitrum under your name, and so does anything it wins.',
+      oddsHint: 'Your odds move as other players buy into the same round.',
+    },
+    proof: {
+      line: 'A paper lottery asks you to trust the draw. This one lets you read it: the contract, the randomness and every payout are public, permanent and yours to check.',
+      verifyCta: 'Read the contract on Arbiscan',
+    },
   },
   winners: {
     title: 'Recent Winners',
@@ -336,7 +378,7 @@ const pt: AppCopy = {
   },
   raffle: {
     statusLoading: 'Carregando rodada',
-    statusLive: 'Prêmio ao vivo Arbitrum',
+    statusLive: 'Aberta para entradas',
     statusEnded: 'Rodada encerrada · aguardando fechamento',
     statusDrawing: 'Sorteando ganhadores…',
     statusSettled: 'Rodada liquidada',
@@ -378,6 +420,22 @@ const pt: AppCopy = {
     third: '3º',
     disclaimer:
       'Os prêmios são creditados on-chain no instante em que a rodada liquida e ficam seus até você sacar. Os sorteios são liquidados pela Chainlink VRF na Arbitrum One. 100% on-chain.',
+    ticket: {
+      title: 'Seu bilhete',
+      holder: 'Portador',
+      holderNone: 'Dê um nome ao seu bilhete',
+      round: 'Rodada',
+      total: 'Total',
+      drawIn: 'Sorteio em',
+      closing: 'Fechando agora',
+      drawing: 'Sorteio em andamento',
+      footnote: 'Não há nada para guardar. Seu bilhete fica na Arbitrum no seu nome, e o que ele ganhar também.',
+      oddsHint: 'Suas chances mudam conforme outros jogadores entram na mesma rodada.',
+    },
+    proof: {
+      line: 'A loteria em papel pede que você confie no sorteio. Esta deixa você ler o sorteio: o contrato, a aleatoriedade e cada pagamento são públicos, permanentes e seus para conferir.',
+      verifyCta: 'Ler o contrato no Arbiscan',
+    },
   },
   winners: {
     title: 'Ganhadores recentes',
@@ -477,7 +535,7 @@ const es: AppCopy = {
   },
   raffle: {
     statusLoading: 'Cargando ronda',
-    statusLive: 'Premio en vivo Arbitrum',
+    statusLive: 'Abierta a participación',
     statusEnded: 'Ronda terminada · esperando cierre',
     statusDrawing: 'Sorteando ganadores…',
     statusSettled: 'Ronda liquidada',
@@ -519,6 +577,22 @@ const es: AppCopy = {
     third: '3º',
     disclaimer:
       'Los premios se acreditan on-chain en el instante en que la ronda se liquida y quedan tuyos hasta que los retires. Los sorteos los liquida Chainlink VRF en Arbitrum One. 100% on-chain.',
+    ticket: {
+      title: 'Tu boleto',
+      holder: 'Portador',
+      holderNone: 'Ponle nombre a tu boleto',
+      round: 'Ronda',
+      total: 'Total',
+      drawIn: 'Sorteo en',
+      closing: 'Cerrando ahora',
+      drawing: 'Sorteo en curso',
+      footnote: 'No hay nada que guardar. Tu boleto vive en Arbitrum a tu nombre, y lo que gane también.',
+      oddsHint: 'Tus probabilidades cambian a medida que otros jugadores entran en la misma ronda.',
+    },
+    proof: {
+      line: 'Una lotería de papel te pide confiar en el sorteo. Esta te deja leerlo: el contrato, la aleatoriedad y cada pago son públicos, permanentes y tuyos para comprobar.',
+      verifyCta: 'Leer el contrato en Arbiscan',
+    },
   },
   winners: {
     title: 'Ganadores recientes',

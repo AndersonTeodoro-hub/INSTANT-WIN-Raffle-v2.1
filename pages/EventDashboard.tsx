@@ -6,10 +6,8 @@ import { Loader2 } from 'lucide-react';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2PrizeKind } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
+import { EventShell } from '../components/EventShell';
 import { ShareButton } from '../components/ShareButton';
-import { ConnectWallet } from '../components/ConnectWallet';
-import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { LangSwitch } from '../components/LangSwitch';
 import { useEventsCopy } from './events.i18n';
 
 const MAX_SCANNED = 200;
@@ -38,7 +36,7 @@ function ActionButton({
     <div className="flex flex-col items-start gap-1">
       <Button
         variant="outline"
-        className="text-xs px-3 py-2"
+        className="min-h-[40px] px-4 py-2 text-sm"
         isLoading={isPending || confirming}
         onClick={() =>
           writeContract({
@@ -51,7 +49,7 @@ function ActionButton({
       >
         {label}
       </Button>
-      {error && <span className="text-[10px] text-red-400 max-w-[200px]">{error.message.slice(0, 100)}</span>}
+      {error && <span className="max-w-[220px] text-[11px] text-red-400">{error.message.slice(0, 100)}</span>}
     </div>
   );
 }
@@ -65,7 +63,7 @@ function ReloadAction({ id, onDone }: { id: bigint; onDone: () => void }) {
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         inputMode="numeric"
-        className="w-20 min-h-[36px] rounded border border-dark-border bg-dark-input px-2 text-white text-xs font-mono"
+        className="w-20 min-h-[40px] rounded-lg border border-dark-border bg-dark-input px-3 font-mono text-sm text-white tabular-nums"
         aria-label={c.reloadPrompt}
       />
       <ActionButton functionName="reloadSlots" args={[id, Number(amount) || 0]} label={c.actions.reload} onDone={onDone} />
@@ -145,47 +143,117 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
   const canClaimRefund = status === GiveawayV2Status.CANCELLED && refunded === false;
   const canReload = status === GiveawayV2Status.OPEN;
 
+  /*
+   * Há alguma transição de ciclo de vida à espera do criador?
+   *
+   * É a disjunção das mesmas dez condições acima, sem tocar em nenhuma: serve
+   * só para decidir se o cartão lidera com "próximo passo" ou com "nada precisa
+   * de você". `canReload` fica de fora de propósito — comprar mais slots é uma
+   * opção enquanto a campanha corre, não um passo em falta.
+   */
+  const hasLifecycleAction =
+    canClose ||
+    canCancel ||
+    canRequestDraw ||
+    canCancelStuckFromClosed ||
+    canCancelStuckFromRequested ||
+    canExpireDraw ||
+    canFinalize ||
+    canReclaimSurplus ||
+    canReclaimUnclaimed ||
+    canClaimRefund;
+
+  const left = slotsRemaining !== undefined ? Number(slotsRemaining) : null;
+  const taken = left !== null ? g.slotCap - left : null;
+  const filledPct = taken !== null && g.slotCap > 0 ? Math.min(100, (taken / g.slotCap) * 100) : 0;
+  const isOpen = status === GiveawayV2Status.OPEN;
+
   return (
-    <div className="rounded-xl border border-dark-border bg-dark-card p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <Link to={`/events/${id.toString()}`} className="font-mono text-sm text-gray-300 hover:text-white">
-          #{id.toString()} · {formatUnits(displayAmount, decimals)} {symbol}
-        </Link>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-gray-300 border border-dark-border rounded px-2 py-0.5">
+    <article
+      className={`rounded-xl border p-5 ${
+        hasLifecycleAction ? 'border-brand/30 bg-dark-ticket' : 'border-dark-border bg-dark-card'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p
+            className={`font-mono text-[10px] uppercase tracking-[0.14em] ${
+              isOpen ? 'text-success' : 'text-gray-400'
+            }`}
+          >
             {c.list.status[statusKey as keyof typeof c.list.status] ?? statusKey}
-          </span>
-          <ShareButton className="!min-h-[32px] !min-w-[32px] border-0" url={`${window.location.origin}/events/${id.toString()}`} />
+          </p>
+          <Link
+            to={`/events/${id.toString()}`}
+            className="mt-1 block font-mono text-xl font-bold text-white hover:text-brand transition-colors tabular-nums truncate"
+          >
+            {formatUnits(displayAmount, decimals)} <span className="text-sm font-normal text-gray-400">{symbol}</span>
+          </Link>
+          <p className="mt-1 font-mono text-xs text-gray-400 tabular-nums">#{id.toString()}</p>
+        </div>
+        <ShareButton
+          className="shrink-0 !min-h-[36px] !min-w-[36px] border-0 text-gray-400 hover:text-gray-300"
+          url={`${window.location.origin}/events/${id.toString()}`}
+        />
+      </div>
+
+      <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <dt className="text-gray-400">{c.list.card.winners}</dt>
+          <dd className="font-mono text-white tabular-nums">
+            {winnersDrawn !== undefined ? String(winnersDrawn) : '…'}
+            <span className="text-gray-400"> / {g.winnersCount}</span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-gray-400">{c.detail.entriesLabel}</dt>
+          <dd className="font-mono text-white tabular-nums">
+            {taken !== null ? taken.toLocaleString('en-US') : '…'}
+            <span className="text-gray-400"> / {g.slotCap.toLocaleString('en-US')}</span>
+          </dd>
+        </div>
+      </dl>
+
+      <div aria-hidden="true" className="mt-3 h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
+        <div
+          className={`h-full rounded-full ${isOpen ? 'bg-brand/70' : 'bg-gray-700'}`}
+          style={{ width: `${filledPct}%` }}
+        />
+      </div>
+
+      {/* O criador quer saber o que falta fazer, não o nome do estado. */}
+      <div className="mt-5 pt-4 border-t border-dark-border">
+        <p
+          className={`text-xs ${hasLifecycleAction ? 'text-brand' : 'text-gray-400'}`}
+        >
+          {hasLifecycleAction ? c.dashboard.nextStep : c.dashboard.noActions}
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-start gap-2">
+          {canClose && <ActionButton functionName="closeGiveaway" args={[id]} label={c.dashboard.actions.close} onDone={bump} />}
+          {canCancel && <ActionButton functionName="cancelByCreator" args={[id]} label={c.dashboard.actions.cancelByCreator} onDone={bump} />}
+          {canRequestDraw && <ActionButton functionName="requestDraw" args={[id]} label={c.dashboard.actions.requestDraw} onDone={bump} />}
+          {canCancelStuckFromClosed && (
+            <ActionButton functionName="cancelStuckDraw" args={[id]} label={c.dashboard.actions.cancelStuckDraw} onDone={bump} />
+          )}
+          {canCancelStuckFromRequested && (
+            <ActionButton functionName="cancelStuckDraw" args={[id]} label={c.dashboard.actions.cancelStuckDraw} onDone={bump} />
+          )}
+          {canExpireDraw && (
+            <ActionButton functionName="expireDrawRequest" args={[id]} label={c.dashboard.actions.expireDrawRequest} onDone={bump} />
+          )}
+          {canFinalize && <ActionButton functionName="finalizeWinners" args={[id]} label={c.dashboard.actions.finalize} onDone={bump} />}
+          {canReclaimSurplus && (
+            <ActionButton functionName="reclaimClampSurplus" args={[id]} label={c.dashboard.actions.reclaimSurplus} onDone={bump} />
+          )}
+          {canReclaimUnclaimed && (
+            <ActionButton functionName="reclaimUnclaimedPrize" args={[id]} label={c.dashboard.actions.reclaimUnclaimed} onDone={bump} />
+          )}
+          {canClaimRefund && <ActionButton functionName="claimCreatorRefund" args={[id]} label={c.dashboard.actions.claimRefund} onDone={bump} />}
+          {canReload && <ReloadAction id={id} onDone={bump} />}
         </div>
       </div>
-      <p className="text-xs text-gray-500">
-        {c.list.card.winners}: {winnersDrawn !== undefined ? String(winnersDrawn) : '…'}/{g.winnersCount} · {c.list.card.slots}:{' '}
-        {slotsRemaining !== undefined ? String(slotsRemaining) : '…'}/{g.slotCap}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {canReload && <ReloadAction id={id} onDone={bump} />}
-        {canClose && <ActionButton functionName="closeGiveaway" args={[id]} label={c.dashboard.actions.close} onDone={bump} />}
-        {canCancel && <ActionButton functionName="cancelByCreator" args={[id]} label={c.dashboard.actions.cancelByCreator} onDone={bump} />}
-        {canRequestDraw && <ActionButton functionName="requestDraw" args={[id]} label={c.dashboard.actions.requestDraw} onDone={bump} />}
-        {canCancelStuckFromClosed && (
-          <ActionButton functionName="cancelStuckDraw" args={[id]} label={c.dashboard.actions.cancelStuckDraw} onDone={bump} />
-        )}
-        {canCancelStuckFromRequested && (
-          <ActionButton functionName="cancelStuckDraw" args={[id]} label={c.dashboard.actions.cancelStuckDraw} onDone={bump} />
-        )}
-        {canExpireDraw && (
-          <ActionButton functionName="expireDrawRequest" args={[id]} label={c.dashboard.actions.expireDrawRequest} onDone={bump} />
-        )}
-        {canFinalize && <ActionButton functionName="finalizeWinners" args={[id]} label={c.dashboard.actions.finalize} onDone={bump} />}
-        {canReclaimSurplus && (
-          <ActionButton functionName="reclaimClampSurplus" args={[id]} label={c.dashboard.actions.reclaimSurplus} onDone={bump} />
-        )}
-        {canReclaimUnclaimed && (
-          <ActionButton functionName="reclaimUnclaimedPrize" args={[id]} label={c.dashboard.actions.reclaimUnclaimed} onDone={bump} />
-        )}
-        {canClaimRefund && <ActionButton functionName="claimCreatorRefund" args={[id]} label={c.dashboard.actions.claimRefund} onDone={bump} />}
-      </div>
-    </div>
+    </article>
   );
 }
 
@@ -215,50 +283,29 @@ export const EventDashboard: React.FC = () => {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
+    <EventShell back={{ to: '/events', label: c.nav.link }} wallet>
+      <h1 className="font-display font-bold text-[clamp(2.1rem,6vw,3rem)] leading-tight tracking-tight">
+        {c.dashboard.title}
+      </h1>
+      <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-400">{c.dashboard.intro}</p>
 
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] flex items-center justify-between gap-3">
-          <Link to="/events" className="text-sm text-gray-400 hover:text-white">
-            ← {c.nav.link}
-          </Link>
-          <div className="flex items-center gap-3">
-            <PublicNavLinks />
-            <LangSwitch />
-            <ConnectWallet />
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-3xl py-10 space-y-6">
-        <div>
-          <h1 className="font-display font-bold text-3xl sm:text-4xl mb-2">{c.dashboard.title}</h1>
-          <p className="text-gray-400">{c.dashboard.intro}</p>
-        </div>
-
-        {!isConnected && <p className="text-gray-500">{c.dashboard.connectPrompt}</p>}
+      <div className="mt-10">
+        {!isConnected && <p className="text-gray-400">{c.dashboard.connectPrompt}</p>}
 
         {isConnected && isLoading && (
-          <div className="flex items-center gap-3 text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin" /> {c.dashboard.loading}
-          </div>
+          <p className="flex items-center gap-3 text-gray-400">
+            <Loader2 className="w-5 h-5 animate-spin shrink-0" aria-hidden="true" /> {c.dashboard.loading}
+          </p>
         )}
 
         {isConnected && !isLoading && address && (
-          <div key={refreshNonce} className="space-y-4">
+          <div key={refreshNonce} className="grid gap-4 sm:grid-cols-2">
             {ids.map((id) => (
               <MyEventRow key={id.toString()} id={id} creator={address} refreshAll={() => setRefreshNonce((n) => n + 1)} />
             ))}
           </div>
         )}
-      </main>
-
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
-        <div className="container mx-auto px-4 text-center">
-          <PublicFooterNav />
-        </div>
-      </footer>
-    </div>
+      </div>
+    </EventShell>
   );
 };

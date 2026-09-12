@@ -4,12 +4,11 @@ import { useReadContract, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status } from '../lib/giveaway-v2-abi';
-import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { LangSwitch } from '../components/LangSwitch';
+import { EventShell } from '../components/EventShell';
 import { Button } from '../components/Button';
 import { ShareButton } from '../components/ShareButton';
 import { useEventsCopy } from './events.i18n';
-import { Loader2, ExternalLink } from 'lucide-react';
+import { Check, Loader2, ExternalLink } from 'lucide-react';
 
 const MAX_LISTED = 30;
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -76,39 +75,75 @@ function EventCard({ id }: { id: bigint }) {
   const displayAmount = g.prizeKind === 1 ? g.declaredValue : g.prizeAmount;
   const statusLabel = c.list.status[STATUS_KEY[g.status] as keyof typeof c.list.status] ?? STATUS_KEY[g.status];
 
+  /*
+   * Hierarquia sem mudar uma única leitura: a campanha aberta é a que o
+   * visitante ainda pode apanhar, por isso é a que se destaca. As restantes
+   * recuam de cor em vez de serem filtradas — filtrar obrigaria a saber o
+   * estado de todas antes de desenhar qualquer uma, e isso mudava o padrão de
+   * leituras da página.
+   */
+  const isOpen = g.status === GiveawayV2Status.OPEN;
+  const left = slotsRemaining as bigint | undefined;
+  const taken = left !== undefined ? g.slotCap - Number(left) : null;
+  const filledPct = taken !== null && g.slotCap > 0 ? Math.min(100, (taken / g.slotCap) * 100) : 0;
+
   return (
     <Link
       to={`/events/${id.toString()}`}
-      className="block rounded-xl border border-dark-border bg-dark-card p-5 hover:border-gray-600 transition-colors"
+      className={`group flex flex-col rounded-xl border p-5 transition-colors ${
+        isOpen
+          ? 'border-brand/25 bg-dark-ticket hover:border-brand/50'
+          : 'border-dark-border bg-dark-card hover:border-gray-600'
+      }`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <span className="font-mono text-[11px] uppercase tracking-widest text-gray-500">#{id.toString()}</span>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-gray-300 border border-dark-border rounded px-2 py-0.5">
-            {statusLabel}
-          </span>
-          <span onClick={(e) => e.preventDefault()}>
-            <ShareButton
-              className="!min-h-[32px] !min-w-[32px] border-0"
-              url={`${window.location.origin}/events/${id.toString()}`}
-            />
-          </span>
-        </div>
+      <div className="flex items-start justify-between gap-3">
+        <span
+          className={`font-mono text-[10px] uppercase tracking-[0.14em] ${
+            isOpen ? 'text-success' : 'text-gray-400'
+          }`}
+        >
+          {statusLabel}
+        </span>
+        <span onClick={(e) => e.preventDefault()} className="-mt-2 -mr-2">
+          <ShareButton
+            className="!min-h-[36px] !min-w-[36px] border-0 text-gray-400 hover:text-gray-300"
+            url={`${window.location.origin}/events/${id.toString()}`}
+          />
+        </span>
       </div>
-      <p className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-1">{c.list.card.prize}</p>
-      <p className="font-mono text-2xl font-bold text-brand mb-4 truncate">
-        {formatUnits(displayAmount, decimals)} {symbol}
+
+      <p className="mt-4 text-sm text-gray-400">{c.list.card.prize}</p>
+      <p
+        className={`font-mono text-3xl font-bold leading-tight truncate ${
+          isOpen ? 'text-brand' : 'text-gray-300'
+        }`}
+      >
+        {formatUnits(displayAmount, decimals)}
       </p>
-      <div className="flex justify-between text-sm text-gray-400">
-        <span>
-          {c.list.card.winners}: <span className="text-white font-mono">{g.winnersCount}</span>
-        </span>
-        <span>
-          {c.list.card.slots}:{' '}
-          <span className="text-white font-mono">
-            {slotsRemaining !== undefined ? (slotsRemaining as bigint).toString() : '…'}/{g.slotCap}
-          </span>
-        </span>
+      <p className="font-mono text-xs text-gray-400">{symbol}</p>
+
+      {/* Quanto falta para esgotar. Dois números que já estavam lidos. */}
+      <div className="mt-5 pt-4 border-t border-dark-border/80">
+        {isOpen && left !== undefined && taken !== null ? (
+          <>
+            <div aria-hidden="true" className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
+              <div className="h-full rounded-full bg-brand/70" style={{ width: `${filledPct}%` }} />
+            </div>
+            <p className="mt-2 font-mono text-xs text-gray-400 tabular-nums">
+              {left === 0n ? (
+                c.list.card.full
+              ) : (
+                <>
+                  {left.toString()} {c.list.card.slotsLeft}
+                </>
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="font-mono text-xs text-gray-400 tabular-nums">
+            {c.list.card.winners} {g.winnersCount}
+          </p>
+        )}
       </div>
     </Link>
   );
@@ -141,70 +176,69 @@ export const EventCenter: React.FC = () => {
   }, [lastId]);
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
-
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3">
-          <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2 md:mr-auto">
-            <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
-              INSTANT WIN
-            </span>
+    <EventShell
+      width="wide"
+      actions={
+        <>
+          <Link
+            to="/events/mine"
+            className="hidden sm:inline-flex items-center px-4 h-11 text-sm text-gray-300 hover:text-white transition-colors"
+          >
+            {c.list.myEventsCta}
           </Link>
-          <PublicNavLinks />
-          <div className="flex items-center gap-2">
-            <LangSwitch />
-            <Link to="/events/mine" className="hidden sm:inline-flex px-4 h-11 items-center text-sm font-bold text-gray-300 hover:text-white">
-              {c.list.myEventsCta}
-            </Link>
-            <Link to="/events/create">
-              <Button variant="connect" className="h-11 px-5 text-sm">
-                {c.list.createCta}
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+          <Link to="/events/create">
+            <Button variant="connect" className="h-11 px-5 text-sm">
+              {c.list.createCta}
+            </Button>
+          </Link>
+        </>
+      }
+    >
+      <h1 className="font-display font-bold text-[clamp(2.4rem,7vw,3.75rem)] leading-[1.02] tracking-tight">
+        {c.list.title}
+      </h1>
+      <p className="mt-5 max-w-[62ch] text-base sm:text-lg leading-relaxed text-gray-400">
+        {c.list.intro}
+      </p>
 
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-5xl py-10 sm:py-16">
-        <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-4">{c.list.eyebrow}</p>
-        <h1 className="font-display font-bold text-[clamp(2.2rem,8vw,3.5rem)] leading-[1.05] mb-4">{c.list.title}</h1>
-        <p className="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl mb-6">{c.list.intro}</p>
+      {/* As três garantias, à entrada. Factos do contrato, não argumentos. */}
+      <ul className="mt-8 grid gap-3 sm:grid-cols-3">
+        {[c.list.trust.free, c.list.trust.draw, c.list.trust.custody].map((line) => (
+          <li key={line} className="flex items-start gap-2.5 text-sm leading-snug text-gray-300">
+            <Check className="w-4 h-4 shrink-0 mt-0.5 text-success" strokeWidth={3} aria-hidden="true" />
+            {line}
+          </li>
+        ))}
+      </ul>
 
-        <a
-          href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mb-10 flex items-center justify-between gap-3 min-h-[44px] max-w-2xl rounded-lg border border-dark-border bg-dark-card/60 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
-        >
-          <span className="flex items-center gap-2 min-w-0">
-            <span className="uppercase tracking-widest text-gray-500 shrink-0">{c.list.contractLabel}</span>
-            <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
-          </span>
-          <ExternalLink className="w-4 h-4 shrink-0" />
-        </a>
-
+      <div className="mt-12">
         {isLoading && (
-          <div className="flex items-center gap-3 text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin" /> {c.list.loading}
-          </div>
+          <p className="flex items-center gap-3 text-gray-400">
+            <Loader2 className="w-5 h-5 animate-spin shrink-0" aria-hidden="true" /> {c.list.loading}
+          </p>
         )}
-        {isError && <p className="text-red-400">{c.list.error}</p>}
-        {!isLoading && !isError && ids.length === 0 && <p className="text-gray-500">{c.list.empty}</p>}
+        {isError && <p className="text-red-300">{c.list.error}</p>}
+        {!isLoading && !isError && ids.length === 0 && <p className="text-gray-400">{c.list.empty}</p>}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {ids.map((id) => (
             <EventCard key={id.toString()} id={id} />
           ))}
         </div>
-      </main>
+      </div>
 
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
-        <div className="container mx-auto px-4 space-y-4 text-center">
-          <PublicFooterNav />
-          <p className="font-mono text-[10px] text-gray-700">&copy; 2026 Instant Win Protocol</p>
-        </div>
-      </footer>
-    </div>
+      <a
+        href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-12 flex items-center justify-between gap-3 min-h-[44px] rounded-lg border border-dark-border px-4 py-3 font-mono text-[11px] text-gray-400 hover:border-success/40 hover:text-success transition-colors"
+      >
+        <span className="flex flex-wrap items-baseline gap-x-2 min-w-0">
+          <span className="text-gray-400">{c.list.contractLabel}</span>
+          <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
+        </span>
+        <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+      </a>
+    </EventShell>
   );
 };
