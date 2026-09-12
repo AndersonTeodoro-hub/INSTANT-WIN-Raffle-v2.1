@@ -130,12 +130,6 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
   const canRequestDraw = status === GiveawayV2Status.CLOSED;
   const canCancelStuckFromClosed = status === GiveawayV2Status.CLOSED && dt !== undefined && now > (g.closedAt as bigint) + dt;
   const drawOpensAt = dt !== undefined ? (g.drawRequestedAt as bigint) + dt : undefined;
-  const canCancelStuckFromRequested =
-    status === GiveawayV2Status.DRAW_REQUESTED &&
-    drawOpensAt !== undefined &&
-    rw !== undefined &&
-    now > drawOpensAt &&
-    now <= drawOpensAt + rw;
   const canExpireDraw = status === GiveawayV2Status.DRAW_REQUESTED && drawOpensAt !== undefined && rw !== undefined && now > drawOpensAt + rw;
   const canFinalize = status === GiveawayV2Status.SEED_RECEIVED;
   const canReclaimSurplus = status === GiveawayV2Status.SETTLED && isNft && g.prizeAmount > BigInt(g.winnersCount) && clampReclaimed === false;
@@ -146,17 +140,20 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
   /*
    * Há alguma transição de ciclo de vida à espera do criador?
    *
-   * É a disjunção das mesmas dez condições acima, sem tocar em nenhuma: serve
+   * É a disjunção das condições acima que têm botão neste cartão: serve
    * só para decidir se o cartão lidera com "próximo passo" ou com "nada precisa
    * de você". `canReload` fica de fora de propósito — comprar mais slots é uma
    * opção enquanto a campanha corre, não um passo em falta.
+   *
+   * cancelStuckDraw não tem botão (decisão do owner, 12/09). Em DRAW_REQUESTED a
+   * sua janela não coincide com nenhuma outra acção, por isso sai daqui; em
+   * CLOSED fica, porque `canRequestDraw` já é verdadeiro sempre que ela é.
    */
   const hasLifecycleAction =
     canClose ||
     canCancel ||
     canRequestDraw ||
     canCancelStuckFromClosed ||
-    canCancelStuckFromRequested ||
     canExpireDraw ||
     canFinalize ||
     canReclaimSurplus ||
@@ -233,12 +230,6 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
           {canClose && <ActionButton functionName="closeGiveaway" args={[id]} label={c.dashboard.actions.close} onDone={bump} />}
           {canCancel && <ActionButton functionName="cancelByCreator" args={[id]} label={c.dashboard.actions.cancelByCreator} onDone={bump} />}
           {canRequestDraw && <ActionButton functionName="requestDraw" args={[id]} label={c.dashboard.actions.requestDraw} onDone={bump} />}
-          {canCancelStuckFromClosed && (
-            <ActionButton functionName="cancelStuckDraw" args={[id]} label={c.dashboard.actions.cancelStuckDraw} onDone={bump} />
-          )}
-          {canCancelStuckFromRequested && (
-            <ActionButton functionName="cancelStuckDraw" args={[id]} label={c.dashboard.actions.cancelStuckDraw} onDone={bump} />
-          )}
           {canExpireDraw && (
             <ActionButton functionName="expireDrawRequest" args={[id]} label={c.dashboard.actions.expireDrawRequest} onDone={bump} />
           )}
