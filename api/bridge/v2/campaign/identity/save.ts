@@ -148,7 +148,10 @@ const route = handle('campaign/identity/save', async ({ request, log }) => {
   const signals = await extractSignals(request);
   const verdict = await enforce([
     { axis: 'IP', value: signals.ipHash },
-    { axis: 'GIVEAWAY', value: giveawayId.toString() },
+    // Per campaign, on a key of its own. entry/start and entry/resume key this axis
+    // on the id alone, behind a session; sharing their key would let anonymous
+    // requests to this route put a campaign's entries into 429.
+    { axis: 'GIVEAWAY', value: `identity:${giveawayId.toString()}` },
     { axis: 'ROUTE_GLOBAL', value: 'campaign/identity/save' },
   ]);
   if (!verdict.allowed) {

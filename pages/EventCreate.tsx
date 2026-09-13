@@ -319,6 +319,9 @@ export const EventCreate: React.FC = () => {
     (!isNft || declaredValueUnits > 0n);
 
   const create = () => {
+    // A campanha já existe: com a identidade por publicar a página fica aberta, e
+    // um segundo createGiveaway criaria outra campanha e moveria outro prémio.
+    if (createdId !== null) return;
     writeContract({
       address: CONTRACTS.GIVEAWAY_MANAGER_V2,
       abi: GIVEAWAY_MANAGER_V2_ABI,
@@ -640,7 +643,7 @@ export const EventCreate: React.FC = () => {
               <Button
                 variant="connect"
                 className="w-full min-h-[56px] rounded-xl text-base"
-                disabled={!canSubmit}
+                disabled={!canSubmit || createdId !== null}
                 isLoading={isPending || confirming}
                 onClick={create}
               >

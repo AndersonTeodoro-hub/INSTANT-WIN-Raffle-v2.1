@@ -70,14 +70,19 @@ export function imageObjectPath(giveawayId: string, slot: ImageSlot, sha256: str
 // ---------------------------------------------------------------------------
 
 /**
- * Control, zero-width and bidirectional-override characters.
+ * L4: every control (Cc) and format (Cf) character, the variation selectors, the
+ * whole tag block (U+E0000 to U+E007F, assigned or not), and the characters that
+ * render as nothing without being either: the combining grapheme joiner, the
+ * Hangul and Khmer fillers and the blank Braille pattern.
  *
  * The name and the brand are printed into the subject of an email sent from the
- * platform's own authenticated domain (L8). A right-to-left override there can
- * make a sentence read as something it does not say, and a zero-width character
- * can make two different names look identical.
+ * platform's own authenticated domain (L8) and into the preview title. A
+ * right-to-left override there can make a sentence read as something it does not
+ * say, and an invisible character can make two different names look identical.
+ * A list of the ones somebody thought of is what let the rest through.
  */
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/;
+const INVISIBLE =
+  /[\p{Cc}\p{Cf}\p{Variation_Selector}\u{34F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{2800}\u{3164}\u{FFA0}\u{E0000}-\u{E007F}]/u;
 
 /**
  * L8: no link inside a name or a brand. Those two strings reach an email subject,

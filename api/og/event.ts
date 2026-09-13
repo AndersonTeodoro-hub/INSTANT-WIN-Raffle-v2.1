@@ -62,6 +62,11 @@ const FALLBACK_TAGS = [
   '<meta property="og:image:height" content="630">',
   '<meta name="twitter:card" content="summary_large_image">',
   '<meta name="twitter:image" content="https://instntwin.com/og-image.png">',
+  '<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">',
+  '<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">',
+  '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
+  '<link rel="manifest" href="/manifest.webmanifest">',
+  '<meta name="theme-color" content="#0A0A0B">',
 ];
 
 function identityTags(identity: PublicIdentity, page: string): string[] {
@@ -82,10 +87,7 @@ function identityTags(identity: PublicIdentity, page: string): string[] {
     `<meta property="og:image:height" content="${identity.banner.height}">`,
     `<meta property="og:image:alt" content="${name}">`,
     '<meta name="twitter:card" content="summary_large_image">',
-    `<meta name="twitter:title" content="${name}">`,
-    `<meta name="twitter:description" content="${description}">`,
     `<meta name="twitter:image" content="${image}">`,
-    `<meta name="twitter:image:alt" content="${name}">`,
     `<link rel="canonical" href="${escape(page)}">`,
   ];
 }
@@ -143,7 +145,7 @@ const route = handle('og/event', async ({ request, log }) => {
     status: 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'cache-control': settled ? 'public, max-age=0, s-maxage=300, stale-while-revalidate=3600' : 'no-store',
+      'cache-control': settled ? 'public, max-age=0, s-maxage=300' : 'no-store',
       'x-content-type-options': 'nosniff',
     },
   });

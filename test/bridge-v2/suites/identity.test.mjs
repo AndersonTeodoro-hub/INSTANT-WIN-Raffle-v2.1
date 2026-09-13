@@ -17,6 +17,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { assert, http, jsonResponse, request, suite, test } from '../harness.mjs';
 import * as db from '../doubles/db.mjs';
 import * as chain from '../doubles/chain.mjs';
+import { keyedHash } from '../../../lib/bridge-v2/crypto.ts';
 
 import * as identityRead from '../../../api/bridge/v2/campaign/identity/read.ts';
 import * as identitySave from '../../../api/bridge/v2/campaign/identity/save.ts';
@@ -295,6 +296,52 @@ await test(['L4', 'L8'], 'the words are normalised one way on both sides, and li
   assert.equal(field({ link: 'https://localhost/' }), 'link');
 });
 
+await test(['L4', 'L8'], 'no control, format or invisible character survives into a name, a brand or a message', () => {
+  const hex = (codePoint) => `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
+
+  // The cases the audit of a1a403b found passing, one by one: the Arabic letter
+  // mark, the Mongolian vowel separator, the interlinear annotation marks, the
+  // tag characters ("Acme" and "Acme" + TAG LATIN CAPITAL A print the same), the
+  // musical symbol format controls, the combining grapheme joiner, the Hangul
+  // and Khmer fillers, the variation selectors and the blank Braille pattern.
+  const listed = [
+    0x061c, 0x180e, 0xfff9, 0xfffa, 0xfffb,
+    0xe0000, 0xe0001, 0xe0020, 0xe0041, 0xe007f,
+    0x1d173, 0x1d17a,
+    0x034f, 0x115f, 0x1160, 0x3164, 0xffa0, 0x17b4, 0x17b5,
+    0x180b, 0x180f, 0xfe00, 0xfe0f, 0xe0100, 0xe01ef,
+    0x2800,
+  ];
+  for (const codePoint of listed) {
+    for (const field of ['name', 'brand', 'message']) {
+      const result = checkText({ ...TEXT, [field]: `Acme${String.fromCodePoint(codePoint)}` });
+      assert.equal(result.ok ? 'ok' : result.field, field, `${hex(codePoint)} was accepted in the ${field}`);
+    }
+  }
+
+  // And every Cc and Cf code point in the code space, plus the whole tag block,
+  // in the middle of a word: refused, or removed by the whitespace normalisation
+  // (a tab, a line break), but never stored. A line break is the one character a
+  // message is allowed to keep.
+  const swept = [];
+  for (let codePoint = 0; codePoint <= 0x10ffff; codePoint += 1) {
+    if (codePoint >= 0xd800 && codePoint <= 0xdfff) continue;
+    const character = String.fromCodePoint(codePoint);
+    if (/[\p{Cc}\p{Cf}]/u.test(character) || (codePoint >= 0xe0000 && codePoint <= 0xe007f)) swept.push(codePoint);
+  }
+  assert.ok(swept.length > 150, `only ${swept.length} code points were swept`);
+  const leaks = [];
+  for (const codePoint of swept) {
+    const character = String.fromCodePoint(codePoint);
+    for (const field of ['name', 'brand', 'message']) {
+      if (field === 'message' && codePoint === 0x0a) continue;
+      const result = checkText({ ...TEXT, [field]: `Ac${character}me` });
+      if (result.ok && Array.from(result.value[field]).includes(character)) leaks.push(`${field} ${hex(codePoint)}`);
+    }
+  }
+  assert.deepEqual(leaks, [], `stored: ${leaks.slice(0, 20).join(', ')}`);
+});
+
 await test(['L3'], 'the signed message changes with the campaign, the content, the chain, the instant and the nonce', async () => {
   const content = { giveawayId: '2', ...TEXT, banner: await descriptor(BANNER), logo: null };
   const base = {
@@ -530,6 +577,47 @@ await test(['B1', 'B2'], 'both identity routes are rate limited like every other
   assert.equal(read.status, 429);
 });
 
+await test(['B2', 'L2'], "the identity write is limited per campaign on its own key, never on the one the campaign's entries use", async () => {
+  fresh();
+  const response = await save((await signedRequest()).form);
+  assert.equal(response.status, 200);
+
+  const perCampaign = db.callsTo('rpc:bridge_v2_rate_limit_hit').filter((call) => call.args.p_axis === 'GIVEAWAY');
+  assert.equal(perCampaign.length, 1, 'the write is no longer limited per campaign');
+  const entriesKey = await keyedHash('BRIDGE_V2_SIGNAL_HMAC_KEY', 'ratelimit-key-v1', 'GIVEAWAY:2');
+  const identityKey = await keyedHash('BRIDGE_V2_SIGNAL_HMAC_KEY', 'ratelimit-key-v1', 'GIVEAWAY:identity:2');
+  assert.notEqual(
+    perCampaign[0].args.p_key_hash,
+    entriesKey,
+    'an anonymous save spends the budget entry/start and entry/resume draw on',
+  );
+  assert.equal(perCampaign[0].args.p_key_hash, identityKey);
+
+  // The other half of the claim: the entry routes still key this axis on the id
+  // alone. If either changed, the two hashes above would prove nothing.
+  for (const route of ['api/bridge/v2/entry/start.ts', 'api/bridge/v2/entry/resume.ts']) {
+    assert.match(
+      readFileSync(new URL(route, root), 'utf8'),
+      /\{ axis: 'GIVEAWAY', value: giveawayId\.toString\(\) \}/,
+      `${route} no longer keys the campaign axis on the id alone`,
+    );
+  }
+});
+
+await test([], 'once the campaign exists, the creation page cannot sign a second createGiveaway', () => {
+  // With an identity drafted the page stays open after the receipt, for the
+  // second (gas-free) signature. The create button must not be live under it.
+  const page = readFileSync(new URL('pages/EventCreate.tsx', root), 'utf8');
+  assert.match(page, /disabled=\{!canSubmit \|\| createdId !== null\}/, 'the create button is live after creation');
+  assert.match(
+    page,
+    /const create = \(\) => \{[^}]*?if \(createdId !== null\) return;\s*writeContract\(/,
+    'create() signs whether or not the campaign already exists',
+  );
+  const writes = page.match(/functionName: 'createGiveaway'/g) ?? [];
+  assert.equal(writes.length, 1, 'another path to createGiveaway exists');
+});
+
 await test(['A6', 'L2'], 'the identity write takes no address from the client and no session in place of a signature', () => {
   const code = readFileSync(new URL('api/bridge/v2/campaign/identity/save.ts', root), 'utf8');
   assert.ok(!/payload\.(address|creator|wallet|account|signer)\b/.test(code), 'the save route reads an address from its payload');
@@ -607,18 +695,30 @@ const previewTags = (html) =>
     (match) => match[0],
   );
 
-const INDEX_TAGS = previewTags(readFileSync(new URL('index.html', root), 'utf8'));
+/** The favicons, the manifest and the theme colour: what Slack and Discord read beside the tags. */
+const headLinks = (html) =>
+  [...html.matchAll(/<link rel="(?:icon|apple-touch-icon|manifest)"[^>]*>|<meta name="theme-color"[^>]*>/g)].map(
+    (match) => match[0],
+  );
+
+const INDEX_HTML = readFileSync(new URL('index.html', root), 'utf8');
+const INDEX_TAGS = previewTags(INDEX_HTML);
+const INDEX_HEAD_LINKS = headLinks(INDEX_HTML);
+const EDGE_CACHE = 'public, max-age=0, s-maxage=300';
 
 await test(['L9', 'L10'], "a campaign without an identity previews with index.html's own tags", async () => {
   assert.ok(INDEX_TAGS.length >= 8, 'index.html carries fewer preview tags than expected, so the comparison proves nothing');
+  assert.equal(INDEX_HEAD_LINKS.length, 5, 'index.html no longer carries the icons, manifest and theme colour this compares');
   for (const query of ['?id=1', '?id=not-a-number', '']) {
     fresh();
     db.on('bridge_v2_campaign_identities:select', () => ({ data: null, error: null }));
     const response = await og(query);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type'), /^text\/html/);
-    assert.deepEqual(previewTags(await response.text()), INDEX_TAGS, `${query}: the fallback is not what a crawler read before`);
-    assert.match(response.headers.get('cache-control'), /s-maxage=300/);
+    const html = await response.text();
+    assert.deepEqual(previewTags(html), INDEX_TAGS, `${query}: the fallback is not what a crawler read before`);
+    assert.deepEqual(headLinks(html), INDEX_HEAD_LINKS, `${query}: the fallback lost the favicon, manifest or theme colour`);
+    assert.equal(response.headers.get('cache-control'), EDGE_CACHE, 'the edge cache is not the five minutes §17 fixes');
   }
 });
 
@@ -645,7 +745,10 @@ await test(['L10'], 'a campaign with an identity previews with its banner, its n
   assert.ok(html.includes('href="https://instntwin.com/events/2?app=1"'), 'a person who lands here has no way into the app');
   assert.ok(!html.includes('<Drop>'), 'unescaped creator text reached the document');
   assert.ok(!html.includes('og-image.png'), 'the platform image is still in a campaign preview');
-  assert.match(response.headers.get('cache-control'), /s-maxage=300/);
+  for (const duplicate of ['twitter:title', 'twitter:description', 'twitter:image:alt']) {
+    assert.ok(!html.includes(`name="${duplicate}"`), `${duplicate} repeats an og: tag X already reads`);
+  }
+  assert.equal(response.headers.get('cache-control'), EDGE_CACHE, 'the edge cache is not the five minutes §17 fixes');
 });
 
 await test(['L9', 'L10'], 'a preview the database cannot answer falls back, and is not cached', async () => {
@@ -653,7 +756,9 @@ await test(['L9', 'L10'], 'a preview the database cannot answer falls back, and 
   db.on('bridge_v2_campaign_identities:select', () => ({ data: null, error: { message: 'unavailable' } }));
   const response = await og('?id=2');
   assert.equal(response.status, 200);
-  assert.deepEqual(previewTags(await response.text()), INDEX_TAGS);
+  const html = await response.text();
+  assert.deepEqual(previewTags(html), INDEX_TAGS);
+  assert.deepEqual(headLinks(html), INDEX_HEAD_LINKS);
   assert.equal(response.headers.get('cache-control'), 'no-store');
 });
 
