@@ -756,3 +756,70 @@ await test(['F2'], '0010 contains nothing shaped like a secret', () => {
     '0010 contains a key',
   );
 });
+
+// ---------------------------------------------------------------------------
+// 0011 — campaign identity (§17). Executed in engine.test.mjs; what the text
+// alone can decide is decided here.
+// ---------------------------------------------------------------------------
+
+const IDENTITY = read('0011_campaign_identity.sql');
+
+await test(['I5', 'L6'], '0011 is idempotent in every statement', () => {
+  const statements = statementsOnly(IDENTITY);
+  assert.match(statements, /CREATE TABLE IF NOT EXISTS bridge_v2_campaign_identities \(/);
+  assert.match(statements, /CREATE TABLE IF NOT EXISTS bridge_v2_campaign_identity_nonces \(/);
+  assert.match(statements, /CREATE INDEX IF NOT EXISTS bridge_v2_campaign_identity_nonces_used_idx/);
+  assert.match(statements, /CREATE OR REPLACE FUNCTION bridge_v2_save_campaign_identity\(/);
+  assert.match(statements, /ON CONFLICT \(id\) DO UPDATE/);
+  assert.ok(!/CREATE (TABLE|INDEX) (?!IF NOT EXISTS)/.test(statements), 'a CREATE is not guarded');
+  assert.ok(!/\bDROP\b/.test(statements), '0011 drops something');
+});
+
+await test(['I5', 'L7'], '0011 revokes before it grants, and gives the browser roles nothing', () => {
+  const statements = statementsOnly(IDENTITY);
+  const order = (first, second) => {
+    const a = statements.indexOf(first);
+    const b = statements.indexOf(second);
+    assert.ok(a !== -1 && b !== -1 && a < b, `${first.slice(0, 60)} does not come before ${second.slice(0, 60)}`);
+  };
+  order(
+    'REVOKE ALL ON TABLE public.bridge_v2_campaign_identities      FROM service_role',
+    'GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_campaign_identities TO service_role',
+  );
+  order(
+    'REVOKE ALL ON TABLE public.bridge_v2_campaign_identity_nonces FROM service_role',
+    'GRANT SELECT, INSERT, DELETE ON TABLE public.bridge_v2_campaign_identity_nonces TO service_role',
+  );
+  order(
+    'REVOKE ALL ON FUNCTION public.bridge_v2_save_campaign_identity',
+    'GRANT EXECUTE ON FUNCTION public.bridge_v2_save_campaign_identity',
+  );
+  assert.ok(!/GRANT [^;]* TO [^;]*\b(anon|authenticated|PUBLIC)\b/.test(statements), 'a browser role is granted something');
+  assert.match(statements, /ALTER TABLE bridge_v2_campaign_identities\s+ENABLE ROW LEVEL SECURITY/);
+  assert.match(statements, /ALTER TABLE bridge_v2_campaign_identity_nonces ENABLE ROW LEVEL SECURITY/);
+  assert.ok(!/CREATE POLICY/i.test(statements), 'a policy opens a table to a browser role');
+});
+
+await test(['L6'], 'the stale check is inside the upsert, not a read before it', () => {
+  assert.match(IDENTITY, /ON CONFLICT \(giveaway_id\) DO UPDATE[\s\S]*?WHERE i\.signed_at < EXCLUDED\.signed_at/);
+  assert.ok(!/FOR UPDATE/.test(statementsOnly(IDENTITY)), 'a read-then-write lock is back');
+});
+
+await test(['I5'], '0011 runs as its caller and resolves through its own search_path', () => {
+  assert.ok(!/SECURITY DEFINER/i.test(statementsOnly(IDENTITY)), 'the function runs as its owner');
+  assert.match(IDENTITY, /SET search_path = public, extensions\r?\nAS \$fn\$/);
+});
+
+await test(['L5'], 'the 0011 bucket takes the formats the route takes, and nothing that is a document', () => {
+  const statements = statementsOnly(IDENTITY);
+  assert.match(
+    statements,
+    /VALUES \('campaign-identity', 'campaign-identity', true, 2097152, ARRAY\['image\/png', 'image\/jpeg', 'image\/webp'\]\)/,
+  );
+  assert.ok(!/svg|text\/html/i.test(statements), 'the bucket names a document type');
+});
+
+await test(['F2'], '0011 contains nothing shaped like a secret', () => {
+  assert.ok(!/\b(0x)?[0-9a-fA-F]{64}\b/.test(IDENTITY), '0011 contains a 32-byte hex value');
+  assert.ok(!/(sb_secret_|sb_publishable_)[A-Za-z0-9_-]{4,}|eyJ[A-Za-z0-9_-]{10,}/.test(IDENTITY), '0011 contains a key');
+});

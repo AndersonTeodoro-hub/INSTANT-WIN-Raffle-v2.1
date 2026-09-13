@@ -618,14 +618,19 @@ await test(['J6'], 'the code is in the body of the mail and never in its subject
   const mail = codeOnly(read(`${root}lib/bridge-v2/mail.ts`));
   // Finding I6: the V1 put the code in the subject, so it was readable in a
   // lock-screen notification without opening the mailbox.
-  const subject = mail.match(/const CODE_SUBJECT = '([^']*)'/)?.[1];
-  assert.ok(subject, 'there is no fixed subject');
-  assert.ok(!/\$\{/.test(subject), 'the subject interpolates something');
+  //
+  // The subject stopped being a fixed string when it began naming the campaign
+  // (L8), so the property is now held by construction rather than by a literal:
+  // the function that builds the subject is never given the code, and the only
+  // things it can print are the campaign's published name and brand.
+  const subjectFunction = mail.match(/function codeSubject\(([^)]*)\)[\s\S]*?\n\}/);
+  assert.ok(subjectFunction, 'there is no subject function');
+  assert.ok(!/\bcode\b/.test(subjectFunction[1]), 'the subject function is handed the code');
+  const interpolations = [...subjectFunction[0].matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1].trim());
+  assert.deepEqual([...new Set(interpolations)].sort(), ['campaign.brand', 'campaign.name']);
   // The two arguments in the order post() declares them: subject second, body
-  // third. Written against the call rather than an object literal since the
-  // settlement notices gave that call a second caller, and the property is the
-  // same one either way — the code is an argument to the body, never the subject.
-  assert.match(mail, /post\(to, CODE_SUBJECT, codeBody\(code, ttlMinutes\)\)/);
+  // third — the code is an argument to the body, never the subject.
+  assert.match(mail, /post\(to, codeSubject\(campaign\), codeBody\(code, ttlMinutes, campaign\)\)/);
   assert.match(mail, /subject,\s*\n\s*text,/, 'post does not pass a subject and a text');
 });
 
@@ -633,15 +638,16 @@ await test(['J6', 'R3'], 'a settlement subject names the campaign and nothing el
   // The notice may say what a verification code may not, because a settled
   // campaign's winners are a public list on a public chain. What it may still
   // not do is carry anything that is not already public, so the subject is
-  // allowed exactly one interpolation and it is the giveaway id.
+  // allowed the giveaway id and, since L8, the name and brand the creator
+  // published — and nothing else: no amount, no address, no email.
   const mail = codeOnly(read(`${root}lib/bridge-v2/mail.ts`));
   const subjectFunction = mail.match(/function noticeSubject\([\s\S]*?\n\}/)?.[0] ?? '';
   assert.ok(subjectFunction, 'there is no settlement subject');
   const interpolations = [...subjectFunction.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1].trim());
   assert.deepEqual(
-    [...new Set(interpolations)],
-    ['notice.giveawayId'],
-    'the settlement subject carries something other than the campaign id',
+    [...new Set(interpolations)].sort(),
+    ['notice.campaign.brand', 'notice.campaign.name', 'notice.giveawayId'],
+    'the settlement subject carries something other than the campaign id and its published identity',
   );
 });
 

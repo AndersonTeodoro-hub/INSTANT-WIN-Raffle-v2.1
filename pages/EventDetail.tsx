@@ -10,6 +10,7 @@ import { Banner } from '../components/Banner';
 import { EventShell } from '../components/EventShell';
 import { Step } from '../components/Step';
 import { ShareButton } from '../components/ShareButton';
+import { BrandByline, IdentityBanner, useCampaignIdentity } from '../components/CampaignIdentity';
 import { useEventsCopy } from './events.i18n';
 import {
   confirmDestination,
@@ -72,11 +73,14 @@ function formatWindow(seconds: number): string {
 
 /** Login por email + código, e o painel de conta uma vez com sessão. */
 function AccountPanel({
+  giveawayId,
   loggedIn,
   email,
   onLoggedIn,
   onSignedOut,
 }: {
+  /** §17 L8: para o email do código nomear a campanha e a marca. */
+  giveawayId: bigint;
   loggedIn: boolean;
   email: string | null;
   onLoggedIn: (email: string) => void;
@@ -97,7 +101,7 @@ function AccountPanel({
       return;
     }
     setBusy(true);
-    const res = await requestCode(emailInput.trim());
+    const res = await requestCode(emailInput.trim(), giveawayId);
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -603,9 +607,12 @@ export const EventDetail: React.FC = () => {
     query: { enabled: giveawayId !== null && g?.status === GiveawayV2Status.SETTLED },
   });
 
+  // §17: a identidade publicada, lida à ponte. Sem ela a página é a de sempre (L9).
+  const { data: identity } = useCampaignIdentity(giveawayId);
+
   useEffect(() => {
-    document.title = c.list.metaTitle;
-  }, [c]);
+    document.title = identity ? `${identity.name} · ${c.list.metaTitle}` : c.list.metaTitle;
+  }, [c, identity]);
 
   /*
    * Is this winner the visitor? Two addresses can be, and both deserve to see
@@ -670,6 +677,9 @@ export const EventDetail: React.FC = () => {
             {/* ============ O CONVITE ============ */}
 
             <div>
+              {/* §17: o banner da campanha abre a página, quando existe. */}
+              {identity && <IdentityBanner identity={identity} className="mb-6 rounded-xl border border-dark-border" />}
+
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p
@@ -683,14 +693,35 @@ export const EventDetail: React.FC = () => {
                       ] as keyof typeof c.list.status
                     ] ?? ''}
                   </p>
-                  {/* O prémio é o assunto da página, por isso é o h1. A página
-                      não tinha nenhum: começava em h3 e um leitor de ecrã não
-                      tinha por onde se orientar. */}
-                  <p className="mt-3 text-sm text-gray-400">{c.detail.prizeLabel}</p>
-                  <h1 className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.75rem,11vw,4.5rem)] break-all">
-                    {formatUnits(displayAmount ?? 0n, decimals)}
-                    <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
-                  </h1>
+                  {identity ? (
+                    <>
+                      {/* Com identidade, o nome da campanha é o assunto da página e
+                          passa a ser o h1; o prémio fica logo abaixo, com o mesmo peso
+                          de cor. */}
+                      <h1 className="mt-3 font-display font-bold text-white tracking-tight leading-[1.02] text-[clamp(2.1rem,7vw,3.25rem)] break-words">
+                        {identity.name}
+                      </h1>
+                      <div className="mt-1">
+                        <BrandByline identity={identity} by={c.detail.identity.byBrand} newTab={c.detail.identity.opensNewTab} />
+                      </div>
+                      <p className="mt-5 text-sm text-gray-400">{c.detail.prizeLabel}</p>
+                      <p className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.25rem,9vw,3.5rem)] break-all">
+                        {formatUnits(displayAmount ?? 0n, decimals)}
+                        <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      {/* O prémio é o assunto da página, por isso é o h1. A página
+                          não tinha nenhum: começava em h3 e um leitor de ecrã não
+                          tinha por onde se orientar. */}
+                      <p className="mt-3 text-sm text-gray-400">{c.detail.prizeLabel}</p>
+                      <h1 className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.75rem,11vw,4.5rem)] break-all">
+                        {formatUnits(displayAmount ?? 0n, decimals)}
+                        <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
+                      </h1>
+                    </>
+                  )}
                 </div>
                 <ShareButton
                   className="shrink-0 text-gray-400 hover:text-white"
@@ -698,18 +729,45 @@ export const EventDetail: React.FC = () => {
                 />
               </div>
 
-              {/* Quem pagou o prémio tem nome, e o nome liga à prova. */}
-              <p className="mt-5 flex flex-wrap items-baseline gap-x-2 text-sm text-gray-400">
-                {c.detail.byCreator}
-                <a
-                  href={`${ARBISCAN}/address/${g.creator}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-mono text-gray-300 underline decoration-dark-border underline-offset-4 hover:text-white hover:decoration-gray-500"
-                >
-                  {short(g.creator)}
-                </a>
-              </p>
+              {identity ? (
+                <>
+                  {/* A mensagem do criador, junto do prémio. */}
+                  <figure className="mt-6 border-l-2 border-brand/40 pl-4">
+                    <figcaption className="text-xs uppercase tracking-[0.14em] text-gray-400">
+                      {c.detail.identity.messageFrom} {identity.brand}
+                    </figcaption>
+                    <blockquote className="mt-2 max-w-[62ch] whitespace-pre-line text-base leading-relaxed text-gray-200">
+                      {identity.message}
+                    </blockquote>
+                  </figure>
+
+                  {/* A prova fica, discreta: o endereço que o contrato regista. */}
+                  <p className="mt-5 flex flex-wrap items-baseline gap-x-2 text-xs text-gray-400">
+                    {c.detail.identity.creatorProof}
+                    <a
+                      href={`${ARBISCAN}/address/${g.creator}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-gray-400 underline decoration-dark-border underline-offset-4 hover:text-white hover:decoration-gray-500"
+                    >
+                      {short(g.creator)}
+                    </a>
+                  </p>
+                </>
+              ) : (
+                /* Quem pagou o prémio tem nome, e o nome liga à prova. */
+                <p className="mt-5 flex flex-wrap items-baseline gap-x-2 text-sm text-gray-400">
+                  {c.detail.byCreator}
+                  <a
+                    href={`${ARBISCAN}/address/${g.creator}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-gray-300 underline decoration-dark-border underline-offset-4 hover:text-white hover:decoration-gray-500"
+                  >
+                    {short(g.creator)}
+                  </a>
+                </p>
+              )}
 
               <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-300">
                 {c.detail.freeToEnter}
@@ -814,6 +872,7 @@ export const EventDetail: React.FC = () => {
               <ol className="mt-6">
                 <Step index={1} title={c.detail.steps.identity} done={loggedIn}>
                   <AccountPanel
+                    giveawayId={giveawayId}
                     loggedIn={loggedIn}
                     email={email}
                     onLoggedIn={(e) => {

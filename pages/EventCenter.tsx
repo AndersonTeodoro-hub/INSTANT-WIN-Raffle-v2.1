@@ -7,6 +7,7 @@ import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status } from '../li
 import { EventShell } from '../components/EventShell';
 import { Button } from '../components/Button';
 import { ShareButton } from '../components/ShareButton';
+import { BrandByline, IdentityBanner, useCampaignIdentity } from '../components/CampaignIdentity';
 import { useEventsCopy } from './events.i18n';
 import { Check, Loader2, ExternalLink } from 'lucide-react';
 
@@ -68,6 +69,11 @@ function EventCard({ id }: { id: bigint }) {
     query: { enabled: !!g },
   });
 
+  // §17: a identidade publicada pelo criador, se houver. Sem ela o cartão é o de
+  // sempre (L9). Leitura à ponte, em lote com os outros cartões; nenhuma leitura
+  // da cadeia muda.
+  const { data: identity } = useCampaignIdentity(id);
+
   if (!g || g.status === GiveawayV2Status.NONE) return null;
 
   const decimals = g.prizeKind === 1 ? 6 : ((meta?.[0]?.result as number | undefined) ?? 18);
@@ -90,12 +96,18 @@ function EventCard({ id }: { id: bigint }) {
   return (
     <Link
       to={`/events/${id.toString()}`}
-      className={`group flex flex-col rounded-xl border p-5 transition-colors ${
+      className={`group flex flex-col overflow-hidden rounded-xl border p-5 transition-colors ${
         isOpen
           ? 'border-brand/25 bg-dark-ticket hover:border-brand/50'
           : 'border-dark-border bg-dark-card hover:border-gray-600'
       }`}
     >
+      {identity && (
+        <div className="-mx-5 -mt-5 mb-4 border-b border-dark-border/80">
+          <IdentityBanner identity={identity} />
+        </div>
+      )}
+
       <div className="flex items-start justify-between gap-3">
         <span
           className={`font-mono text-[10px] uppercase tracking-[0.14em] ${
@@ -111,6 +123,18 @@ function EventCard({ id }: { id: bigint }) {
           />
         </span>
       </div>
+
+      {/* O nome e a marca vêm primeiro: é por eles que o participante reconhece a campanha. */}
+      {identity && (
+        <div className="mt-3 min-w-0">
+          <p className="font-display text-xl font-bold leading-tight tracking-tight text-white line-clamp-2 break-words">
+            {identity.name}
+          </p>
+          <div className="mt-1.5">
+            <BrandByline identity={identity} by={c.list.card.byBrand} newTab={c.detail.identity.opensNewTab} plain />
+          </div>
+        </div>
+      )}
 
       <p className="mt-4 text-sm text-gray-400">{c.list.card.prize}</p>
       <p

@@ -23,6 +23,7 @@
  * bottom of this file.
  */
 import vercelConfig from '../../vercel.json' with { type: 'json' };
+import { IMAGE_LIMITS } from '../campaign-identity.js';
 
 /** Arbitrum One. The bridge signs on no other chain. */
 export const CHAIN_ID = 42161 as const;
@@ -545,6 +546,35 @@ export const SESSION_GRACE_DAYS = 7 as const;
 export const UNIFORM_RESPONSE_MS = 400;
 
 // -----------------------------------------------------------------------------
+// L — campaign identity (§17)
+// -----------------------------------------------------------------------------
+/** L5: the Storage bucket the images live in. 0011 creates it. */
+export const IDENTITY_BUCKET = 'campaign-identity' as const;
+/**
+ * L3: how long after it is made a signature is still accepted. Long enough to
+ * pick two images and wait for a slow wallet; short enough that a signature
+ * found later in a log or a proxy is worth nothing.
+ */
+export const IDENTITY_SIGNATURE_MAX_AGE_MS = 10 * 60 * 1000;
+/** L3: how far ahead of this clock a signature's instant may be, for a device clock that runs fast. */
+export const IDENTITY_SIGNATURE_MAX_SKEW_MS = 2 * 60 * 1000;
+/**
+ * L6/I10: how long a spent nonce is kept. A day against a ten-minute window, and
+ * the window is what makes that enough: an older signature is refused before the
+ * nonce ledger is ever asked.
+ */
+export const IDENTITY_NONCE_RETENTION_SECONDS = 24 * 60 * 60;
+/** L7: the most campaigns one read may name. The list page shows thirty. */
+export const IDENTITY_READ_MAX_IDS = 30 as const;
+/**
+ * I3 for the one route that takes files: both images at their ceilings, plus the
+ * payload. About 2.6 MB, under the 4.5 MB the platform accepts as a request body.
+ */
+export const IDENTITY_MAX_BODY_BYTES = IMAGE_LIMITS.banner.maxBytes + IMAGE_LIMITS.logo.maxBytes + 64 * 1024;
+/** G4: one image upload. Longer than HTTP_TIMEOUT_MS, because it carries up to 2 MB. */
+export const STORAGE_TIMEOUT_MS = 15_000;
+
+// -----------------------------------------------------------------------------
 // G4 — the duration every route with an external wait declares
 // -----------------------------------------------------------------------------
 /**
@@ -608,6 +638,15 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // receipts, which maxDurationSeconds does not model. See the
   // CREATOR_SUBMIT_WORST_CASE_MS comment for what the number is built from.
   'api/bridge/v2/creator/campaign/submit.ts': Math.ceil(CREATOR_SUBMIT_WORST_CASE_MS / 1000),
+  // L2/L5. Two RPC stages: the creator from getGiveaway, then the ERC-1271 check
+  // for a contract wallet (getCode and isValidSignature, sequential but bounded as
+  // one call each within RPC_TIMEOUT_MS). Seven database stages: three rate-limit
+  // axes, the published identity when an image is kept, the save function, the
+  // ops event, and the envelope's event if the route throws after them. Plus two
+  // uploads, each bounded by STORAGE_TIMEOUT_MS, which maxDurationSeconds does not
+  // model.
+  'api/bridge/v2/campaign/identity/save.ts':
+    maxDurationSeconds(2, 7) + Math.ceil((2 * STORAGE_TIMEOUT_MS) / 1000),
 };
 
 /**

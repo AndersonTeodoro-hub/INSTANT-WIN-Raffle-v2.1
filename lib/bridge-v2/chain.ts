@@ -1287,3 +1287,70 @@ export function giveawayIdFromLogs(logs: readonly Log[]): bigint | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// campaign identity — SPEC-BRIDGE-V2 §17. Reads only; nothing here signs.
+// ---------------------------------------------------------------------------
+
+/**
+ * L2: the address the contract recorded as a campaign's creator, lower-cased,
+ * or null for an id the contract never assigned.
+ *
+ * Read on every identity write and never cached: it is the one fact that write
+ * is authorised against, and it never comes from a request.
+ */
+export async function giveawayCreator(giveawayId: bigint): Promise<`0x${string}` | null> {
+  const raw = await publicClient().readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: GIVEAWAY_MANAGER_V2_ABI,
+    functionName: 'getGiveaway',
+    args: [giveawayId],
+  });
+  const g = raw as unknown as { creator: `0x${string}`; status: number };
+  if (Number(g.status) === GiveawayStatus.NONE || /^0x0{40}$/i.test(g.creator)) return null;
+  return g.creator.toLowerCase() as `0x${string}`;
+}
+
+/** ERC-1271: the four bytes a contract account returns for a signature it accepts. */
+const ERC1271_MAGIC_VALUE = '0x1626ba7e';
+
+const ERC1271_ABI = [
+  {
+    type: 'function',
+    name: 'isValidSignature',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'hash', type: 'bytes32' },
+      { name: 'signature', type: 'bytes' },
+    ],
+    outputs: [{ name: 'magicValue', type: 'bytes4' }],
+  },
+] as const;
+
+/**
+ * L2: whether a contract account accepts a signature over a hash (ERC-1271).
+ *
+ * The path for a creator whose wallet is a contract — a Safe, or a smart account
+ * that does not sign with a key of its own. An address with no code is not asked,
+ * and a revert, a missing function or any other answer is a refusal.
+ */
+export async function isValidContractSignature(
+  account: `0x${string}`,
+  hash: Hex,
+  signature: Hex,
+): Promise<boolean> {
+  const client = publicClient();
+  const code = await client.getCode({ address: account });
+  if (code === undefined || code === '0x') return false;
+  try {
+    const answer = await client.readContract({
+      address: account,
+      abi: ERC1271_ABI,
+      functionName: 'isValidSignature',
+      args: [hash, signature],
+    });
+    return String(answer).toLowerCase() === ERC1271_MAGIC_VALUE;
+  } catch {
+    return false;
+  }
+}

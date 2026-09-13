@@ -14,6 +14,7 @@
  * answering must not hold a function open until the platform kills it.
  */
 
+import type { CampaignLabel } from '../campaign-identity.js';
 import { GIVEAWAY_MANAGER_V2, HTTP_TIMEOUT_MS } from './config.js';
 import { requireEnv } from './env.js';
 
@@ -67,12 +68,23 @@ async function post(to: string, subject: string, text: string): Promise<MailResu
  *
  * In the V1 the code was in the subject line, so it was readable in a lock
  * screen notification without opening the mailbox. The subject here says what
- * the message is and nothing more.
+ * the message is and nothing more — which is why this function is not handed the
+ * code at all.
+ *
+ * L8: it may name the campaign the participant is entering. The name and brand
+ * are what the creator published for everybody to read, and lib/campaign-
+ * identity.ts refuses a link or an invisible character in either before they
+ * can get here. Without an identity the subject is the one it always was (L9).
  */
-const CODE_SUBJECT = 'Your verification code';
+function codeSubject(campaign: CampaignLabel | null): string {
+  return campaign === null
+    ? 'Your verification code'
+    : `Your verification code for ${campaign.name} by ${campaign.brand}`;
+}
 
-function codeBody(code: string, minutes: number): string {
+function codeBody(code: string, minutes: number, campaign: CampaignLabel | null): string {
   return [
+    ...(campaign === null ? [] : [`You asked to enter ${campaign.name}, a campaign by ${campaign.brand}.`, '']),
     'Use this code to confirm your email address:',
     '',
     code,
@@ -93,8 +105,9 @@ export async function sendCodeEmail(
   to: string,
   code: string,
   ttlMinutes: number,
+  campaign: CampaignLabel | null = null,
 ): Promise<MailResult> {
-  return post(to, CODE_SUBJECT, codeBody(code, ttlMinutes));
+  return post(to, codeSubject(campaign), codeBody(code, ttlMinutes, campaign));
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +145,12 @@ export interface SettlementNotice {
    * has to be different or it is wrong.
    */
   readonly selfCustody: boolean;
+  /**
+   * L8: the name and brand the creator published, or null when there are none
+   * or they could not be read — in which case the notice is the one sent before
+   * campaign identities existed (L9).
+   */
+  readonly campaign: CampaignLabel | null;
 }
 
 /**
@@ -141,22 +160,36 @@ export interface SettlementNotice {
  * request.
  *
  * The subject may name the campaign and the result, unlike a verification code
- * (J6): the winners of a settled campaign are public on a public chain. What it
- * must not become is bait, so a losing notice says so plainly.
+ * (J6): the winners of a settled campaign are public on a public chain, and the
+ * name and brand are public by the creator's own act of publishing them (L8).
+ * What it must not become is bait, so a losing notice says so plainly.
  */
 function noticeSubject(notice: SettlementNotice): string {
+  if (notice.campaign === null) {
+    return notice.won
+      ? `You won giveaway #${notice.giveawayId}`
+      : `Giveaway #${notice.giveawayId}: the draw is done`;
+  }
   return notice.won
-    ? `You won giveaway #${notice.giveawayId}`
-    : `Giveaway #${notice.giveawayId}: the draw is done`;
+    ? `You won in ${notice.campaign.name} by ${notice.campaign.brand}`
+    : `${notice.campaign.name} by ${notice.campaign.brand}: the draw is done`;
+}
+
+/** How the body names the campaign: by its identity and its id, or by the id alone. */
+function campaignWords(notice: SettlementNotice): string {
+  return notice.campaign === null
+    ? `giveaway #${notice.giveawayId}`
+    : `${notice.campaign.name} by ${notice.campaign.brand} (giveaway #${notice.giveawayId})`;
 }
 
 function noticeBody(notice: SettlementNotice): string {
   const event = `${PUBLIC_BASE}/events/${notice.giveawayId}`;
   const contract = `https://arbiscan.io/address/${GIVEAWAY_MANAGER_V2}`;
+  const named = campaignWords(notice);
 
   if (!notice.won) {
     return [
-      `Giveaway #${notice.giveawayId} has been drawn, and your entry was not one of the winners.`,
+      `${named.charAt(0).toUpperCase()}${named.slice(1)} has been drawn, and your entry was not one of the winners.`,
       '',
       'Nothing is owed and nothing is pending. The result was produced by Chainlink VRF',
       'and settled on Arbitrum, so you do not have to take our word for it:',
@@ -201,7 +234,7 @@ function noticeBody(notice: SettlementNotice): string {
         ];
 
   return [
-    `Your entry in giveaway #${notice.giveawayId} was drawn as a winner.`,
+    `Your entry in ${named} was drawn as a winner.`,
     '',
     `You won: ${what}`,
     '',

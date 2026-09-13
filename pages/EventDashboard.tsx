@@ -8,6 +8,7 @@ import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2Pr
 import { Button } from '../components/Button';
 import { EventShell } from '../components/EventShell';
 import { ShareButton } from '../components/ShareButton';
+import { IdentityEditor, useCampaignIdentity } from '../components/CampaignIdentity';
 import { useEventsCopy } from './events.i18n';
 
 const MAX_SCANNED = 200;
@@ -111,6 +112,12 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
     query: { enabled: !!g },
   });
 
+  // §17: a identidade só é pedida para as campanhas desta carteira, e a edição
+  // vive fora das acções de ciclo de vida — nenhuma condição acima lhe toca.
+  const owned = !!g && g.status !== GiveawayV2Status.NONE && g.creator?.toLowerCase() === creator.toLowerCase();
+  const { data: identity } = useCampaignIdentity(owned ? id : null);
+  const [editingIdentity, setEditingIdentity] = useState(false);
+
   if (!g || g.status === GiveawayV2Status.NONE || g.creator?.toLowerCase() !== creator.toLowerCase()) return null;
 
   const isNft = g.prizeKind === GiveawayV2PrizeKind.NFT;
@@ -169,7 +176,7 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
     <article
       className={`rounded-xl border p-5 ${
         hasLifecycleAction ? 'border-brand/30 bg-dark-ticket' : 'border-dark-border bg-dark-card'
-      }`}
+      } ${editingIdentity ? 'sm:col-span-2' : ''}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -180,6 +187,9 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
           >
             {c.list.status[statusKey as keyof typeof c.list.status] ?? statusKey}
           </p>
+          {identity && (
+            <p className="mt-1 truncate font-display text-lg font-bold tracking-tight text-white">{identity.name}</p>
+          )}
           <Link
             to={`/events/${id.toString()}`}
             className="mt-1 block font-mono text-xl font-bold text-white hover:text-brand transition-colors tabular-nums truncate"
@@ -243,6 +253,26 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
           {canClaimRefund && <ActionButton functionName="claimCreatorRefund" args={[id]} label={c.dashboard.actions.claimRefund} onDone={bump} />}
           {canReload && <ReloadAction id={id} onDone={bump} />}
         </div>
+      </div>
+
+      {/* §17: identidade da campanha, editável a qualquer momento pela carteira criadora. */}
+      <div className="mt-4 pt-4 border-t border-dark-border">
+        {editingIdentity ? (
+          <IdentityEditor
+            giveawayId={id}
+            identity={identity ?? null}
+            onDone={() => setEditingIdentity(false)}
+            onCancel={() => setEditingIdentity(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditingIdentity(true)}
+            className="min-h-[44px] text-sm text-gray-300 hover:text-white underline underline-offset-2"
+          >
+            {identity ? c.identity.editCta : c.identity.addCta}
+          </button>
+        )}
       </div>
     </article>
   );

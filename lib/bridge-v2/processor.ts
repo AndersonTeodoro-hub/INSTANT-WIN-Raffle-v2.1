@@ -48,6 +48,8 @@ import {
   SWEEP_WORST_CASE_MS,
 } from './config.js';
 import { sendSettlementEmail } from './mail.js';
+import { campaignLabel } from './campaignIdentity.js';
+import type { CampaignLabel } from '../campaign-identity.js';
 import { GiveawayStatus, PrizeKind } from './abi.js';
 import type { RunDeadline } from './runlock.js';
 import { proofForAddress, publishBatch } from './eligibility.js';
@@ -1191,6 +1193,7 @@ async function notifyOutcome(
   giveawayId: bigint,
   campaign: GiveawayView,
   meta: Erc20Meta | null,
+  label: CampaignLabel | null,
   log: Logger,
 ): Promise<'sent' | 'skipped' | 'denied'> {
   const detail = { giveaway_id: giveawayId.toString() };
@@ -1240,6 +1243,7 @@ async function notifyOutcome(
     requiresOwnWallet: policyFor(campaign.prizeKind, winnerShare, campaign.feeToken)
       .requiresOwnWallet,
     selfCustody: target.selfCustody,
+    campaign: label,
   });
 
   if (!result.sent) {
@@ -1349,12 +1353,17 @@ export async function notifySettlements(log: Logger, deadline: RunDeadline): Pro
       const meta =
         campaign.prizeKind === PrizeKind.NFT ? null : await erc20Meta(campaign.feeToken);
 
+      // L8, once per campaign like the token metadata above: the name and brand the
+      // creator published. campaignLabel never throws — an identity that cannot be
+      // read is a notice without it (L9), never a notice not sent.
+      const label = await campaignLabel(giveawayId);
+
       let advanced = 0;
       let denied = false;
       for (const target of targets) {
         if (!deadline.hasTimeFor(SETTLEMENT_NOTICE_MS)) break;
         try {
-          const result = await notifyOutcome(target, giveawayId, campaign, meta, log);
+          const result = await notifyOutcome(target, giveawayId, campaign, meta, label, log);
           // B8: the ceiling is the run's and not this entry's, and every entry
           // that asks again after it is reached costs a denial event, an alert,
           // and the webhook post behind the alert — which is under no ceiling of

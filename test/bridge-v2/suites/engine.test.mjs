@@ -37,6 +37,7 @@ import {
   sleep,
   sql,
 } from '../pg.mjs';
+import { IMAGE_LIMITS } from '../../../lib/campaign-identity.ts';
 
 suite('engine');
 
@@ -1379,4 +1380,215 @@ await test(['C8', 'I6'], "0010's backfill decides every shape of custody, and qu
   assert.ok(!queued.includes(campaign), 'a campaign that predates the migration is in the notice queue');
 });
 
+// ===========================================================================
+// 9. 0011 — campaign identity (§17), executed
+// ===========================================================================
+
+const IDENTITY_FILE = '0011_campaign_identity.sql';
+let identityCounter = 9_000_000;
+const identityGiveaway = () => String(++identityCounter);
+const identityNonce = () => crypto.randomUUID().replace(/-/g, '');
+
+const identityCall = (overrides = {}) => ({
+  giveaway: identityGiveaway(),
+  nonce: identityNonce(),
+  signedAt: new Date().toISOString(),
+  retention: 86_400,
+  creator: ADDR,
+  name: 'Summer Drop',
+  message: 'Thank you for being part of this.',
+  brand: 'Acme',
+  link: 'https://acme.example/',
+  bannerSha: 'a'.repeat(64),
+  bannerType: 'image/png',
+  bannerWidth: 1200,
+  bannerHeight: 630,
+  logoSha: null,
+  logoType: null,
+  logoWidth: null,
+  logoHeight: null,
+  ...overrides,
+});
+
+async function saveIdentity(call, client = null) {
+  const text = `SELECT saved_outcome, saved_version FROM bridge_v2_save_campaign_identity(
+    $1::numeric, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`;
+  const values = [
+    call.giveaway, call.nonce, call.signedAt, call.retention, call.creator, call.name, call.message,
+    call.brand, call.link, call.bannerSha, call.bannerType, call.bannerWidth, call.bannerHeight,
+    call.logoSha, call.logoType, call.logoWidth, call.logoHeight,
+  ];
+  const result = client === null ? await q(text, values) : await client.query(text, values);
+  return result.rows[0];
+}
+
+const identityName = (giveaway) =>
+  scalar(`SELECT name FROM bridge_v2_campaign_identities WHERE giveaway_id = $1`, [giveaway]);
+
+await test(['L1', 'I6'], '0011 applies over the V2 schema, and applying it again changes nothing and loses nothing', async () => {
+  const first = await applyMigration(target, IDENTITY_FILE);
+  assert.ok(first.ok, `0011: ${first.ok ? '' : `${first.at} ${first.text}`}`);
+  const call = identityCall();
+  assert.deepEqual(await saveIdentity(call), { saved_outcome: 'SAVED', saved_version: 1 });
+
+  const again = await applyMigration(target, IDENTITY_FILE);
+  assert.ok(again.ok, `0011 re-applied: ${again.ok ? '' : `${again.at} ${again.text}`}`);
+
+  const tables = (await bridgeTables(target)).filter((name) => name.includes('campaign_identit')).sort();
+  assert.deepEqual(tables, ['bridge_v2_campaign_identities', 'bridge_v2_campaign_identity_nonces']);
+  const overloads = (await bridgeFunctions(target)).filter((row) => row.name === 'bridge_v2_save_campaign_identity');
+  assert.equal(overloads.length, 1, 'a re-application left a second overload behind');
+  assert.equal(await identityName(call.giveaway), 'Summer Drop', 'a re-application lost a published identity');
+});
+
+await test(['L6'], 'a nonce is spent once, and an older or equal signature never overwrites a newer one', async () => {
+  const giveaway = identityGiveaway();
+  const earlier = new Date(Date.now() - 60_000).toISOString();
+  const later = new Date().toISOString();
+
+  const first = identityCall({ giveaway, signedAt: earlier });
+  assert.deepEqual(await saveIdentity(first), { saved_outcome: 'SAVED', saved_version: 1 });
+  assert.deepEqual(await saveIdentity(first), { saved_outcome: 'REPLAYED', saved_version: null }, 'a nonce was spent twice');
+
+  assert.deepEqual(
+    await saveIdentity(identityCall({ giveaway, signedAt: later, name: 'Renamed' })),
+    { saved_outcome: 'SAVED', saved_version: 2 },
+  );
+  assert.deepEqual(
+    await saveIdentity(identityCall({ giveaway, signedAt: earlier, name: 'Older words' })),
+    { saved_outcome: 'STALE', saved_version: 2 },
+  );
+  assert.equal(
+    (await saveIdentity(identityCall({ giveaway, signedAt: later, name: 'Same instant' }))).saved_outcome,
+    'STALE',
+    'a signature made at the same instant is not newer',
+  );
+  assert.equal(await identityName(giveaway), 'Renamed', 'an older signature overwrote a newer identity');
+});
+
+await test(['L6', 'I10'], 'spent nonces are kept for the retention they are given, and no longer', async () => {
+  const giveaway = identityGiveaway();
+  const old = identityCall({ giveaway, signedAt: new Date(Date.now() - 5_000).toISOString() });
+  await saveIdentity(old);
+  await q(`UPDATE bridge_v2_campaign_identity_nonces SET used_at = now() - interval '2 days' WHERE nonce = $1`, [old.nonce]);
+  await saveIdentity(identityCall({ giveaway }));
+  assert.equal(
+    await scalar(`SELECT count(*)::int FROM bridge_v2_campaign_identity_nonces WHERE nonce = $1`, [old.nonce]),
+    0,
+    'a nonce past its retention is still stored',
+  );
+});
+
+await test(['L6', 'G1'], 'concurrent saves leave the most recently signed identity, in whatever order they commit', async () => {
+  const giveaway = identityGiveaway();
+  const now = Date.now();
+  const calls = Array.from({ length: 8 }, (_unused, index) =>
+    identityCall({ giveaway, signedAt: new Date(now - index * 1000).toISOString(), name: `Version ${index}` }),
+  );
+  const outcomes = await concurrently(target, calls.length, (client, index) => saveIdentity(calls[index], client));
+  assert.ok(
+    outcomes.every((outcome) => outcome.ok),
+    `a concurrent save raised: ${outcomes.filter((outcome) => !outcome.ok).map((outcome) => outcome.code).join(', ')}`,
+  );
+  assert.equal(await identityName(giveaway), 'Version 0', 'the identity left is not the one signed last');
+});
+
+await test(['L1', 'L4', 'L5', 'I9'], 'the table refuses what the route would have refused', async () => {
+  const refused = async (overrides) => {
+    try {
+      await saveIdentity(identityCall(overrides));
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  assert.ok(await refused({ name: '' }), 'an empty name was stored');
+  assert.ok(await refused({ name: 'x'.repeat(81) }), 'an 81-character name was stored');
+  assert.ok(await refused({ message: 'y'.repeat(281) }), 'a 281-character message was stored');
+  assert.ok(await refused({ brand: 'z'.repeat(61) }), 'a 61-character brand was stored');
+  assert.ok(await refused({ link: 'http://acme.example/' }), 'a plain-http link was stored');
+  assert.ok(await refused({ bannerSha: 'not-a-hash' }), 'a banner without a hash was stored');
+  assert.ok(await refused({ bannerType: 'image/svg+xml' }), 'an SVG banner was stored');
+  assert.ok(
+    await refused({ logoSha: 'b'.repeat(64), logoType: 'image/png', logoWidth: null, logoHeight: 64 }),
+    'half a logo was stored',
+  );
+  assert.ok(await refused({ creator: '0xNOT-AN-ADDRESS' }), 'a malformed creator was stored');
+  assert.ok(
+    !(await refused({ logoSha: 'b'.repeat(64), logoType: 'image/webp', logoWidth: 256, logoHeight: 256 })),
+    'a whole logo was refused',
+  );
+});
+
+await test(['L7', 'I5'], '0011 gives the browser roles nothing and service_role exactly the verbs the code uses', async () => {
+  // On the Supabase-shaped target, whose default privileges had granted all three
+  // roles ALL on both tables before the first statement of 0011 ran.
+  const shape = await rows(
+    `SELECT c.relname AS name,
+            c.relrowsecurity AS rls,
+            has_table_privilege('service_role', c.oid, 'SELECT') AS s,
+            has_table_privilege('service_role', c.oid, 'INSERT') AS i,
+            has_table_privilege('service_role', c.oid, 'UPDATE') AS u,
+            has_table_privilege('service_role', c.oid, 'DELETE') AS d,
+            has_table_privilege('service_role', c.oid, 'TRUNCATE') AS t,
+            (has_table_privilege('anon', c.oid, 'SELECT') OR has_table_privilege('anon', c.oid, 'INSERT')
+              OR has_table_privilege('anon', c.oid, 'UPDATE') OR has_table_privilege('anon', c.oid, 'DELETE')) AS anon,
+            (has_table_privilege('authenticated', c.oid, 'SELECT') OR has_table_privilege('authenticated', c.oid, 'INSERT')
+              OR has_table_privilege('authenticated', c.oid, 'UPDATE') OR has_table_privilege('authenticated', c.oid, 'DELETE')) AS authenticated
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname IN ('bridge_v2_campaign_identities', 'bridge_v2_campaign_identity_nonces')
+      ORDER BY c.relname`,
+  );
+  const summary = Object.fromEntries(
+    shape.map((row) => [
+      row.name,
+      `${row.rls ? 'RLS' : 'no-RLS'} ${row.s ? 'S' : '-'}${row.i ? 'I' : '-'}${row.u ? 'U' : '-'}${row.d ? 'D' : '-'}${row.t ? 'T' : '-'} anon:${row.anon} authenticated:${row.authenticated}`,
+    ]),
+  );
+  assert.deepEqual(summary, {
+    bridge_v2_campaign_identities: 'RLS SIU-- anon:false authenticated:false',
+    bridge_v2_campaign_identity_nonces: 'RLS SI-D- anon:false authenticated:false',
+  });
+
+  const execute = await one(
+    `SELECT has_function_privilege('anon',          p.oid, 'EXECUTE') AS anon,
+            has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+            has_function_privilege('service_role',  p.oid, 'EXECUTE') AS service,
+            EXISTS (SELECT 1 FROM aclexplode(p.proacl) acl
+                     WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') AS public
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = 'bridge_v2_save_campaign_identity'`,
+  );
+  assert.deepEqual(execute, { anon: false, authenticated: false, service: true, public: false });
+
+  const asAnon = await asRole(target, 'anon', (client) => attempt(client, 'SELECT name FROM bridge_v2_campaign_identities'));
+  assert.equal(asAnon.code, '42501', 'anon read the identity table directly');
+});
+
+await test(['L5'], '0011 creates the public image bucket, with its limits, where the Supabase storage schema exists', async () => {
+  const shaped = await createDatabase('bridge_v2_storage_shaped', { withCitext: true });
+  await shaped.pool.query(`CREATE SCHEMA storage;
+    CREATE TABLE storage.buckets (id text PRIMARY KEY, name text NOT NULL, public boolean DEFAULT false,
+                                  file_size_limit bigint, allowed_mime_types text[])`);
+  const readBuckets = async () =>
+    (await shaped.pool.query(`SELECT id, public, file_size_limit::int AS size, allowed_mime_types FROM storage.buckets`)).rows;
+  const expected = [{
+    id: 'campaign-identity',
+    public: true,
+    size: IMAGE_LIMITS.banner.maxBytes,
+    allowed_mime_types: ['image/png', 'image/jpeg', 'image/webp'],
+  }];
+
+  for (const round of [1, 2]) {
+    const applied = await applyMigration(shaped, IDENTITY_FILE);
+    assert.ok(applied.ok, `round ${round}: ${applied.ok ? '' : `${applied.at} ${applied.text}`}`);
+  }
+  assert.deepEqual(await readBuckets(), expected);
+
+  // A bucket somebody widened by hand is put back on the next application.
+  await shaped.pool.query(`UPDATE storage.buckets SET allowed_mime_types = ARRAY['image/svg+xml'], file_size_limit = NULL`);
+  await applyMigration(shaped, IDENTITY_FILE);
+  assert.deepEqual(await readBuckets(), expected);
+});
 }

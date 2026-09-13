@@ -8,6 +8,8 @@
  * lib/bridge-v2/ — este ficheiro só fala com elas por HTTP.
  */
 
+import type { PublicIdentity } from './campaign-identity';
+
 export interface BridgeError {
   readonly ok: false;
   readonly error: string;
@@ -37,7 +39,15 @@ async function call<T extends object>(path: string, body?: Record<string, unknow
   return { ok: true, ...json } as BridgeResult<T>;
 }
 
-export const requestCode = (email: string) => call<Record<string, never>>('session/request-code', { email });
+/**
+ * `giveawayId` diz à ponte em que campanha o participante está, para o email do
+ * código trazer o nome e a marca (L8). Opcional: sem ele o email é o de sempre.
+ */
+export const requestCode = (email: string, giveawayId?: bigint) =>
+  call<Record<string, never>>('session/request-code', {
+    email,
+    ...(giveawayId === undefined ? {} : { giveawayId: giveawayId.toString() }),
+  });
 
 export const verifyCode = (email: string, code: string) => call<Record<string, never>>('session/verify', { email, code });
 
@@ -112,3 +122,34 @@ export interface PrivacyEraseResult {
   readonly retained: string;
 }
 export const privacyErase = () => call<PrivacyEraseResult>('privacy/erase');
+
+// ---------------------------------------------------------------------------
+// Identidade de campanha — SPEC-BRIDGE-V2 §17
+// ---------------------------------------------------------------------------
+
+/** Leitura pública (L7): as identidades publicadas, por id. As campanhas sem identidade não vêm. */
+export const campaignIdentities = (giveawayIds: readonly bigint[]) =>
+  call<{ identities: Record<string, PublicIdentity> }>('campaign/identity/read', {
+    giveawayIds: giveawayIds.map((id) => id.toString()),
+  });
+
+export type IdentitySaveResult =
+  | { readonly ok: true; readonly version: number }
+  | { readonly ok: false; readonly status: number; readonly reason: string | null };
+
+/**
+ * Grava a identidade (L2). Multipart e não JSON: leva as imagens. Sem cookie de
+ * sessão — a autorização é a assinatura da carteira que vai dentro de `payload`.
+ * O `reason` estável é o que a página traduz; a frase da ponte nunca é mostrada.
+ */
+export async function saveCampaignIdentity(form: FormData): Promise<IdentitySaveResult> {
+  let res: Response;
+  try {
+    res = await fetch('/api/bridge/v2/campaign/identity/save', { method: 'POST', body: form });
+  } catch {
+    return { ok: false, status: 0, reason: null };
+  }
+  const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (json !== null && json.ok === true && typeof json.version === 'number') return { ok: true, version: json.version };
+  return { ok: false, status: res.status, reason: typeof json?.reason === 'string' ? json.reason : null };
+}

@@ -84,6 +84,58 @@ export async function readJsonBody(request: Request): Promise<Record<string, unk
   }
 }
 
+export type FormRead =
+  | { readonly ok: true; readonly form: FormData }
+  | { readonly ok: false; readonly reason: 'type' | 'size' | 'malformed' };
+
+/**
+ * I3 for the one route that takes files (campaign/identity/save).
+ *
+ * The same rule as readJsonBody, with a ceiling the caller chooses: content type
+ * first, then the declared length, then the bytes actually received. The stream
+ * is read by hand and abandoned the moment it passes the ceiling, because
+ * request.formData() buffers whatever arrives, however much that is, before
+ * anybody gets to measure it.
+ */
+export async function readFormBody(request: Request, maxBytes: number): Promise<FormRead> {
+  const contentType = request.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().startsWith('multipart/form-data')) return { ok: false, reason: 'type' };
+
+  const declared = request.headers.get('content-length');
+  if (declared !== null && Number(declared) > maxBytes) return { ok: false, reason: 'size' };
+  if (request.body === null) return { ok: false, reason: 'malformed' };
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return { ok: false, reason: 'size' };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return { ok: true, form: await new Response(body, { headers: { 'content-type': contentType } }).formData() };
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+}
+
 /** D3: pads a response so an existence check cannot be timed. */
 async function padTo(startedAt: number): Promise<void> {
   const elapsed = Date.now() - startedAt;

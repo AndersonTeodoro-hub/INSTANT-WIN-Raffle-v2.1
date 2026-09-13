@@ -78,6 +78,10 @@ const DEFAULTS = () => ({
   erc20Meta: { symbol: 'USDC', decimals: 6 },
   quoteApprove: { plan: plan(60_000n), data: '0xapprove' },
   quoteCreateGiveaway: { plan: plan(300_000n), data: '0xcreatecall' },
+  // SPEC-BRIDGE-V2 §17 — campaign identity. No campaign exists and no contract
+  // wallet accepts anything unless a test says so.
+  giveawayCreator: null,
+  isValidContractSignature: false,
 });
 
 function plan(gasLimit) {
@@ -142,6 +146,9 @@ export const erc20BalanceOf = (...args) => answer('erc20BalanceOf', args);
 export const erc20Meta = (...args) => answer('erc20Meta', args);
 export const quoteApprove = (...args) => answer('quoteApprove', args);
 export const quoteCreateGiveaway = (...args) => answer('quoteCreateGiveaway', args);
+// SPEC-BRIDGE-V2 §17 — campaign identity.
+export const giveawayCreator = (...args) => answer('giveawayCreator', args);
+export const isValidContractSignature = (...args) => answer('isValidContractSignature', args);
 
 /** roleAddress is synchronous in the real module. */
 export function roleAddress() {

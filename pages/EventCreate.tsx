@@ -15,6 +15,14 @@ import { Button } from '../components/Button';
 import { Banner } from '../components/Banner';
 import { EventShell } from '../components/EventShell';
 import { Step } from '../components/Step';
+import {
+  draftTouched,
+  emptyDraft,
+  IdentityFields,
+  problemText,
+  usePublishIdentity,
+  type IdentityDraft,
+} from '../components/CampaignIdentity';
 import { useEventsCopy } from './events.i18n';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -147,6 +155,10 @@ export const EventCreate: React.FC = () => {
   const [durationValue, setDurationValue] = useState('7');
   const [durationUnit, setDurationUnit] = useState<'hours' | 'days'>('days');
   const [slotCap, setSlotCap] = useState('50000');
+  // §17: a identidade escreve-se aqui e só se assina depois de a campanha existir,
+  // porque a assinatura nomeia o giveawayId que o recibo devolve.
+  const [identity, setIdentity] = useState<IdentityDraft>(emptyDraft);
+  const { publish, busy: publishing, problem: identityProblem } = usePublishIdentity();
 
   useEffect(() => {
     document.title = c.metaTitle;
@@ -286,8 +298,13 @@ export const EventCreate: React.FC = () => {
     }
   }, [receipt]);
 
+  /*
+   * Sem identidade escrita, a navegação é a de sempre: logo que o recibo traz o
+   * id. Com identidade, a página fica para a segunda assinatura (sem gás) e navega
+   * quando ela é publicada ou quando o criador a adia.
+   */
   useEffect(() => {
-    if (createdId !== null) navigate(`/events/${createdId.toString()}`);
+    if (createdId !== null && !draftTouched(identity)) navigate(`/events/${createdId.toString()}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createdId]);
 
@@ -498,8 +515,17 @@ export const EventCreate: React.FC = () => {
             </div>
           </Step>
 
-          {/* ============ 3. FINANCIAR E LANÇAR ============ */}
-          <Step index={3} title={c.stages.funding} headingLevel={2} last>
+          {/* ============ 3. A IDENTIDADE ============ */}
+          <Step index={3} title={copy.identity.stageTitle} done={draftTouched(identity)} headingLevel={2}>
+            <div className="space-y-5">
+              <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">{copy.identity.intro}</p>
+              <IdentityFields draft={identity} onChange={setIdentity} problem={identityProblem} />
+              <p className="max-w-[58ch] text-xs leading-relaxed text-gray-400">{copy.identity.laterHint}</p>
+            </div>
+          </Step>
+
+          {/* ============ 4. FINANCIAR E LANÇAR ============ */}
+          <Step index={4} title={c.stages.funding} headingLevel={2} last>
             <div className="space-y-5">
               <dl className="rounded-xl border border-dark-border bg-dark-card p-4">
                 <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -581,6 +607,35 @@ export const EventCreate: React.FC = () => {
 
               {writeError && <Banner message={writeError.message.slice(0, 200)} />}
               {isSuccess && !createdId && <Banner message={c.success} tone="success" />}
+
+              {/* §17: a campanha existe; falta a assinatura que publica a identidade. */}
+              {createdId !== null && draftTouched(identity) && (
+                <div className="space-y-3 rounded-xl border border-brand/30 bg-brand/[0.06] p-5">
+                  <p className="text-sm leading-relaxed text-gray-200">{copy.identity.createdPrompt}</p>
+                  <p className="text-xs leading-relaxed text-gray-400">{copy.identity.signExplainer}</p>
+                  {identityProblem && <Banner message={problemText(copy.identity, identityProblem)} />}
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      variant="connect"
+                      isLoading={publishing}
+                      className="min-h-[48px] rounded-xl px-6 text-sm"
+                      onClick={async () => {
+                        if (await publish(createdId, identity)) navigate(`/events/${createdId.toString()}`);
+                      }}
+                    >
+                      {copy.identity.publishCta}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={publishing}
+                      className="min-h-[48px] rounded-xl px-6 text-sm"
+                      onClick={() => navigate(`/events/${createdId.toString()}`)}
+                    >
+                      {copy.identity.skipCta}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <Button
                 variant="connect"

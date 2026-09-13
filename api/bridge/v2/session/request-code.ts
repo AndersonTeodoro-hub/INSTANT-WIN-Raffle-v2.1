@@ -3,8 +3,9 @@ import { canonicalizeEmail, screenEmail } from '../../../../lib/bridge-v2/identi
 import { accepted, handle, methodGuard, readJsonBody, refuse } from '../../../../lib/bridge-v2/http.js';
 import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.js';
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
-import { parseEmail } from '../../../../lib/bridge-v2/validate.js';
+import { parseEmail, parseGiveawayId } from '../../../../lib/bridge-v2/validate.js';
 import { sendCodeEmail } from '../../../../lib/bridge-v2/mail.js';
+import { campaignLabel } from '../../../../lib/bridge-v2/campaignIdentity.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
 import { getDb, checkedMaybe } from '../../../../lib/bridge-v2/db.js';
 import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
@@ -37,6 +38,12 @@ const route = handle('session/request-code', async ({ request, log }) => {
 
   const email = parseEmail(body.email);
   if (email === null) return refuse(400, 'Enter a valid email address.');
+
+  // L8: the campaign the participant is entering, when the page says which. A
+  // public campaign id and not an identity (A6), and optional: a request without
+  // one gets the email this route always sent (L9).
+  const giveawayId = body.giveawayId === undefined ? null : parseGiveawayId(body.giveawayId);
+  if (body.giveawayId !== undefined && giveawayId === null) return refuse(400, 'Invalid giveaway id.');
 
   const canonical = canonicalizeEmail(email);
   const signals = await extractSignals(request);
@@ -100,6 +107,11 @@ const route = handle('session/request-code', async ({ request, log }) => {
   // outcome never reaches the client.
   const screening = await screenEmail(canonical);
 
+  // L8 under D3: read here, before the paths divide, so the silent refusals below
+  // pay the same read as the path that sends. It depends only on the campaign id,
+  // never on the address, and campaignLabel does not throw.
+  const campaign = giveawayId === null ? null : await campaignLabel(giveawayId);
+
   const address = await enforce([
     { axis: known === null ? 'UNKNOWN_EMAIL' : 'EMAIL', value: canonical },
   ]);
@@ -138,7 +150,7 @@ const route = handle('session/request-code', async ({ request, log }) => {
   // and nothing else — D7 keeps the literal out of every row, and the code, the
   // account and both limit axes stay keyed on `canonical`.
   const code = await issueEmailCode(canonical);
-  const result = await sendCodeEmail(email, code, EMAIL_CODE_TTL_MINUTES);
+  const result = await sendCodeEmail(email, code, EMAIL_CODE_TTL_MINUTES, campaign);
   await log.event(result.sent ? 'code.issued' : 'code.failed');
 
   return accepted();

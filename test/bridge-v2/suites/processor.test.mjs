@@ -1506,3 +1506,54 @@ await test(['G4'], 'the prize queue is served before the notices, never after', 
     'the notice pass is not caught, so it can end the prize stage',
   );
 });
+
+// ---------------------------------------------------------------------------
+// notifySettlements — L8, L9: the campaign's published identity in the notice
+// ---------------------------------------------------------------------------
+
+const PUBLISHED_IDENTITY = {
+  giveaway_id: '1',
+  name: 'Summer Drop',
+  message: 'Thank you for entering.',
+  brand_name: 'Acme',
+  link_url: null,
+  banner_sha256: 'a'.repeat(64),
+  banner_type: 'image/png',
+  banner_width: 1200,
+  banner_height: 630,
+  logo_sha256: null,
+  logo_type: null,
+  logo_width: null,
+  logo_height: null,
+  version: 1,
+  updated_at: '2026-09-13T12:00:00.000Z',
+};
+
+await test(['L8'], 'a settlement notice names the campaign and its brand when the creator published them', async () => {
+  for (const [row, subject, lead] of [
+    [outcomeRow(), 'You won in Summer Drop by Acme', /^Your entry in Summer Drop by Acme \(giveaway #1\) was drawn as a winner\./],
+    [
+      outcomeRow({ id: 'entry-2', wallet_address: LOSER, participant: { email_canonical: 'loser@example.com' } }),
+      'Summer Drop by Acme: the draw is done',
+      /^Summer Drop by Acme \(giveaway #1\) has been drawn, and your entry was not one of the winners\./,
+    ],
+  ]) {
+    fresh();
+    settledCampaign([row]);
+    db.on('bridge_v2_campaign_identities:select', () => ({ data: PUBLISHED_IDENTITY, error: null }));
+    assert.equal(await notifySettlements(recordingLogger(), deadline()), 1);
+    const [mail] = mails();
+    assert.equal(mail.subject, subject);
+    assert.match(mail.text, lead);
+  }
+});
+
+await test(['L9'], 'an identity the database cannot read leaves the notice exactly as it was, and still sends it', async () => {
+  fresh();
+  settledCampaign([outcomeRow()]);
+  db.on('bridge_v2_campaign_identities:select', () => ({ data: null, error: { message: 'unavailable' } }));
+  assert.equal(await notifySettlements(recordingLogger(), deadline()), 1);
+  const [mail] = mails();
+  assert.equal(mail.subject, 'You won giveaway #1');
+  assert.match(mail.text, /^Your entry in giveaway #1 was drawn as a winner\./);
+});

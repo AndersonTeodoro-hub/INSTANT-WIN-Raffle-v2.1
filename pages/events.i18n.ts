@@ -27,6 +27,8 @@ export interface EventsCopy {
       /** Sufixo do contador de vagas do cartão: "1 240 slots left". */
       slotsLeft: string;
       full: string;
+      /** Antes do nome da marca no cartão: "de Acme". */
+      byBrand: string;
     };
     status: Record<'OPEN' | 'CLOSED' | 'DRAW_REQUESTED' | 'SEED_RECEIVED' | 'SETTLED' | 'CANCELLED', string>;
     /**
@@ -48,6 +50,16 @@ export interface EventsCopy {
     pausedBanner: string;
     /** "Campanha de" + endereço do criador. Quem pagou o prémio tem nome. */
     byCreator: string;
+    /** Identidade de campanha (SPEC-BRIDGE-V2 §17), quando o criador a publicou. */
+    identity: {
+      byBrand: string;
+      /** Por cima da mensagem do criador: "Uma mensagem de" + marca. */
+      messageFrom: string;
+      /** A prova discreta: o endereço que o contrato regista como criador. */
+      creatorProof: string;
+      /** Para leitores de ecrã, no link da marca. */
+      opensNewTab: string;
+    };
     freeToEnter: string;
     entriesLabel: string;
     /** Cabeçalho da espinha de participação. */
@@ -157,6 +169,57 @@ export interface EventsCopy {
     success: string;
     viewEvent: string;
   };
+  /**
+   * O formulário de identidade, na criação e no painel do criador (§17). Os
+   * `{max}`, `{maxMb}` e afins são preenchidos com os limites de
+   * lib/campaign-identity.ts, para que o texto não diga um número e a ponte
+   * aplique outro.
+   */
+  identity: {
+    stageTitle: string;
+    intro: string;
+    laterHint: string;
+    dashboardTitle: string;
+    nameLabel: string;
+    nameHint: string;
+    messageLabel: string;
+    messageHint: string;
+    brandLabel: string;
+    brandHint: string;
+    linkLabel: string;
+    linkHint: string;
+    bannerLabel: string;
+    bannerHint: string;
+    logoLabel: string;
+    logoHint: string;
+    optional: string;
+    chooseImage: string;
+    replaceImage: string;
+    removeImage: string;
+    signExplainer: string;
+    publishCta: string;
+    skipCta: string;
+    createdPrompt: string;
+    addCta: string;
+    editCta: string;
+    cancelCta: string;
+    errors: {
+      name: string;
+      message: string;
+      brand: string;
+      link: string;
+      bannerRequired: string;
+      imageType: string;
+      imageTooLarge: string;
+      imageDimensions: string;
+      notCreator: string;
+      expired: string;
+      rejected: string;
+      stale: string;
+      tooMany: string;
+      generic: string;
+    };
+  };
   dashboard: {
     metaTitle: string;
     title: string;
@@ -204,6 +267,7 @@ const en: EventsCopy = {
       view: 'View event',
       slotsLeft: 'places left',
       full: 'Full',
+      byBrand: 'by',
     },
     status: {
       OPEN: 'Open',
@@ -231,6 +295,12 @@ const en: EventsCopy = {
     endedLabel: 'Entries closed',
     pausedBanner: 'The platform is paused right now. Entries and new campaigns are on hold; claims and refunds are not affected.',
     byCreator: 'Campaign by',
+    identity: {
+      byBrand: 'by',
+      messageFrom: 'A message from',
+      creatorProof: 'Created on-chain by',
+      opensNewTab: 'opens in a new tab',
+    },
     freeToEnter: 'There is no entry fee. If you enter through our bridge, it pays the gas for you; if you enter with your own wallet, you pay the gas yourself. Whoever created this campaign deposited the prize into the contracts when they created it.',
     entriesLabel: 'Places taken',
     yourEntry: 'Your entry',
@@ -351,6 +421,51 @@ const en: EventsCopy = {
     success: 'Giveaway created.',
     viewEvent: 'View event',
   },
+  identity: {
+    stageTitle: 'Campaign identity',
+    intro: 'How participants will recognise your campaign: its name, your message to them, a banner and your brand. They appear on the campaign page, in the list, in every email and whenever the link is shared.',
+    laterHint: 'You can also add or change this later, from My giveaways.',
+    dashboardTitle: 'Campaign identity',
+    nameLabel: 'Campaign name',
+    nameHint: 'Up to {max} characters. No links.',
+    messageLabel: 'Your message to participants',
+    messageHint: 'Up to {max} characters. Shown next to the prize.',
+    brandLabel: 'Brand or creator name',
+    brandHint: 'Shown as “by …”. Up to {max} characters.',
+    linkLabel: 'Link',
+    linkHint: 'Your site or social profile. Must start with https://',
+    bannerLabel: 'Banner',
+    bannerHint: 'PNG, JPEG or WebP, up to {maxMb} MB, landscape, at least {minWidth}×{minHeight} px. 1200×630 fits link previews best.',
+    logoLabel: 'Brand logo',
+    logoHint: 'PNG, JPEG or WebP, up to {maxKb} KB. Square works best.',
+    optional: 'optional',
+    chooseImage: 'Choose image',
+    replaceImage: 'Replace',
+    removeImage: 'Remove',
+    signExplainer: 'Publishing asks your wallet for a signature. It is free and sends no transaction. Only the wallet that created the campaign can sign.',
+    publishCta: 'Sign and publish',
+    skipCta: 'Skip for now',
+    createdPrompt: 'Your campaign is live on-chain. Sign once more to publish its name, message and banner.',
+    addCta: 'Add campaign identity',
+    editCta: 'Edit campaign identity',
+    cancelCta: 'Cancel',
+    errors: {
+      name: 'Give the campaign a name of up to {max} characters, without links.',
+      message: 'Write a message of up to {max} characters and {lines} lines.',
+      brand: 'Add a brand or creator name of up to {max} characters, without links.',
+      link: 'Use a full https:// address, without a port or a password.',
+      bannerRequired: 'Add a banner.',
+      imageType: 'Use a PNG, JPEG or WebP image.',
+      imageTooLarge: 'This image is larger than allowed.',
+      imageDimensions: 'This image is outside the allowed size or shape.',
+      notCreator: 'Only the wallet that created this campaign can change its identity. Connect that wallet.',
+      expired: 'That signature can no longer be used. Sign again.',
+      rejected: 'The signature was cancelled in your wallet.',
+      stale: 'A newer identity was already published for this campaign. Reload to see it.',
+      tooMany: 'Too many attempts. Wait a minute and try again.',
+      generic: 'Something went wrong. Please try again.',
+    },
+  },
   dashboard: {
     metaTitle: 'My giveaways — Instant Win',
     title: 'My giveaways',
@@ -397,6 +512,7 @@ const pt: EventsCopy = {
       view: 'Ver evento',
       slotsLeft: 'lugares livres',
       full: 'Esgotado',
+      byBrand: 'de',
     },
     status: {
       OPEN: 'Aberto',
@@ -424,6 +540,12 @@ const pt: EventsCopy = {
     endedLabel: 'Entradas fechadas',
     pausedBanner: 'A plataforma está pausada neste momento. Entradas e novas campanhas estão suspensas; resgates e reembolsos não são afectados.',
     byCreator: 'Campanha de',
+    identity: {
+      byBrand: 'de',
+      messageFrom: 'Uma mensagem de',
+      creatorProof: 'Criada on-chain por',
+      opensNewTab: 'abre num novo separador',
+    },
     freeToEnter: 'Não há taxa de participação. Se participar através da nossa ponte, é ela que paga o gas; se participar com a sua própria carteira, paga o gas você mesmo. Quem criou esta campanha depositou o prémio nos contratos ao criá-la.',
     entriesLabel: 'Lugares ocupados',
     yourEntry: 'A sua participação',
@@ -544,6 +666,51 @@ const pt: EventsCopy = {
     success: 'Sorteio criado.',
     viewEvent: 'Ver evento',
   },
+  identity: {
+    stageTitle: 'Identidade da campanha',
+    intro: 'Como os participantes vão reconhecer a sua campanha: o nome, a sua mensagem para eles, um banner e a sua marca. Aparecem na página da campanha, na lista, em todos os emails e sempre que o link é partilhado.',
+    laterHint: 'Também pode acrescentar ou alterar isto mais tarde, em Os meus sorteios.',
+    dashboardTitle: 'Identidade da campanha',
+    nameLabel: 'Nome da campanha',
+    nameHint: 'Até {max} caracteres. Sem links.',
+    messageLabel: 'A sua mensagem aos participantes',
+    messageHint: 'Até {max} caracteres. Aparece junto do prémio.',
+    brandLabel: 'Nome da marca ou de quem cria',
+    brandHint: 'Aparece como «de …». Até {max} caracteres.',
+    linkLabel: 'Link',
+    linkHint: 'O seu site ou perfil numa rede social. Tem de começar por https://',
+    bannerLabel: 'Banner',
+    bannerHint: 'PNG, JPEG ou WebP, até {maxMb} MB, horizontal, com pelo menos {minWidth}×{minHeight} px. 1200×630 é o que melhor encaixa nas pré-visualizações de links.',
+    logoLabel: 'Logótipo da marca',
+    logoHint: 'PNG, JPEG ou WebP, até {maxKb} KB. Quadrado funciona melhor.',
+    optional: 'opcional',
+    chooseImage: 'Escolher imagem',
+    replaceImage: 'Substituir',
+    removeImage: 'Remover',
+    signExplainer: 'Publicar pede uma assinatura à sua carteira. É gratuito e não envia nenhuma transacção. Só a carteira que criou a campanha pode assinar.',
+    publishCta: 'Assinar e publicar',
+    skipCta: 'Agora não',
+    createdPrompt: 'A sua campanha já está on-chain. Assine mais uma vez para publicar o nome, a mensagem e o banner.',
+    addCta: 'Adicionar identidade da campanha',
+    editCta: 'Editar identidade da campanha',
+    cancelCta: 'Cancelar',
+    errors: {
+      name: 'Dê à campanha um nome com até {max} caracteres, sem links.',
+      message: 'Escreva uma mensagem com até {max} caracteres e {lines} linhas.',
+      brand: 'Indique o nome da marca ou de quem cria, com até {max} caracteres, sem links.',
+      link: 'Use um endereço https:// completo, sem porta nem palavra-passe.',
+      bannerRequired: 'Acrescente um banner.',
+      imageType: 'Use uma imagem PNG, JPEG ou WebP.',
+      imageTooLarge: 'Esta imagem é maior do que o permitido.',
+      imageDimensions: 'Esta imagem está fora do tamanho ou da proporção permitidos.',
+      notCreator: 'Só a carteira que criou esta campanha pode alterar a identidade. Ligue essa carteira.',
+      expired: 'Essa assinatura já não pode ser usada. Assine de novo.',
+      rejected: 'A assinatura foi cancelada na sua carteira.',
+      stale: 'Já foi publicada uma identidade mais recente para esta campanha. Recarregue para a ver.',
+      tooMany: 'Demasiadas tentativas. Aguarde um minuto e tente de novo.',
+      generic: 'Algo correu mal. Tente novamente.',
+    },
+  },
   dashboard: {
     metaTitle: 'Os meus sorteios — Instant Win',
     title: 'Os meus sorteios',
@@ -590,6 +757,7 @@ const es: EventsCopy = {
       view: 'Ver evento',
       slotsLeft: 'lugares libres',
       full: 'Completo',
+      byBrand: 'de',
     },
     status: {
       OPEN: 'Abierto',
@@ -617,6 +785,12 @@ const es: EventsCopy = {
     endedLabel: 'Entradas cerradas',
     pausedBanner: 'La plataforma está pausada en este momento. Las entradas y las campañas nuevas están suspendidas; los reclamos y reembolsos no se ven afectados.',
     byCreator: 'Campaña de',
+    identity: {
+      byBrand: 'de',
+      messageFrom: 'Un mensaje de',
+      creatorProof: 'Creada on-chain por',
+      opensNewTab: 'se abre en una pestaña nueva',
+    },
     freeToEnter: 'No hay tarifa de participación. Si participas a través de nuestro puente, él paga el gas por ti; si participas con tu propia wallet, pagas el gas tú. Quien creó esta campaña depositó el premio en los contratos al crearla.',
     entriesLabel: 'Lugares ocupados',
     yourEntry: 'Tu participación',
@@ -736,6 +910,51 @@ const es: EventsCopy = {
     submitting: 'Creando…',
     success: 'Sorteo creado.',
     viewEvent: 'Ver evento',
+  },
+  identity: {
+    stageTitle: 'Identidad de la campaña',
+    intro: 'Cómo reconocerán tu campaña los participantes: el nombre, tu mensaje para ellos, un banner y tu marca. Aparecen en la página de la campaña, en la lista, en cada correo y siempre que se comparte el enlace.',
+    laterHint: 'También puedes añadirla o cambiarla más tarde, desde Mis sorteos.',
+    dashboardTitle: 'Identidad de la campaña',
+    nameLabel: 'Nombre de la campaña',
+    nameHint: 'Hasta {max} caracteres. Sin enlaces.',
+    messageLabel: 'Tu mensaje para los participantes',
+    messageHint: 'Hasta {max} caracteres. Se muestra junto al premio.',
+    brandLabel: 'Nombre de la marca o de quien crea',
+    brandHint: 'Se muestra como «de …». Hasta {max} caracteres.',
+    linkLabel: 'Enlace',
+    linkHint: 'Tu sitio o tu perfil en una red social. Debe empezar por https://',
+    bannerLabel: 'Banner',
+    bannerHint: 'PNG, JPEG o WebP, hasta {maxMb} MB, horizontal, de al menos {minWidth}×{minHeight} px. 1200×630 es lo que mejor encaja en las vistas previas de enlaces.',
+    logoLabel: 'Logo de la marca',
+    logoHint: 'PNG, JPEG o WebP, hasta {maxKb} KB. Cuadrado funciona mejor.',
+    optional: 'opcional',
+    chooseImage: 'Elegir imagen',
+    replaceImage: 'Reemplazar',
+    removeImage: 'Quitar',
+    signExplainer: 'Publicar pide una firma a tu wallet. Es gratis y no envía ninguna transacción. Solo la wallet que creó la campaña puede firmar.',
+    publishCta: 'Firmar y publicar',
+    skipCta: 'Ahora no',
+    createdPrompt: 'Tu campaña ya está on-chain. Firma una vez más para publicar el nombre, el mensaje y el banner.',
+    addCta: 'Añadir identidad de la campaña',
+    editCta: 'Editar identidad de la campaña',
+    cancelCta: 'Cancelar',
+    errors: {
+      name: 'Ponle a la campaña un nombre de hasta {max} caracteres, sin enlaces.',
+      message: 'Escribe un mensaje de hasta {max} caracteres y {lines} líneas.',
+      brand: 'Indica el nombre de la marca o de quien crea, de hasta {max} caracteres, sin enlaces.',
+      link: 'Usa una dirección https:// completa, sin puerto ni contraseña.',
+      bannerRequired: 'Añade un banner.',
+      imageType: 'Usa una imagen PNG, JPEG o WebP.',
+      imageTooLarge: 'Esta imagen supera el tamaño permitido.',
+      imageDimensions: 'Esta imagen está fuera del tamaño o de la proporción permitidos.',
+      notCreator: 'Solo la wallet que creó esta campaña puede cambiar su identidad. Conecta esa wallet.',
+      expired: 'Esa firma ya no se puede usar. Firma de nuevo.',
+      rejected: 'La firma se canceló en tu wallet.',
+      stale: 'Ya se publicó una identidad más reciente para esta campaña. Recarga para verla.',
+      tooMany: 'Demasiados intentos. Espera un minuto y vuelve a intentarlo.',
+      generic: 'Algo salió mal. Inténtalo de nuevo.',
+    },
   },
   dashboard: {
     metaTitle: 'Mis sorteos — Instant Win',

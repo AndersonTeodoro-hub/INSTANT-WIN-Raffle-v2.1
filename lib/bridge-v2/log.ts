@@ -60,6 +60,10 @@ export type OpsKind =
   | 'outcome.failed'
   // 07/09/2026 decision: a creator without a wallet, creator/campaign/submit.ts.
   | 'creator_campaign.confirmed'
+  // SPEC-BRIDGE-V2 §17: an identity write the route refused (not the creator,
+  // an image outside its limits) or could not store. The reason, never the text.
+  | 'identity.refused'
+  | 'identity.failed'
   | 'creator_campaign.failed'
   | 'alert';
 
