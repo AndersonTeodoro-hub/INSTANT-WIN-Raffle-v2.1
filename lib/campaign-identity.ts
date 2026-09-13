@@ -70,19 +70,24 @@ export function imageObjectPath(giveawayId: string, slot: ImageSlot, sha256: str
 // ---------------------------------------------------------------------------
 
 /**
- * L4: every control (Cc) and format (Cf) character, the variation selectors, the
- * whole tag block (U+E0000 to U+E007F, assigned or not), and the characters that
- * render as nothing without being either: the combining grapheme joiner, the
- * Hangul and Khmer fillers and the blank Braille pattern.
+ * L4: every control (Cc) and format (Cf) character, every
+ * Default_Ignorable_Code_Point, and the blank Braille pattern.
+ *
+ * Default_Ignorable_Code_Point is the Unicode property a renderer uses to draw a
+ * character as nothing, and it covers code points not assigned yet (U+2065,
+ * U+FFF0 to U+FFF8, the rest of the tag and variation-selector planes), which a
+ * browser already gives zero width. Listing categories let those through. The
+ * property also contains the variation selectors, the combining grapheme joiner,
+ * the Hangul and Khmer fillers and the tag block. U+2800 renders blank without
+ * being default-ignorable, so it is named.
  *
  * The name and the brand are printed into the subject of an email sent from the
  * platform's own authenticated domain (L8) and into the preview title. A
  * right-to-left override there can make a sentence read as something it does not
- * say, and an invisible character can make two different names look identical.
- * A list of the ones somebody thought of is what let the rest through.
+ * say, and an invisible character can make two different names look identical,
+ * or split a "www." the link filter below would otherwise refuse.
  */
-const INVISIBLE =
-  /[\p{Cc}\p{Cf}\p{Variation_Selector}\u{34F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{2800}\u{3164}\u{FFA0}\u{E0000}-\u{E007F}]/u;
+const INVISIBLE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u{2800}]/u;
 
 /**
  * L8: no link inside a name or a brand. Those two strings reach an email subject,

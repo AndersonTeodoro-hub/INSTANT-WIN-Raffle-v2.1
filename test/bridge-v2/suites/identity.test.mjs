@@ -304,6 +304,9 @@ await test(['L4', 'L8'], 'no control, format or invisible character survives int
   // tag characters ("Acme" and "Acme" + TAG LATIN CAPITAL A print the same), the
   // musical symbol format controls, the combining grapheme joiner, the Hangul
   // and Khmer fillers, the variation selectors and the blank Braille pattern.
+  // Then the ones the re-audit of 2e7712c found: default-ignorable code points
+  // not assigned yet, which a browser draws with zero width — U+2065 had even
+  // been refused in a1a403b.
   const listed = [
     0x061c, 0x180e, 0xfff9, 0xfffa, 0xfffb,
     0xe0000, 0xe0001, 0xe0020, 0xe0041, 0xe007f,
@@ -311,6 +314,7 @@ await test(['L4', 'L8'], 'no control, format or invisible character survives int
     0x034f, 0x115f, 0x1160, 0x3164, 0xffa0, 0x17b4, 0x17b5,
     0x180b, 0x180f, 0xfe00, 0xfe0f, 0xe0100, 0xe01ef,
     0x2800,
+    0x2065, 0xfff0, 0xfff8, 0xe0080, 0xe00ff, 0xe01f0, 0xe0fff,
   ];
   for (const codePoint of listed) {
     for (const field of ['name', 'brand', 'message']) {
@@ -319,17 +323,29 @@ await test(['L4', 'L8'], 'no control, format or invisible character survives int
     }
   }
 
-  // And every Cc and Cf code point in the code space, plus the whole tag block,
-  // in the middle of a word: refused, or removed by the whitespace normalisation
-  // (a tab, a line break), but never stored. A line break is the one character a
-  // message is allowed to keep.
+  // An invisible character inside "www." or "https://" must not carry a link past
+  // the filter: the two sentences the re-audit wrote, refused in a1a403b, accepted
+  // in 2e7712c.
+  const hidden = String.fromCodePoint(0x2065);
+  for (const sentence of [`Verify at www${hidden}.example.com`, `Verify at https:${hidden}//example.com`]) {
+    for (const field of ['name', 'brand']) {
+      const result = checkText({ ...TEXT, [field]: sentence });
+      assert.equal(result.ok ? 'ok' : result.field, field, `a link split by U+2065 was accepted in the ${field}`);
+    }
+  }
+
+  // And every Cc, Cf and Default_Ignorable_Code_Point in the code space — which
+  // includes the whole tag block and the unassigned ones — in the middle of a
+  // word: refused, or removed by the whitespace normalisation (a tab, a line
+  // break), but never stored. A line break is the one character a message is
+  // allowed to keep.
   const swept = [];
   for (let codePoint = 0; codePoint <= 0x10ffff; codePoint += 1) {
     if (codePoint >= 0xd800 && codePoint <= 0xdfff) continue;
     const character = String.fromCodePoint(codePoint);
-    if (/[\p{Cc}\p{Cf}]/u.test(character) || (codePoint >= 0xe0000 && codePoint <= 0xe007f)) swept.push(codePoint);
+    if (/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(character)) swept.push(codePoint);
   }
-  assert.ok(swept.length > 150, `only ${swept.length} code points were swept`);
+  assert.ok(swept.length > 4000, `only ${swept.length} code points were swept`);
   const leaks = [];
   for (const codePoint of swept) {
     const character = String.fromCodePoint(codePoint);
