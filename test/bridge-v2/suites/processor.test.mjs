@@ -1241,6 +1241,27 @@ await test(['D7'], 'a settled campaign tells the winner what they won', async ()
   );
 });
 
+await test(['D7'], 'both notices link to the product domain, instntwin.com, and to no other', async () => {
+  fresh();
+  settledCampaign([
+    outcomeRow(),
+    outcomeRow({
+      id: 'entry-2',
+      wallet_address: LOSER,
+      participant: { email_canonical: 'loser@example.com' },
+    }),
+  ]);
+
+  await notifySettlements(recordingLogger(), deadline());
+
+  const sent = mails();
+  assert.equal(sent.length, 2, 'the winner and the loser were not both told');
+  for (const mail of sent) {
+    assert.match(mail.text, /https:\/\/instntwin\.com\/events\/1\n/, `${mail.to} is not sent to instntwin.com`);
+    assert.ok(!/instantwin\.finance/.test(mail.text), `${mail.to} is still sent to instantwin.finance`);
+  }
+});
+
 await test(['D7'], 'and tells the loser, without offering them anything', async () => {
   fresh();
   settledCampaign([

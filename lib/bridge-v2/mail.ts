@@ -121,8 +121,12 @@ export async function sendCodeEmail(
  * this value as its fallback and nothing in the tree ever set it. constants.ts
  * is not imported instead — that is client code, it reads import.meta.env, and
  * this module runs in the function that holds the derivation seed (K2).
+ *
+ * The product domain is instntwin.com — the one constants.ts, index.html and
+ * api/og/event.ts use. instantwin.finance is not this product's domain, and a
+ * winner sent there was sent nowhere.
  */
-const PUBLIC_BASE = 'https://instantwin.finance';
+const PUBLIC_BASE = 'https://instntwin.com';
 
 /** What the notice needs to say, assembled by the caller that read the chain. */
 export interface SettlementNotice {
