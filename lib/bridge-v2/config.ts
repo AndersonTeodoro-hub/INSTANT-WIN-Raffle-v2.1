@@ -45,6 +45,14 @@ export const CONTRACT_MAX_WINNERS = 1_000;
 export const CONTRACT_MIN_PARTICIPANTS = 10;
 export const CONTRACT_MAX_PARTICIPANTS = 100_000;
 
+/**
+ * §18 M1: GiveawayManagerV2.DRAW_TIMEOUT and RESCUE_WINDOW (GiveawayManagerV2.sol
+ * :98, :109). Constants of the deployed contract with no setter; contracts.test.mjs
+ * reads both back from Arbitrum One, so a copy that drifts fails the suite.
+ */
+export const CONTRACT_DRAW_TIMEOUT_SECONDS = 24 * 60 * 60;
+export const CONTRACT_RESCUE_WINDOW_SECONDS = 24 * 60 * 60;
+
 /** Public endpoint used when ARBITRUM_RPC_URL is unset. */
 export const DEFAULT_RPC_URL = 'https://arb1.arbitrum.io/rpc' as const;
 
@@ -320,6 +328,12 @@ export const PHASE_RESERVATION_MS = {
   publishRoots: RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS,
   /** One entry: fund, wait, submit, wait. */
   processEntries: ENTRY_WORST_CASE_MS,
+  /**
+   * §18: one lifecycle transition — the head read, one page of campaigns, the
+   * keeper account, the quote, the broadcast, and a receipt wait. Before the
+   * prizes, because a settled campaign is the prize stage's input.
+   */
+  advanceLifecycle: RECEIPT_TIMEOUT_MS + 5 * RPC_TIMEOUT_MS,
   /** One prize: a claim and a delivery, each funded and each awaited. */
   processPrizes: PRIZE_WORST_CASE_MS,
 } as const;
@@ -335,8 +349,8 @@ export type PipelinePhase = keyof typeof PHASE_RESERVATION_MS;
  * NOT a pipeline phase of its own. It runs inside processEligibleEntries,
  * under the processEntries reservation, which is far larger per item (a
  * funding transfer and a submission, each awaited) than this ever costs — so
- * borrowing that budget cannot starve it. A sixth phase would have meant a
- * sixth name in the rotation the G4 tests fix at five; this keeps the
+ * borrowing that budget cannot starve it. A seventh phase would have meant a
+ * seventh name in the rotation the G4 tests fix at six; this keeps the
  * rotation exactly as it is while still reconciling these entries every run.
  */
 export const SELF_CUSTODY_RECONCILE_MS = 2 * RPC_TIMEOUT_MS;
@@ -346,8 +360,8 @@ export const SELF_CUSTODY_RECONCILE_MS = 2 * RPC_TIMEOUT_MS;
  * won, the one email, and the writes around them. It signs nothing and waits for
  * no receipt.
  *
- * NOT a pipeline phase, for the reason stated directly above: a sixth name in
- * the rotation changes the bound the G4 tests fix at five. It runs inside
+ * NOT a pipeline phase, for the reason stated directly above: a seventh name in
+ * the rotation changes the bound the G4 tests fix at six. It runs inside
  * processPrizes, the stage about campaigns that have settled — and after its
  * queue, because 240_000 + 52_000 does not fit in a 280_000 ms run and whichever
  * goes first takes the budget.
@@ -372,7 +386,7 @@ export const PIPELINE_PHASES = Object.keys(PHASE_RESERVATION_MS) as readonly Pip
  * than hoped for at the call site.
  *
  * A FIXED ORDER OVER A BUDGET SMALLER THAN THE SUM OF THE RESERVATIONS IS
- * STARVATION BY CONSTRUCTION. The five reservations add up to 460_000 ms against
+ * STARVATION BY CONSTRUCTION. The six reservations add up to 540_000 ms against
  * a 280_000 ms budget, and the largest of them, 240_000 ms for a prize, was
  * declared last. Under continuous load the four stages in front of it consume the
  * budget and the guard on the fifth is false every single time — the same outage
@@ -426,7 +440,8 @@ export const SWEEP_WORST_CASE_MS = 5 * RPC_TIMEOUT_MS;
  *
  * and every reservation, each strictly under the budget: 50_000 for a root
  * publication and for one SUBMITTED reconciliation, 20_000 for a FUNDING
- * reconciliation, 50_000 for a sweep, 100_000 for an entry, 240_000 for a prize.
+ * reconciliation, 50_000 for a sweep, 100_000 for an entry, 80_000 for a lifecycle
+ * transition, 240_000 for a prize.
  * The largest leaves 40_000 ms of margin.
  */
 const EVERY_RESERVATION_MS: Record<string, number> = {
@@ -504,6 +519,15 @@ export const GAS_BANDS = {
    * and a minimal ERC-20 is cheaper than USDC.
    */
   DELIVERY: { min: 25_000n, max: 500_000n },
+  /**
+   * §18 M7: the four lifecycle calls the keeper signs. The floor is the intrinsic
+   * cost, because expireDrawRequest writes two fields and nothing else. The ceiling
+   * sits above the largest finalizeWinners batch the contract suite measures,
+   * 4_119_922 execution gas for FINALIZE_STEPS winners, which MANAGER does not
+   * admit. Measured on Arbitrum One for campaign #2 (13/09/2026): closeGiveaway
+   * 46_598, requestDraw 128_358, finalizeWinners with two winners 196_781.
+   */
+  LIFECYCLE: { min: 21_000n, max: 6_000_000n },
 } as const;
 
 export type GasBand = (typeof GAS_BANDS)[keyof typeof GAS_BANDS];
@@ -511,6 +535,38 @@ export type GasBand = (typeof GAS_BANDS)[keyof typeof GAS_BANDS];
 /** Margin over the estimate, so a price move between estimate and send does not strand the entry. */
 export const GAS_MARGIN_NUMERATOR = 150n;
 export const GAS_MARGIN_DENOMINATOR = 100n;
+
+/**
+ * §18 M7: the keeper's ceiling per transaction, in wei.
+ *
+ * MAX_GAS_COST_WEI is sized for an entry. A full finalizeWinners batch reaches it
+ * at an ordinary fee — 4_119_922 × 1.5 × 0.024 gwei is already 1.48e14 of its
+ * 2e14 — and past 0.032 gwei every batch would be refused. This admits the same
+ * batch up to about 0.16 gwei, eight times the fee of 15/09/2026. Above it the
+ * transition is deferred and alerted on every run, never sent and never silent.
+ */
+export const LIFECYCLE_MAX_GAS_COST_WEI = 10n ** 15n;
+
+/**
+ * §18 M6: the gas each kind of transition is counted at when the keeper's balance
+ * is compared with what it still has to send. The measured cost with the gas
+ * margin, rounded up, and finalizeWinners at a full batch — generous on purpose,
+ * because this number decides when an alert arrives, and early is the safe side.
+ * expireDrawRequest has no measurement and writes two fields; 100_000 is three
+ * times what that costs.
+ */
+export const LIFECYCLE_GAS_RESERVE = {
+  closeGiveaway: 200_000n,
+  requestDraw: 250_000n,
+  expireDrawRequest: 100_000n,
+  finalizeWinners: 6_200_000n,
+} as const;
+
+/** The four transitions, named by the function the keeper calls. */
+export type LifecycleAction = keyof typeof LIFECYCLE_GAS_RESERVE;
+
+/** §18 M1: campaigns per multicall page, two reads each. */
+export const LIFECYCLE_SCAN_PAGE = 100;
 
 // -----------------------------------------------------------------------------
 // H8 — the alert thresholds

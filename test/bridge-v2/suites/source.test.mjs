@@ -271,7 +271,7 @@ await test(['F1'], 'each root is read by the module whose job it is, and by no o
   for (const path of ALL_FILES) {
     if (shortName(path) === 'lib/bridge-v2/env.ts') continue;
     for (const [, name] of codeOnly(read(path)).matchAll(/'(BRIDGE_V2_[A-Z_]+)'/g)) {
-      if (!/HMAC_KEY|SEED|FUNDER_KEYS|ROLE_KEY/.test(name)) continue;
+      if (!/HMAC_KEY|SEED|FUNDER_KEYS|ROLE_KEY|KEEPER_KEY/.test(name)) continue;
       readers.set(name, [...(readers.get(name) ?? []), shortName(path)]);
     }
   }
@@ -279,6 +279,7 @@ await test(['F1'], 'each root is read by the module whose job it is, and by no o
     BRIDGE_V2_WALLET_SEED: ['lib/bridge-v2/wallet.ts'],
     BRIDGE_V2_FUNDER_KEYS: ['lib/bridge-v2/funders.ts'],
     BRIDGE_V2_ROLE_KEY: ['lib/bridge-v2/chain.ts'],
+    BRIDGE_V2_KEEPER_KEY: ['lib/bridge-v2/chain.ts'],
     BRIDGE_V2_CODE_HMAC_KEY: ['lib/bridge-v2/codes.ts', 'lib/bridge-v2/linkcodes.ts'],
     BRIDGE_V2_PHONE_HMAC_KEY: ['lib/bridge-v2/phone.ts'],
     BRIDGE_V2_SESSION_HMAC_KEY: ['lib/bridge-v2/session.ts'],
@@ -391,12 +392,17 @@ await test(['H1'], 'every functionName the bridge signs is a literal', () => {
       `${shortName(path)} computes a function name`,
     );
   }
+  const lifecycle = ['closeGiveaway', 'requestDraw', 'expireDrawRequest', 'finalizeWinners'];
   const mutating = [...signed].filter((name) =>
-    ['enter', 'addEligibilityRoot', 'claimPrize', 'transfer', 'safeTransferFrom'].includes(name),
+    ['enter', 'addEligibilityRoot', 'claimPrize', 'transfer', 'safeTransferFrom', ...lifecycle]
+      .includes(name),
   );
   assert.deepEqual(
     mutating.sort(),
-    ['addEligibilityRoot', 'claimPrize', 'enter', 'safeTransferFrom', 'transfer'],
+    [
+      'addEligibilityRoot', 'claimPrize', 'closeGiveaway', 'enter', 'expireDrawRequest',
+      'finalizeWinners', 'requestDraw', 'safeTransferFrom', 'transfer',
+    ],
   );
 });
 
@@ -688,7 +694,38 @@ await test(['F5'], 'each root is one variable, read at use, so rotation is a dep
     'BRIDGE_V2_SIGNAL_HMAC_KEY',
     'BRIDGE_V2_FUNDER_KEYS',
     'BRIDGE_V2_ROLE_KEY',
+    'BRIDGE_V2_KEEPER_KEY',
   ]) {
     assert.ok(env.includes(`'${name}'`), `${name} is not a variable of its own`);
+  }
+});
+
+await test(['M2', 'F1'], 'the keeper key signs only the four lifecycle calls, and no other signer reaches them', () => {
+  const chain = codeOnly(read(`${root}lib/bridge-v2/chain.ts`));
+  const body = (name) => {
+    const start = chain.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `${name} is not in chain.ts`);
+    const next = chain.indexOf('\nexport ', start + 1);
+    return chain.slice(start, next === -1 ? undefined : next);
+  };
+
+  const send = body('sendLifecycleCall');
+  assert.match(send, /requireEnv\('BRIDGE_V2_KEEPER_KEY'\)/);
+  assert.match(send, /lifecycleCalldata\(action, giveawayId\)/);
+  assert.match(send, /GAS_BANDS\.LIFECYCLE,\s*LIFECYCLE_MAX_GAS_COST_WEI/);
+  assert.ok(!/ROLE_KEY|FUNDER_KEYS|WALLET_SEED/.test(send), 'the keeper signs with another root');
+
+  assert.deepEqual(
+    [...body('lifecycleCalldata').matchAll(/functionName:\s*'([^']+)'/g)].map(([, name]) => name).sort(),
+    ['closeGiveaway', 'expireDrawRequest', 'finalizeWinners', 'requestDraw'],
+  );
+  for (const name of ['publishEligibilityRoot', 'submitAsDerived', 'fundDerivedWallet', 'sweepRemainder']) {
+    assert.ok(!/KEEPER_KEY|GIVEAWAY_LIFECYCLE_ABI|lifecycleCalldata/.test(body(name)), `${name} reaches the keeper`);
+  }
+
+  // The phase itself holds no key: it asks chain.ts to sign and nothing else does.
+  const lifecycle = codeOnly(read(`${root}lib/bridge-v2/lifecycle.ts`));
+  for (const module of ['wallet.js', 'funders.js', 'env.js']) {
+    assert.ok(!lifecycle.includes(module), `lifecycle.ts imports ${module}`);
   }
 });

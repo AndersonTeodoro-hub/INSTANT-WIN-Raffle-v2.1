@@ -694,10 +694,12 @@ await test(['K8'], 'the cron secret is required configuration, not an optional o
 });
 
 await test(['F1'], 'the roots are separate variables, one per function', () => {
-  const roots = env.REQUIRED_ENV.filter((name) => /SEED|HMAC_KEY|FUNDER_KEYS|ROLE_KEY/.test(name));
+  const roots = env.REQUIRED_ENV.filter((name) =>
+    /SEED|HMAC_KEY|FUNDER_KEYS|ROLE_KEY|KEEPER_KEY/.test(name));
   assert.deepEqual([...roots].sort(), [
     'BRIDGE_V2_CODE_HMAC_KEY',
     'BRIDGE_V2_FUNDER_KEYS',
+    'BRIDGE_V2_KEEPER_KEY',
     'BRIDGE_V2_PHONE_HMAC_KEY',
     'BRIDGE_V2_ROLE_KEY',
     'BRIDGE_V2_SESSION_HMAC_KEY',
@@ -878,6 +880,16 @@ await test(['H1'], 'the manager ABI carries exactly three state-changing functio
   assert.deepEqual([...mutable].sort(), ['addEligibilityRoot', 'claimPrize', 'enter']);
 });
 
+await test(['H1', 'M2'], 'the lifecycle ABI carries exactly the four transitions and nothing else that writes', () => {
+  const mutable = abi.GIVEAWAY_LIFECYCLE_ABI
+    .filter((item) => item.type === 'function' && item.stateMutability !== 'view')
+    .map((item) => item.name);
+  assert.deepEqual(
+    [...mutable].sort(),
+    ['closeGiveaway', 'expireDrawRequest', 'finalizeWinners', 'requestDraw'],
+  );
+});
+
 await test(['H1'], 'no ABI in the bridge can approve or move a third party balance', () => {
   const mutableOf = (list) =>
     list
@@ -985,6 +997,44 @@ await test(['H3'], 'the margin is applied to the limit and carried into the wors
   assert.equal(plan.worstCaseWei, plan.gasLimit * 1_000n);
   assert.equal(plan.maxPriorityFeePerGas, 500n);
   assert.ok(plan.worstCaseWei <= config.MAX_GAS_COST_WEI);
+});
+
+// §18 M7: the largest finalizeWinners batch measured by `forge test --gas-report`
+// over the V2 suites (94 tests), and the three transitions of campaign #2 as mined
+// on Arbitrum One on 13/09/2026.
+const FULL_BATCH_GAS = 4_119_922n;
+const MEASURED_ON_CHAIN = { closeGiveaway: 46_598n, requestDraw: 128_358n, finalizeWinners: 196_781n };
+
+await test(['M7', 'H3'], 'a full finalize batch fits the keeper ceiling at a fee the entry ceiling refuses', () => {
+  const band = config.GAS_BANDS.LIFECYCLE;
+  const twiceToday = 40_000_000n; // 0.04 gwei; 0.020 gwei on 15/09/2026
+  assert.throws(() => planGas(FULL_BATCH_GAS, twiceToday, 0n, band), /gas_cost_above_ceiling/);
+  const plan = planGas(FULL_BATCH_GAS, twiceToday, 0n, band, config.LIFECYCLE_MAX_GAS_COST_WEI);
+  assert.ok(plan.worstCaseWei <= config.LIFECYCLE_MAX_GAS_COST_WEI);
+});
+
+await test(['M7'], 'past its own ceiling the keeper refuses too, so a price spike defers instead of spending', () => {
+  assert.throws(
+    () => planGas(FULL_BATCH_GAS, 200_000_000n, 0n, config.GAS_BANDS.LIFECYCLE, config.LIFECYCLE_MAX_GAS_COST_WEI),
+    /gas_cost_above_ceiling/,
+  );
+});
+
+await test(['M7', 'H4'], 'the lifecycle band admits every transition measured, and the manager band does not', () => {
+  const band = config.GAS_BANDS.LIFECYCLE;
+  for (const measured of [...Object.values(MEASURED_ON_CHAIN), FULL_BATCH_GAS]) {
+    assert.ok(measured >= band.min && measured <= band.max, `${measured} is outside the band`);
+  }
+  assert.ok(config.GAS_BANDS.MANAGER.max < FULL_BATCH_GAS, 'the manager band admits a full batch');
+});
+
+await test(['M6'], 'every lifecycle reserve covers what that transition was measured at, with the margin', () => {
+  const margin = (gas) => (gas * config.GAS_MARGIN_NUMERATOR) / config.GAS_MARGIN_DENOMINATOR;
+  const reserve = config.LIFECYCLE_GAS_RESERVE;
+  assert.ok(reserve.closeGiveaway >= margin(MEASURED_ON_CHAIN.closeGiveaway));
+  assert.ok(reserve.requestDraw >= margin(MEASURED_ON_CHAIN.requestDraw));
+  assert.ok(reserve.finalizeWinners >= margin(FULL_BATCH_GAS));
+  assert.ok(reserve.expireDrawRequest >= config.GAS_BANDS.LIFECYCLE.min);
 });
 
 await test(['K5'], 'a revert is decoded to the name the contract raised', () => {

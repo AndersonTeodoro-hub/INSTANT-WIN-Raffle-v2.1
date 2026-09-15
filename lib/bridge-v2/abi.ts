@@ -535,6 +535,74 @@ export const GIVEAWAY_MANAGER_V2_ABI = [
 ] as const;
 
 /**
+ * SPEC-BRIDGE-V2 §18: the four lifecycle transitions the keeper signs, the views
+ * that bound its scan and its clocks, and the refusals it reads back by name.
+ * EXTRACTED from the same artifact as the ABI above.
+ *
+ * A constant of its own, as CREATOR_CAMPAIGN_MANAGER_ABI is: a separate key signs
+ * these (BRIDGE_V2_KEEPER_KEY), and GIVEAWAY_MANAGER_V2_ABI stays the entry and
+ * prize surface its tests hold at three state-changing functions. getGiveaway,
+ * effectiveEndTime and paused are read through that ABI and are not repeated here.
+ */
+export const GIVEAWAY_LIFECYCLE_ABI = [
+  {
+    "type": "function",
+    "name": "closeGiveaway",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "requestDraw",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "expireDrawRequest",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "finalizeWinners",
+    "inputs": [{ "name": "giveawayId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "lastGiveawayId",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "DRAW_TIMEOUT",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "RESCUE_WINDOW",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  { "type": "error", "name": "NotDue", "inputs": [] },
+  { "type": "error", "name": "NotClosed", "inputs": [] },
+  { "type": "error", "name": "NotDrawRequested", "inputs": [] },
+  { "type": "error", "name": "NotSeedReceived", "inputs": [] },
+  { "type": "error", "name": "TimeoutNotReached", "inputs": [] },
+  { "type": "error", "name": "RequestIdCollision", "inputs": [] }
+] as const;
+
+/**
  * createGiveaway() and its views, kept OUT of GIVEAWAY_MANAGER_V2_ABI on
  * purpose. H1's own tests assert that ABI carries exactly three
  * state-changing functions (enter, addEligibilityRoot, claimPrize) — the
@@ -987,6 +1055,8 @@ export const ERC1155_RECEIVER_INTERFACE_ID = '0x4e2312e0' as const;
  */
 const REVERT_ABIS = [
   GIVEAWAY_MANAGER_V2_ABI,
+  // §18: NotDue, NotClosed and the rest of the lifecycle refusals.
+  GIVEAWAY_LIFECYCLE_ABI,
   ERC20_ABI,
   ERC721_ABI,
   ERC1155_ABI,

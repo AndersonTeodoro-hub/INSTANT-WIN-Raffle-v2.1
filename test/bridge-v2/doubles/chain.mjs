@@ -82,6 +82,13 @@ const DEFAULTS = () => ({
   // wallet accepts anything unless a test says so.
   giveawayCreator: null,
   isValidContractSignature: false,
+  // SPEC-BRIDGE-V2 §18 — the keeper. No campaign exists unless a test says so,
+  // so a pipeline run in any other suite reaches the lifecycle phase and finds
+  // nothing to do.
+  lifecycleHead: { lastGiveawayId: 0n, now: BigInt(Math.floor(Date.now() / 1000)), paused: false },
+  readLifecyclePage: [],
+  keeperAccount: { balance: 10n ** 18n, latestNonce: 0, pendingNonce: 0, maxFeePerGas: 100_000_000n },
+  sendLifecycleCall: '0x'.padEnd(66, '5'),
 });
 
 function plan(gasLimit) {
@@ -119,6 +126,11 @@ async function answer(name, args) {
   return resolved;
 }
 
+// SPEC-BRIDGE-V2 §18 — the keeper.
+export const lifecycleHead = (...args) => answer('lifecycleHead', args);
+export const readLifecyclePage = (...args) => answer('readLifecyclePage', args);
+export const keeperAccount = (...args) => answer('keeperAccount', args);
+export const sendLifecycleCall = (...args) => answer('sendLifecycleCall', args);
 export const readGiveaway = (...args) => answer('readGiveaway', args);
 export const slotsRemaining = (...args) => answer('slotsRemaining', args);
 export const hasEntered = (...args) => answer('hasEntered', args);

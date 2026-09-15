@@ -38,6 +38,7 @@ import {
   ERC20_ABI,
   ERC721_ABI,
   ERC721_PRIZE_MODULE_ABI,
+  GIVEAWAY_LIFECYCLE_ABI,
   GIVEAWAY_MANAGER_V2_ABI,
   VRF_COORDINATOR_V2_PLUS_ABI,
 } from '../../../lib/bridge-v2/abi.ts';
@@ -82,7 +83,8 @@ function signatureOf(entry) {
 
 await test(['H1'], 'every manager entry the bridge carries exists in the compiled artifact', () => {
   const deployed = new Map(artifactAbi('GiveawayManagerV2').map((e) => [signatureOf(e), e]));
-  for (const entry of GIVEAWAY_MANAGER_V2_ABI) {
+  // §18: the lifecycle ABI is extracted from the same artifact and held to it too.
+  for (const entry of [...GIVEAWAY_MANAGER_V2_ABI, ...GIVEAWAY_LIFECYCLE_ABI]) {
     const found = deployed.get(signatureOf(entry));
     assert.ok(found, `${signatureOf(entry)} is not in the deployed artifact`);
     if (entry.type !== 'function') continue;
@@ -131,7 +133,7 @@ await test(['K5'], 'every error the bridge decodes is an error the manager can r
       .filter((entry) => entry.type === 'error')
       .map(signatureOf),
   );
-  for (const entry of GIVEAWAY_MANAGER_V2_ABI.filter((item) => item.type === 'error')) {
+  for (const entry of [...GIVEAWAY_MANAGER_V2_ABI, ...GIVEAWAY_LIFECYCLE_ABI].filter((item) => item.type === 'error')) {
     assert.ok(deployed.has(signatureOf(entry)), `${entry.name} is not an error of this contract`);
   }
 });
@@ -221,6 +223,25 @@ await test(['H1'], 'every selector matches the one the deployed artifact defines
       `${name}(${entry.inputs.map((input) => input.type).join(',')})`,
     );
     assert.equal(SIGNED_SHAPES[name].data.slice(0, 10), expected, `${name} has the wrong selector`);
+  }
+});
+
+await test(['H1', 'M2'], 'the four keeper calls carry the selectors the deployed artifact defines', () => {
+  const artifact = artifactAbi('GiveawayManagerV2');
+  // Read with cast sig against the deployed contract on 15/09/2026; pinned so an
+  // artifact rebuilt from other source cannot move them silently.
+  const PINNED = {
+    closeGiveaway: '0xc593a411',
+    requestDraw: '0xd49e2f51',
+    finalizeWinners: '0x36d152a8',
+    expireDrawRequest: '0xe5ae3356',
+  };
+  for (const [name, pinned] of Object.entries(PINNED)) {
+    const entry = artifact.find((item) => item.type === 'function' && item.name === name);
+    const expected = toFunctionSelector(`${name}(${entry.inputs.map((input) => input.type).join(',')})`);
+    const data = encodeFunctionData({ abi: GIVEAWAY_LIFECYCLE_ABI, functionName: name, args: [1n] });
+    assert.equal(data.slice(0, 10), expected, `${name} has the wrong selector`);
+    assert.equal(expected, pinned, `${name} is not the selector of the deployed contract`);
   }
 });
 
@@ -475,5 +496,53 @@ if (reachable) {
       config.GAS_BANDS.MANAGER,
     );
     assert.ok(plan.worstCaseWei <= config.MAX_GAS_COST_WEI);
+  });
+
+  await test(['M1'], 'the draw timeout and rescue window the keeper decides by are the deployed ones', async () => {
+    const lifecycle = (functionName) =>
+      client.readContract({ address: MANAGER, abi: GIVEAWAY_LIFECYCLE_ABI, functionName, args: [] });
+    const [drawTimeout, rescueWindow] = await Promise.all([lifecycle('DRAW_TIMEOUT'), lifecycle('RESCUE_WINDOW')]);
+    assert.equal(drawTimeout, BigInt(config.CONTRACT_DRAW_TIMEOUT_SECONDS));
+    assert.equal(rescueWindow, BigInt(config.CONTRACT_RESCUE_WINDOW_SECONDS));
+  });
+
+  await test(['M1'], 'every campaign decodes through one multicall page, as the keeper reads it', async () => {
+    const last = await client.readContract({
+      address: MANAGER,
+      abi: GIVEAWAY_LIFECYCLE_ABI,
+      functionName: 'lastGiveawayId',
+      args: [],
+    });
+    assert.ok(last >= 1n, 'the deployed contract reports no campaign at all');
+    const to = last < BigInt(config.LIFECYCLE_SCAN_PAGE) ? last : BigInt(config.LIFECYCLE_SCAN_PAGE);
+    const ids = Array.from({ length: Number(to) }, (_, index) => BigInt(index + 1));
+    // The same page shape lib/bridge-v2/chain.ts readLifecyclePage sends.
+    const results = await client.multicall({
+      allowFailure: false,
+      contracts: ids.flatMap((id) => [
+        { address: MANAGER, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'getGiveaway', args: [id] },
+        { address: MANAGER, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'effectiveEndTime', args: [id] },
+      ]),
+    });
+    assert.equal(results.length, ids.length * 2);
+    for (let index = 0; index < ids.length; index += 1) {
+      const campaign = results[2 * index];
+      assert.ok(Number(campaign.status) >= 1 && Number(campaign.status) <= 6, `#${ids[index]} status`);
+      assert.equal(typeof campaign.closedAt, 'bigint');
+      assert.equal(typeof campaign.drawRequestedAt, 'bigint');
+      assert.equal(typeof results[2 * index + 1], 'bigint');
+    }
+  });
+
+  await test(['M7', 'H3'], 'at the real fee, a full finalize batch plans under the keeper ceiling', async () => {
+    const fees = await client.estimateFeesPerGas();
+    const plan = planGas(
+      4_119_922n,
+      fees.maxFeePerGas,
+      fees.maxPriorityFeePerGas ?? 0n,
+      config.GAS_BANDS.LIFECYCLE,
+      config.LIFECYCLE_MAX_GAS_COST_WEI,
+    );
+    assert.ok(plan.worstCaseWei <= config.LIFECYCLE_MAX_GAS_COST_WEI);
   });
 }

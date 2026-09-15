@@ -58,6 +58,7 @@ import {
   ERC20_ABI,
   ERC721_ABI,
   ERC721_PRIZE_MODULE_ABI,
+  GIVEAWAY_LIFECYCLE_ABI,
   GIVEAWAY_MANAGER_V2_ABI,
   GiveawayStatus,
   PRIZE_MODULE_KIND_ABI,
@@ -71,10 +72,12 @@ import {
   GAS_MARGIN_DENOMINATOR,
   GAS_MARGIN_NUMERATOR,
   GIVEAWAY_MANAGER_V2,
+  LIFECYCLE_MAX_GAS_COST_WEI,
   MAX_GAS_COST_WEI,
   RECEIPT_TIMEOUT_MS,
   RPC_TIMEOUT_MS,
   type GasBand,
+  type LifecycleAction,
 } from './config.js';
 import { optionalEnv, requireEnv } from './env.js';
 
@@ -324,6 +327,8 @@ export function planGas(
   maxFeePerGas: bigint,
   priorityFee: bigint,
   band: GasBand,
+  // §18 M7: the keeper passes its own ceiling; every other signer keeps H3's.
+  ceilingWei: bigint = MAX_GAS_COST_WEI,
 ): GasPlan {
   if (estimatedGas < band.min || estimatedGas > band.max) {
     throw new ChainError('gas_estimate_out_of_band');
@@ -332,7 +337,7 @@ export function planGas(
   const gasLimit = (estimatedGas * GAS_MARGIN_NUMERATOR) / GAS_MARGIN_DENOMINATOR;
   const worstCaseWei = gasLimit * maxFeePerGas;
 
-  if (worstCaseWei > MAX_GAS_COST_WEI) {
+  if (worstCaseWei > ceilingWei) {
     throw new ChainError('gas_cost_above_ceiling');
   }
 
@@ -562,6 +567,182 @@ export async function publishEligibilityRoot(giveawayId: bigint, root: Hex): Pro
   ]);
 
   const plan = planGas(estimate, fees.maxFeePerGas, fees.maxPriorityFeePerGas, GAS_BANDS.MANAGER);
+
+  const transaction: TransactionSerializable = {
+    chainId: CHAIN_ID,
+    type: 'eip1559',
+    to: GIVEAWAY_MANAGER_V2,
+    data,
+    nonce,
+    gas: plan.gasLimit,
+    maxFeePerGas: plan.maxFeePerGas,
+    maxPriorityFeePerGas: plan.maxPriorityFeePerGas,
+  };
+
+  return broadcast(await account.signTransaction(transaction));
+}
+
+// -----------------------------------------------------------------------------
+// SPEC-BRIDGE-V2 §18 — the campaign lifecycle, signed by the keeper
+// -----------------------------------------------------------------------------
+
+/** One campaign as the keeper needs it: where it is, and the clocks that decide what comes next. */
+export interface LifecycleCampaign {
+  readonly giveawayId: bigint;
+  readonly status: number;
+  readonly effectiveEndTime: bigint;
+  readonly closedAt: bigint;
+  readonly drawRequestedAt: bigint;
+}
+
+/** What one run reads first. */
+export interface LifecycleHead {
+  readonly lastGiveawayId: bigint;
+  /** The latest block's timestamp: the clock the contract compares against, not this server's. */
+  readonly now: bigint;
+  readonly paused: boolean;
+}
+
+export async function lifecycleHead(): Promise<LifecycleHead> {
+  const client = publicClient();
+  const [lastGiveawayId, block, paused] = await Promise.all([
+    client.readContract({
+      address: GIVEAWAY_MANAGER_V2,
+      abi: GIVEAWAY_LIFECYCLE_ABI,
+      functionName: 'lastGiveawayId',
+      args: [],
+    }) as Promise<bigint>,
+    client.getBlock({ blockTag: 'latest' }),
+    client.readContract({
+      address: GIVEAWAY_MANAGER_V2,
+      abi: GIVEAWAY_MANAGER_V2_ABI,
+      functionName: 'paused',
+      args: [],
+    }) as Promise<boolean>,
+  ]);
+  return { lastGiveawayId, now: block.timestamp, paused };
+}
+
+/**
+ * Campaigns fromId..toId inclusive, in one eth_call through Multicall3.
+ *
+ * One round trip per page instead of two per campaign: every run reads every
+ * campaign (M1), and two concurrent calls per campaign against a public RPC is a
+ * rate limit, not a scan. The Multicall3 address is viem's own definition of
+ * Arbitrum One, not configuration. effectiveEndTime is read rather than derived,
+ * for the reason readGiveaway gives.
+ */
+export async function readLifecyclePage(fromId: bigint, toId: bigint): Promise<LifecycleCampaign[]> {
+  const ids: bigint[] = [];
+  for (let id = fromId; id <= toId; id += 1n) ids.push(id);
+
+  const results = await publicClient().multicall({
+    allowFailure: false,
+    contracts: ids.flatMap((id) => [
+      {
+        address: GIVEAWAY_MANAGER_V2,
+        abi: GIVEAWAY_MANAGER_V2_ABI,
+        functionName: 'getGiveaway',
+        args: [id],
+      } as const,
+      {
+        address: GIVEAWAY_MANAGER_V2,
+        abi: GIVEAWAY_MANAGER_V2_ABI,
+        functionName: 'effectiveEndTime',
+        args: [id],
+      } as const,
+    ]),
+  });
+
+  return ids.map((giveawayId, index) => {
+    const g = results[2 * index] as unknown as { status: number; closedAt: bigint; drawRequestedAt: bigint };
+    return {
+      giveawayId,
+      status: Number(g.status),
+      effectiveEndTime: results[2 * index + 1] as bigint,
+      closedAt: g.closedAt,
+      drawRequestedAt: g.drawRequestedAt,
+    };
+  });
+}
+
+/** The keeper's address. F6: the account is created, its address taken, and dropped. */
+export function keeperAddress(): `0x${string}` {
+  return privateKeyToAccount(requireEnv('BRIDGE_V2_KEEPER_KEY') as Hex).address;
+}
+
+/** What the keeper can pay for, and whether it still has a transaction in flight (M4, M6). */
+export interface KeeperAccount {
+  readonly balance: bigint;
+  readonly latestNonce: number;
+  readonly pendingNonce: number;
+  readonly maxFeePerGas: bigint;
+}
+
+export async function keeperAccount(): Promise<KeeperAccount> {
+  const client = publicClient();
+  const address = keeperAddress();
+  const [balance, latestNonce, pendingNonce, fees] = await Promise.all([
+    client.getBalance({ address }),
+    client.getTransactionCount({ address, blockTag: 'latest' }),
+    client.getTransactionCount({ address, blockTag: 'pending' }),
+    currentFees(),
+  ]);
+  return { balance, latestNonce, pendingNonce, maxFeePerGas: fees.maxFeePerGas };
+}
+
+/**
+ * The calldata of one transition.
+ *
+ * A switch over literals rather than a name passed through, because H1 forbids a
+ * computed function name: what the keeper may sign is these four, and no caller
+ * can turn it into a fifth.
+ */
+function lifecycleCalldata(action: LifecycleAction, giveawayId: bigint): Hex {
+  switch (action) {
+    case 'closeGiveaway':
+      return encodeFunctionData({ abi: GIVEAWAY_LIFECYCLE_ABI, functionName: 'closeGiveaway', args: [giveawayId] });
+    case 'requestDraw':
+      return encodeFunctionData({ abi: GIVEAWAY_LIFECYCLE_ABI, functionName: 'requestDraw', args: [giveawayId] });
+    case 'expireDrawRequest':
+      return encodeFunctionData({ abi: GIVEAWAY_LIFECYCLE_ABI, functionName: 'expireDrawRequest', args: [giveawayId] });
+    case 'finalizeWinners':
+      return encodeFunctionData({ abi: GIVEAWAY_LIFECYCLE_ABI, functionName: 'finalizeWinners', args: [giveawayId] });
+  }
+}
+
+/**
+ * Signs and broadcasts one lifecycle transition as the keeper. §18 M2, M3, M7.
+ *
+ * Priced like every other call (H4), against the lifecycle band and the keeper's
+ * own ceiling. A transition that does not fit throws ChainError before anything is
+ * signed, and the caller defers it with an alert. An estimate that reverts throws
+ * the contract's error, which the caller reads by name.
+ *
+ * G6 at `pending`, as publishEligibilityRoot does it: the run lock means nothing
+ * else reads this account's nonce at the same moment, and the caller sends
+ * nothing at all while the account has a transaction in flight.
+ *
+ * F6: the account is created here, used, and dropped.
+ */
+export async function sendLifecycleCall(action: LifecycleAction, giveawayId: bigint): Promise<Hex> {
+  const account = privateKeyToAccount(requireEnv('BRIDGE_V2_KEEPER_KEY') as Hex);
+  const client = publicClient();
+  const data = lifecycleCalldata(action, giveawayId);
+
+  const [nonce, fees, estimate] = await Promise.all([
+    client.getTransactionCount({ address: account.address, blockTag: 'pending' }),
+    currentFees(),
+    client.estimateGas({ account: account.address, to: GIVEAWAY_MANAGER_V2, data }),
+  ]);
+
+  const plan = planGas(
+    estimate,
+    fees.maxFeePerGas,
+    fees.maxPriorityFeePerGas,
+    GAS_BANDS.LIFECYCLE,
+    LIFECYCLE_MAX_GAS_COST_WEI,
+  );
 
   const transaction: TransactionSerializable = {
     chainId: CHAIN_ID,

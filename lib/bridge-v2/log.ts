@@ -65,6 +65,14 @@ export type OpsKind =
   | 'identity.refused'
   | 'identity.failed'
   | 'creator_campaign.failed'
+  // SPEC-BRIDGE-V2 §18: the campaign lifecycle the keeper drives. `sent` carries
+  // the hash; `confirmed` only ever follows a successful receipt (M3).
+  | 'lifecycle.sent'
+  | 'lifecycle.confirmed'
+  | 'lifecycle.unconfirmed'
+  | 'lifecycle.failed'
+  | 'lifecycle.deferred'
+  | 'lifecycle.skipped'
   | 'alert';
 
 /**

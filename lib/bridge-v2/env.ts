@@ -61,6 +61,12 @@ export const REQUIRED_ENV = [
   // separate variable here so the choice stays visible and revocable, not because
   // the spec settled it.
   'BRIDGE_V2_ROLE_KEY',
+  // SPEC-BRIDGE-V2 §18 M2: the keeper. It signs closeGiveaway, requestDraw,
+  // expireDrawRequest and finalizeWinners and nothing else — four permissionless
+  // calls, so it holds no power over the contract, only its own ETH. A root of its
+  // own so that lifecycle gas cannot drain the key that publishes eligibility.
+  // Required, not optional, for the reason CRON_SECRET gives below.
+  'BRIDGE_V2_KEEPER_KEY',
 
   // Email. J7 requires our own authenticated sender domain.
   'RESEND_API_KEY',

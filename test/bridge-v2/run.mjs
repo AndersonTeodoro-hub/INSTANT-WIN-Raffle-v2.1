@@ -32,6 +32,8 @@ const SUITES = [
   // §17: campaign identity — the pure checks, the two routes, the preview route
   // and the emails. Its migration is exercised in sql.test.mjs and engine.test.mjs.
   './suites/identity.test.mjs',
+  // §18: the campaign lifecycle the keeper drives, with the chain doubled.
+  './suites/lifecycle.test.mjs',
   './suites/contracts.test.mjs',
 ];
 
@@ -54,6 +56,7 @@ const REQUIREMENTS = [
   'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7', 'K8',
   'R1', 'R2', 'R3', 'R4', 'R5',
   'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10',
+  'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8',
   'OWNER-D1', 'OWNER-D2',
 ];
 

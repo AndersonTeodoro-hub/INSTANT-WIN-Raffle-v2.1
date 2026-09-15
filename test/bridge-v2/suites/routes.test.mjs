@@ -1494,15 +1494,34 @@ await test(['G4'], 'the pipeline runs every phase and reports which one led', as
   const body = await (await cronProcess.POST(authorised('cron/process'))).json();
   assert.equal(body.firstPhase, 'publishRoots');
   for (const phase of [
-    'reconcileSubmitted', 'reconcileFunding', 'publishRoots', 'processEntries', 'processPrizes',
+    'reconcileSubmitted', 'reconcileFunding', 'publishRoots', 'processEntries', 'advanceLifecycle',
+    'processPrizes',
   ]) {
     assert.ok(phase in body, `${phase} did not run`);
   }
 });
 
+await test(['M5', 'G4'], 'a lifecycle phase whose chain read fails stops no other phase', async () => {
+  fresh();
+  db.on('rpc:bridge_v2_try_lock', () => ({ data: 'holder-abc', error: null }));
+  db.on('rpc:bridge_v2_next_run_sequence', () => ({ data: 0, error: null }));
+  db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
+  chain.set({ lifecycleHead: new Error('rpc down') });
+  const response = await cronProcess.POST(authorised('cron/process'));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  for (const phase of [
+    'reconcileSubmitted', 'reconcileFunding', 'publishRoots', 'processEntries', 'advanceLifecycle',
+    'processPrizes',
+  ]) {
+    assert.ok(phase in body, `${phase} did not run`);
+  }
+  assert.equal(body.advanceLifecycle, 0);
+});
+
 await test(['G4'], 'the leading phase advances by one per run that actually happens', async () => {
   const leaders = [];
-  for (let sequence = 0; sequence < 6; sequence += 1) {
+  for (let sequence = 0; sequence < 7; sequence += 1) {
     fresh();
     db.on('rpc:bridge_v2_try_lock', () => ({ data: 'holder-abc', error: null }));
     db.on('rpc:bridge_v2_next_run_sequence', () => ({ data: sequence, error: null }));
@@ -1510,9 +1529,9 @@ await test(['G4'], 'the leading phase advances by one per run that actually happ
     const body = await (await cronProcess.POST(authorised('cron/process'))).json();
     leaders.push(body.firstPhase);
   }
-  // Five phases, so each leads once within five consecutive runs.
-  assert.equal(new Set(leaders.slice(0, 5)).size, 5, `only ${new Set(leaders).size} phases led`);
-  assert.equal(leaders[5], leaders[0], 'the rotation does not come back round');
+  // Six phases, so each leads once within six consecutive runs.
+  assert.equal(new Set(leaders.slice(0, 6)).size, 6, `only ${new Set(leaders).size} phases led`);
+  assert.equal(leaders[6], leaders[0], 'the rotation does not come back round');
 });
 
 await test(['H8', 'K8'], 'maintenance reports a check that could not run as unknown', async () => {

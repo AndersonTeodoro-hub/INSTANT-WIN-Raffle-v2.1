@@ -11,6 +11,7 @@ import {
   reconcileFunding,
   reconcileSubmitted,
 } from '../../../../lib/bridge-v2/processor.js';
+import { advanceLifecycle } from '../../../../lib/bridge-v2/lifecycle.js';
 import {
   acquireRunLock,
   nextRunSequence,
@@ -33,6 +34,7 @@ const STAGES: Record<PipelinePhase, (log: Logger, deadline: RunDeadline) => Prom
   reconcileFunding,
   publishRoots: publishPendingRoots,
   processEntries: processEligibleEntries,
+  advanceLifecycle,
   processPrizes,
 };
 
@@ -109,7 +111,7 @@ const route = handle('cron/process', async ({ request, log }) => {
   try {
     // §7/G4: WHERE THIS RUN STARTS, AND WHY IT IS NOT ALWAYS THE SAME PLACE.
     //
-    // The five stages reserve 460 seconds between them out of a budget of 280, and
+    // The six stages reserve 540 seconds between them out of a budget of 280, and
     // they used to run in a fixed order with the largest reservation last. That is
     // not a preference about ordering, it is starvation stated as code: under
     // continuous load the four stages in front consume the budget, the prize

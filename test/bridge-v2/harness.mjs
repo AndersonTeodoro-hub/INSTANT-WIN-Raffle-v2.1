@@ -32,6 +32,7 @@ const randomHex = (bytes) => {
 /** Two funder keys, generated here, used only by this process. */
 export const TEST_FUNDER_KEYS = [`0x${randomHex(32)}`, `0x${randomHex(32)}`];
 export const TEST_ROLE_KEY = `0x${randomHex(32)}`;
+export const TEST_KEEPER_KEY = `0x${randomHex(32)}`;
 export const TEST_CRON_SECRET = randomHex(32);
 export const TEST_TELEGRAM_SECRET = randomHex(32);
 
@@ -53,6 +54,7 @@ export function installEnv() {
     BRIDGE_V2_SIGNAL_HMAC_KEY: randomHex(32),
     BRIDGE_V2_FUNDER_KEYS: TEST_FUNDER_KEYS.join(','),
     BRIDGE_V2_ROLE_KEY: TEST_ROLE_KEY,
+    BRIDGE_V2_KEEPER_KEY: TEST_KEEPER_KEY,
     RESEND_API_KEY: `re_${randomHex(16)}`,
     BRIDGE_V2_MAIL_FROM: 'Events <no-reply@example.invalid>',
     TELEGRAM_BOT_TOKEN: `${randomHex(4)}:${randomHex(16)}`,
