@@ -113,15 +113,17 @@ ALTER TABLE bridge_v2_entries ADD CONSTRAINT bridge_v2_entries_passkey_self_cust
 --   FINALIZED       the owners were swapped (R-6)
 --   CANCELED        cancelled with the old passkey everywhere (6.3.3)
 --   REFUSED         R-1 refused the new owner; nothing was confirmed
+--   EXPIRED         the Telegram link expired before the number was confirmed
+--                   (Adenda C3); closed so it never blocks a new request
 -- The link code is the Telegram deep link of A14, stored as a keyed hash like
 -- bridge_v2_link_codes and matched to the chat by its HMAC (R4).
 CREATE TABLE IF NOT EXISTS bridge_v2_recoveries (
   id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   participant_id     uuid        NOT NULL REFERENCES bridge_v2_participants (id),
   passkey_id         uuid        NOT NULL REFERENCES bridge_v2_passkeys (id),
-  status             text        NOT NULL CHECK (status IN (
+  status             text        NOT NULL CONSTRAINT bridge_v2_recoveries_status_check CHECK (status IN (
                                    'AWAITING_PHONE', 'PHONE_VERIFIED', 'CONFIRMED',
-                                   'FINALIZED', 'CANCELED', 'REFUSED')),
+                                   'FINALIZED', 'CANCELED', 'REFUSED', 'EXPIRED')),
   link_code_hash     text        NOT NULL UNIQUE,
   link_expires_at    timestamptz NOT NULL,
   telegram_chat_hmac text,
@@ -141,6 +143,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_recoveries_live_chat_unique
   WHERE telegram_chat_hmac IS NOT NULL AND status = 'AWAITING_PHONE';
 CREATE INDEX IF NOT EXISTS bridge_v2_recoveries_queue_idx
   ON bridge_v2_recoveries (status, updated_at);
+-- Idempotence for a database that ran an earlier text of this file, whose CHECK
+-- did not know EXPIRED: the constraint is replaced by the one above.
+ALTER TABLE bridge_v2_recoveries DROP CONSTRAINT IF EXISTS bridge_v2_recoveries_status_check;
+ALTER TABLE bridge_v2_recoveries ADD CONSTRAINT bridge_v2_recoveries_status_check CHECK (status IN (
+  'AWAITING_PHONE', 'PHONE_VERIFIED', 'CONFIRMED', 'FINALIZED', 'CANCELED', 'REFUSED', 'EXPIRED'));
+-- C3: the expiry pass looks for requests still waiting on their link.
+CREATE INDEX IF NOT EXISTS bridge_v2_recoveries_awaiting_idx
+  ON bridge_v2_recoveries (link_expires_at) WHERE status = 'AWAITING_PHONE';
 
 -- 6.3.2: three notices, each at most once per channel. The primary key is the
 -- "once": a notice is claimed by inserting its row, before it is sent.
@@ -173,6 +183,19 @@ CREATE INDEX IF NOT EXISTS bridge_v2_migrations_pending_idx
   ON bridge_v2_migrations (updated_at) WHERE sealed_at IS NULL;
 
 -- -----------------------------------------------------------------------------
+-- 7. guardian changes — Adenda C11
+-- -----------------------------------------------------------------------------
+-- One row per guardian revocation or re-addition the relayer paid for, written
+-- before the transaction is sent. The relay refuses a fourth in 24 hours.
+CREATE TABLE IF NOT EXISTS bridge_v2_guardian_changes (
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id uuid        NOT NULL REFERENCES bridge_v2_accounts (id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bridge_v2_guardian_changes_account_idx
+  ON bridge_v2_guardian_changes (account_id, created_at);
+
+-- -----------------------------------------------------------------------------
 -- RLS and grants — the same shape as every bridge_v2_* table (I5)
 -- -----------------------------------------------------------------------------
 ALTER TABLE bridge_v2_passkeys         ENABLE ROW LEVEL SECURITY;
@@ -180,17 +203,20 @@ ALTER TABLE bridge_v2_accounts         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_recoveries       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_recovery_notices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_migrations       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bridge_v2_guardian_changes ENABLE ROW LEVEL SECURITY;
 
 -- Exactly the verbs lib/bridge-v2/accounts.ts uses. No DELETE anywhere: a
--- passkey, an account, a recovery and a migration are records.
+-- passkey, an account, a recovery, a migration and a guardian change are records.
 GRANT SELECT, INSERT         ON TABLE public.bridge_v2_passkeys         TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_accounts         TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_recoveries       TO service_role;
 GRANT SELECT, INSERT         ON TABLE public.bridge_v2_recovery_notices TO service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_migrations       TO service_role;
+GRANT SELECT, INSERT         ON TABLE public.bridge_v2_guardian_changes TO service_role;
 
 REVOKE ALL ON TABLE public.bridge_v2_passkeys         FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_accounts         FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_recoveries       FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_recovery_notices FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_migrations       FROM anon, authenticated;
+REVOKE ALL ON TABLE public.bridge_v2_guardian_changes FROM anon, authenticated;

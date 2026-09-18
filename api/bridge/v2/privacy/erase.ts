@@ -56,12 +56,14 @@ const route = handle('privacy/erase', async ({ request, log }) => {
   // no constraint has to be relaxed to make erasure possible.
   const tombstone = `erased-${toHex(randomBytes(16))}@invalid`;
 
+  // SPEC-BLOCO-03 Adenda C5: the Telegram chat kept for security notices (A5) is
+  // encrypted but reversible, so it goes too, in the same statement.
   const db = getDb();
   checked(
     'privacy.erase',
     await db
       .from('bridge_v2_participants')
-      .update({ email_canonical: tombstone, updated_at: new Date().toISOString() })
+      .update({ email_canonical: tombstone, telegram_chat_enc: null, updated_at: new Date().toISOString() })
       .eq('id', session.participantId)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );

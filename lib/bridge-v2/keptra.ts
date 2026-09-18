@@ -27,7 +27,9 @@ import {
   hashTypedData,
   keccak256,
   pad,
+  sha256,
   size,
+  stringToHex,
   toHex,
   zeroAddress,
   type Hex,
@@ -50,8 +52,6 @@ export const FALLBACK_HANDLER = '0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99' as 
 export const SIGNER_FACTORY = '0x1d31F259eE307358a26dFb23EB365939E8641195' as const;
 /** 6.1.4: the Candide SocialRecoveryModule with the immutable 7-day period (F14). */
 export const RECOVERY_MODULE = '0x088f6cfD8BB1dDb1BB069CCb3fc1A98927D233f2' as const;
-/** 6.1.2: the v0.2.1 SharedSigner. Named only so a test can show it is never an owner. */
-export const SHARED_SIGNER = '0x94a4F6affBd8975951142c3999aEAB7ecee555c2' as const;
 
 /**
  * 6.1.3: P-256 verification through the 0x0100 precompile only, with no
@@ -68,11 +68,9 @@ export const RP_ID = 'keptra.io' as const;
  * A13 again: where a page that asks for the passkey lives. A passkey only
  * answers on its own relying party, so every link that leads to a signature —
  * a claim, a confirmation of entry, the cancellation of a recovery — goes here.
+ * C9: also the only origin an assertion is accepted from.
  */
 export const KEPTRA_BASE = 'https://keptra.io' as const;
-
-/** F14/R4-Q1: the module's recovery period, fixed in its bytecode. */
-export const RECOVERY_PERIOD_SECONDS = 604_800;
 
 /** The linked-list sentinel both the Safe and the module use. */
 export const SENTINEL = '0x0000000000000000000000000000000000000001' as const;
@@ -526,14 +524,33 @@ export function parseDerSignature(der: Hex): { r: bigint; s: bigint } | null {
   return { r, s };
 }
 
+/** C9: the rpIdHash an assertion made for keptra.io carries in authenticatorData. */
+const RP_ID_HASH = sha256(stringToHex(RP_ID));
+
+/** C9: the origin clientDataJSON names, or null when it is not JSON with one. */
+function originOf(clientDataJSON: string): string | null {
+  try {
+    const origin = (JSON.parse(clientDataJSON) as { origin?: unknown }).origin;
+    return typeof origin === 'string' ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Turns a browser assertion into the signer contract's signature, and refuses
- * one that was not made over `challenge`.
+ * one that was not made over `challenge`, or not made for keptra.io.
  *
  * The contract rebuilds clientDataJSON as `{"type":"webauthn.get","challenge":"<c>",<fields>}`
  * from the challenge it is asked about, so an assertion over any other hash
  * cannot verify there. Checking the prefix here as well is what lets the relay
  * refuse before it spends a read (M10).
+ *
+ * C9: the contract checks neither the relying party nor the origin — an
+ * assertion the same key made for any other site verifies on-chain. So the
+ * bridge refuses it here: the rpIdHash must be keptra.io's and the origin
+ * https://keptra.io. Every path that accepts an assertion comes through this
+ * function (the relay and the migration's authorisation).
  */
 export function assertionToSignature(
   challenge: Hex,
@@ -541,6 +558,8 @@ export function assertionToSignature(
   clientDataJSON: string,
   derSignature: Hex,
 ): WebAuthnSignature | null {
+  if (authenticatorData.slice(0, 66).toLowerCase() !== RP_ID_HASH) return null;
+  if (originOf(clientDataJSON) !== KEPTRA_BASE) return null;
   const prefix = `{"type":"webauthn.get","challenge":"${base64UrlOf(challenge)}",`;
   if (!clientDataJSON.startsWith(prefix) || !clientDataJSON.endsWith('}')) return null;
   const rs = parseDerSignature(derSignature);
@@ -588,6 +607,42 @@ export function configurationCalls(safe: `0x${string}`, guardian: `0x${string}`)
       data: encodeFunctionData({ abi: RECOVERY_MODULE_ABI, functionName: 'addGuardianWithThreshold', args: [guardian, 1n] }),
     },
   ];
+}
+
+/** The part of an account's on-chain state the two checks below read. */
+export interface ConfigurationView {
+  readonly deployed: boolean;
+  readonly modules: readonly string[];
+  readonly guardians: readonly string[];
+}
+
+/**
+ * What an account lacks of 6.1.4, read from the chain: not deployed at all, no
+ * recovery module, or no guardian — or null when it has both.
+ *
+ * Adenda C2 (option b) and C4 turn on this. Anybody can deploy an account at its
+ * address through the permissionless factory, and that account has neither; a
+ * revocation (A6) leaves one without a guardian. The relay accepts nothing for
+ * such an account but its completion, and no account address is shown as a
+ * destination of value until this is null.
+ */
+export function configurationGap(state: ConfigurationView): 'account' | 'module' | 'guardian' | null {
+  if (!state.deployed) return 'account';
+  if (!state.modules.some((module) => module.toLowerCase() === RECOVERY_MODULE.toLowerCase())) return 'module';
+  if (state.guardians.length === 0) return 'guardian';
+  return null;
+}
+
+/**
+ * C6: whether the account's recovery works today — the module enabled and the
+ * CURRENT guardian among its guardians, on-chain. After a rotation an account
+ * still holding the old key has no working recovery, and says so.
+ */
+export function recoveryActive(state: ConfigurationView, currentGuardian: `0x${string}`): boolean {
+  return (
+    configurationGap(state) === null &&
+    state.guardians.some((guardian) => guardian.toLowerCase() === currentGuardian.toLowerCase())
+  );
 }
 
 // -----------------------------------------------------------------------------

@@ -20,7 +20,7 @@ import { alert } from './alert.js';
 import type { RunDeadline } from './runlock.js';
 import { claimSpend } from './spend.js';
 import { ERC20_ABI, GIVEAWAY_MANAGER_V2_ABI, GiveawayStatus } from './abi.js';
-import { DB_TIMEOUT_MS, GIVEAWAY_MANAGER_V2, PRIZE_WORST_CASE_MS, USDC } from './config.js';
+import { DB_TIMEOUT_MS, GIVEAWAY_MANAGER_V2, MIGRATION_ASSET_MS, MIGRATION_SEAL_MS, USDC } from './config.js';
 import {
   claimDeadlineSeconds,
   erc20BalanceOf,
@@ -45,9 +45,8 @@ import {
 } from './accounts.js';
 import { acquireFunder, disableFunder, randomFunderAddress, releaseFunder, renewLease, signAsFunder } from './funders.js';
 import { signAsDerived } from './wallet.js';
-
-/** One asset of one wallet: a transfer, funded and awaited. */
-const PER_ASSET_MS = PRIZE_WORST_CASE_MS / 2;
+import { accountState } from './keptraChain.js';
+import { configurationGap } from './keptra.js';
 
 // -----------------------------------------------------------------------------
 // what a derived wallet holds, and what is still tied to it
@@ -237,16 +236,34 @@ async function moveOne(
 /**
  * Moves what one authorised wallet holds, returns the gas, and seals the index
  * when nothing is left and no right remains. True when sealed.
+ *
+ * C1: every asset is reserved on its own, and so is the close, against the real
+ * run budget; a pass that runs out stops between units and the next one picks
+ * up what is left, because assetTransfers reads what is still there.
  */
-export async function migrateOne(migration: Migration, poolSize: number, log: Logger): Promise<boolean> {
+export async function migrateOne(
+  migration: Migration,
+  poolSize: number,
+  log: Logger,
+  deadline: RunDeadline,
+): Promise<boolean> {
   const account = await accountById(migration.accountId);
   if (account === null) return false;
 
+  // C4: value only ever goes to an account that exists with its module and
+  // guardian. Until then nothing moves, and the wallet keeps its balance.
+  if (configurationGap(await accountState(account.safe)) !== null) {
+    await log.event('migration.waiting', { kind: migration.kind });
+    return false;
+  }
+
   for (const transfer of await assetTransfers(migration, account.safe)) {
+    if (!deadline.hasTimeFor(MIGRATION_ASSET_MS)) return false;
     const moved = await moveOne(migration, transfer, log);
     await log.event(moved === null ? 'migration.failed' : 'migration.moved', { kind: migration.kind });
     if (moved === null) return false;
   }
+  if (!deadline.hasTimeFor(MIGRATION_SEAL_MS)) return false;
 
   // A9: the ETH left behind goes back to the pool by the existing mechanism.
   if (poolSize > 0) {
@@ -267,9 +284,9 @@ export async function migrateOne(migration: Migration, poolSize: number, log: Lo
 export async function migrateAuthorizedWallets(log: Logger, poolSize: number, deadline: RunDeadline): Promise<number> {
   let sealed = 0;
   for (const migration of await pendingMigrations(5)) {
-    if (!deadline.hasTimeFor(PER_ASSET_MS * 3)) break;
+    if (!deadline.hasTimeFor(MIGRATION_ASSET_MS)) break;
     try {
-      if (await migrateOne(migration, poolSize, log)) sealed += 1;
+      if (await migrateOne(migration, poolSize, log, deadline)) sealed += 1;
       else await touchMigration(migration.id);
     } catch (error) {
       await log.failure('migration.failed', error);

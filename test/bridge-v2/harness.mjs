@@ -15,6 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { runDeadline } from '../../lib/bridge-v2/runlock.ts';
 
 /**
  * The public Hardhat/Anvil test mnemonic. Not a secret: it is in the Hardhat
@@ -187,7 +188,16 @@ export function recordingLogger() {
   };
 }
 
-/** A run deadline double with a fixed answer, so a test controls G4 directly. */
-export function deadline(hasTime = true, remaining = 280_000) {
-  return { hasTimeFor: () => hasTime, remainingMs: () => remaining };
+/**
+ * The run deadline, as production builds it: runDeadline() from runlock.ts, so
+ * a reservation is compared against the real budget with the real rule.
+ * `deadline(false)` is a run with nothing left.
+ *
+ * SPEC-BLOCO-03 Adenda C14. This used to be a double that answered hasTimeFor()
+ * with a constant whatever the estimate, and it hid a migration reservation of
+ * 360_000 ms against a 280_000 ms budget: the suites passed and production never
+ * moved a balance (audit finding 1).
+ */
+export function deadline(hasTime = true) {
+  return runDeadline(hasTime ? undefined : 0);
 }

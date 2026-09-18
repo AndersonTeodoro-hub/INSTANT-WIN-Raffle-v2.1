@@ -13,17 +13,15 @@
  * the bridge pays for.
  */
 
-import { encodeFunctionData, keccak256, parseEventLogs, toHex, type Hex, type Log, type TransactionSerializable } from 'viem';
+import { encodeFunctionData, keccak256, toHex, type Hex, type TransactionSerializable } from 'viem';
 import { ChainError, planGas, publicClient } from './chain.js';
 import { CHAIN_ID, GAS_BANDS } from './config.js';
 import {
   FALLBACK_HANDLER,
-  MULTI_SEND_ABI,
   MULTI_SEND_CALL_ONLY,
   RECOVERY_MODULE,
   RECOVERY_MODULE_ABI,
   SAFE_ABI,
-  SAFE_L2_SINGLETON,
   SENTINEL,
   SIGNER_FACTORY,
   SIGNER_FACTORY_ABI,
@@ -162,14 +160,6 @@ export function configurationRefusal(
   return null;
 }
 
-/** The proxy's singleton, from slot 0 — M3 reads it to show the account is a SafeL2 1.4.1. */
-export async function singletonOf(safe: `0x${string}`): Promise<`0x${string}`> {
-  const word = await publicClient().getStorageAt({ address: safe, slot: '0x0' });
-  return address((word ?? '0x') as Hex);
-}
-
-export { SAFE_L2_SINGLETON };
-
 /** The hash the guardian signs for (safe, newOwners, threshold 1), at the module's current nonce. */
 export async function recoveryHash(safe: `0x${string}`, newOwners: readonly `0x${string}`[]): Promise<Hex> {
   const client = publicClient();
@@ -223,8 +213,6 @@ export function relayerCall(calls: readonly SafeCall[]): SafeCall {
   return { to: MULTI_SEND_CALL_ONLY, data: encodeMultiSend(calls) };
 }
 
-export { MULTI_SEND_ABI };
-
 /** The block's timestamp, which is the clock the module compares against. */
 export async function chainNow(): Promise<bigint> {
   return (await publicClient().getBlock({ blockTag: 'latest' })).timestamp;
@@ -268,14 +256,4 @@ export async function sendRelayed(
   const signed = await signAsFunder(lease.index, transaction);
   onNonceSpent(lease.nextNonce + 1);
   return client.sendRawTransaction({ serializedTransaction: signed });
-}
-
-/** The signer the factory created in a receipt, with the verifiers it recorded (M5). */
-export function createdSigners(logs: readonly Log[]): { signer: `0x${string}`; verifiers: bigint }[] {
-  return parseEventLogs({ abi: SIGNER_FACTORY_ABI, eventName: 'Created', logs: logs as Log[] })
-    .filter((event) => event.address.toLowerCase() === SIGNER_FACTORY.toLowerCase())
-    .map((event) => ({
-      signer: (event.args as { signer: `0x${string}` }).signer,
-      verifiers: (event.args as { verifiers: bigint }).verifiers,
-    }));
 }

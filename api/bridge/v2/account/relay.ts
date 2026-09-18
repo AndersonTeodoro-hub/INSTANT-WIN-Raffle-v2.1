@@ -7,6 +7,7 @@ import {
   parseCredentialId,
   parseGiveawayId,
   parseHexBytes,
+  parseUint256,
 } from '../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { ChainError } from '../../../../lib/bridge-v2/chain.js';
@@ -15,7 +16,7 @@ import type { AccountRole } from '../../../../lib/bridge-v2/keptra.js';
 
 /**
  * POST /api/bridge/v2/account/relay
- *   {kind, giveawayId?, to?, credentialId?, role?}                 -> the hash to sign
+ *   {kind, giveawayId?, to?, amount?, credentialId?, role?}        -> the hash to sign
  *   {..., nonce, credentialId, authenticatorData, clientDataJSON, signature} -> relayed
  *
  * SPEC-BLOCO-03 6.2.2 and 6.1.5: every action that moves value or rights is
@@ -119,6 +120,11 @@ const REFUSALS: Record<string, string> = {
   bad_signature: 'That signature is not valid for this request.',
   not_owner: 'This passkey has no access to this account.',
   relayer_unavailable: 'The bridge cannot send this right now. Try again shortly.',
+  configuration_incomplete: 'Your account needs to finish its setup first. Confirm it with your passkey.',
+  already_configured: 'Your account is already set up.',
+  destination_not_ready: 'That account is not set up yet and cannot receive anything.',
+  amount: 'That amount cannot be sent.',
+  guardian_change_limit: 'Recovery settings were changed too often today. Try again tomorrow.',
 };
 
 /** The Action a body names, or null. A closed list, like the union it builds. */
@@ -130,9 +136,11 @@ function parseAction(body: Record<string, unknown>): Action | null {
       return giveawayId === null ? null : { kind: body.kind, giveawayId };
     }
     case 'transfer': {
+      // C7: the amount is the participant's, stated; there is no "everything".
       const giveawayId = parseGiveawayId(body.giveawayId);
       const to = parseAddress(body.to);
-      return giveawayId === null || to === null ? null : { kind: 'transfer', giveawayId, to };
+      const amount = parseUint256(body.amount);
+      return giveawayId === null || to === null || amount === null ? null : { kind: 'transfer', giveawayId, to, amount };
     }
     case 'addPasskey': {
       const credentialId = parseCredentialId(body.newCredentialId);
@@ -141,7 +149,7 @@ function parseAction(body: Record<string, unknown>): Action | null {
     case 'createCampaign':
     case 'cancelRecovery':
     case 'revokeGuardian':
-    case 'addGuardian':
+    case 'configure':
       return { kind: body.kind };
     default:
       return null;

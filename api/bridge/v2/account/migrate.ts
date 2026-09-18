@@ -7,7 +7,7 @@ import { getParticipant } from '../../../../lib/bridge-v2/participants.js';
 import { findCreatorByParticipant } from '../../../../lib/bridge-v2/creators.js';
 import { authorizeMigration, findAccount, findPasskey } from '../../../../lib/bridge-v2/accounts.js';
 import { accountState, isValidPasskeySignature } from '../../../../lib/bridge-v2/keptraChain.js';
-import { assertionToSignature, migrationChallenge } from '../../../../lib/bridge-v2/keptra.js';
+import { assertionToSignature, configurationGap, migrationChallenge } from '../../../../lib/bridge-v2/keptra.js';
 
 /**
  * POST /api/bridge/v2/account/migrate
@@ -62,6 +62,12 @@ const route = handle('account/migrate', async ({ request, log }) => {
   const account = await findAccount(session.participantId, kind);
   if (account === null) return refuse(409, 'Create your passkey first.');
 
+  // C4: the account is where the balances will go. Until it exists on-chain with
+  // its module and guardian, its address is not shown and nothing is authorised;
+  // the page has the account set up first (account/relay, kind "configure").
+  const state = await accountState(account.safe);
+  if (configurationGap(state) !== null) return refuse(409, 'Set up your account first.');
+
   const challenge = migrationChallenge(derived, account.safe);
   if (body.signature === undefined) return ok({ challenge });
 
@@ -76,13 +82,10 @@ const route = handle('account/migrate', async ({ request, log }) => {
   const passkey = await findPasskey(session.participantId, credentialId);
   if (passkey === null) return refuse(404, 'This passkey is not registered to your account.');
 
-  // The passkey has to be one the account knows: its first owner before the
-  // account exists, one of its owners after.
-  const state = await accountState(account.safe);
-  const isOwner = state.deployed
-    ? state.owners.some((owner) => owner.toLowerCase() === passkey.signer.toLowerCase())
-    : passkey.signer.toLowerCase() === account.initialSigner.toLowerCase();
-  if (!isOwner) return refuse(403, 'This passkey has no access to this account.');
+  // The passkey has to be one of the account's owners.
+  if (!state.owners.some((owner) => owner.toLowerCase() === passkey.signer.toLowerCase())) {
+    return refuse(403, 'This passkey has no access to this account.');
+  }
 
   const parsed = assertionToSignature(challenge, authenticatorData, clientDataJSON, signature);
   if (parsed === null || !(await isValidPasskeySignature(challenge, parsed, passkey.x, passkey.y))) {

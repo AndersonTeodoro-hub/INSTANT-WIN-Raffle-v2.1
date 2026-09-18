@@ -13,6 +13,8 @@ import {
   slotPrice,
 } from '../../../../../lib/bridge-v2/chain.js';
 import { PrizeKind } from '../../../../../lib/bridge-v2/abi.js';
+import { accountState } from '../../../../../lib/bridge-v2/keptraChain.js';
+import { configurationGap } from '../../../../../lib/bridge-v2/keptra.js';
 import {
   CONTRACT_MAX_DURATION_SECONDS,
   CONTRACT_MAX_PARTICIPANTS,
@@ -103,6 +105,12 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
   // SPEC-BLOCO-03 6.6.1/6.6.3: a new creator's deposit address is their creator
   // account, which exists once they have a passkey.
   if (creator === null) return refuse(409, 'Create your passkey first.');
+  // SPEC-BLOCO-03 Adenda C4: that account is the deposit address, so it has to
+  // exist on-chain with its module and guardian before it is shown; the page has
+  // it set up first (account/relay, kind "configure", role CREATOR).
+  if (creator.walletIndex === null && configurationGap(await accountState(creator.walletAddress)) !== null) {
+    return refuse(409, 'Set up your creator account first.');
+  }
 
   const existing = await findActiveCampaign(creator.id);
   if (existing !== null) {

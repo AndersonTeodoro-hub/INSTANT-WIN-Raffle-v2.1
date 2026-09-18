@@ -18,14 +18,24 @@
  * createSigner, createProxyWithNonce and the account's first execTransaction as
  * one atomic batch, and that first transaction starts with the configuration
  * that enables the recovery module and adds the guardian (6.1.4).
+ *
+ * Adenda C2, option (b): the configuration is read from the chain on every
+ * action. An account that exists without its module or its guardian — deployed
+ * at its address by somebody else through the permissionless factory, or left
+ * without a guardian by a revocation (A6) — can do exactly one thing through
+ * the relay: `configure`, which completes it, signed by its passkey. Every other
+ * action is refused until then. `configure` on an account that does not exist
+ * yet creates it with nothing but its configuration, which is how the bridge
+ * deploys and configures an account before showing its address as a
+ * destination of value (C4).
  */
 
 import { encodeFunctionData, type Hex } from 'viem';
 import { alert } from './alert.js';
 import { claimSpend } from './spend.js';
 import type { Logger } from './log.js';
-import { CREATOR_APPROVAL_ABI, CREATOR_CAMPAIGN_MANAGER_ABI, GIVEAWAY_MANAGER_V2_ABI } from './abi.js';
-import { GIVEAWAY_MANAGER_V2, USDC } from './config.js';
+import { CREATOR_APPROVAL_ABI, CREATOR_CAMPAIGN_MANAGER_ABI, ERC20_ABI, GIVEAWAY_MANAGER_V2_ABI, PrizeKind } from './abi.js';
+import { GIVEAWAY_MANAGER_V2, GUARDIAN_CHANGES_PER_DAY, USDC } from './config.js';
 import {
   claimableFor,
   erc20BalanceOf,
@@ -51,6 +61,7 @@ import {
   assertionToSignature,
   cancelRecoveryCalls,
   configurationCalls,
+  configurationGap,
   createAccountCall,
   createSignerCall,
   encodeSafeSignature,
@@ -64,10 +75,13 @@ import {
   type SafeTx,
 } from './keptra.js';
 import {
+  accountBySafe,
   findAccount,
   findPasskey,
+  guardianChangesSince,
   markDeployed,
   recordGuardian,
+  recordGuardianChange,
   type Account,
   type Passkey,
 } from './accounts.js';
@@ -82,12 +96,16 @@ import { guardianAddress } from './guardian.js';
 export type Action =
   | { readonly kind: 'enter'; readonly giveawayId: bigint }
   | { readonly kind: 'claim'; readonly giveawayId: bigint }
-  | { readonly kind: 'transfer'; readonly giveawayId: bigint; readonly to: `0x${string}` }
+  /** C7: `amount` is what the owner asked to send, in the prize's own unit — never "the whole balance". */
+  | { readonly kind: 'transfer'; readonly giveawayId: bigint; readonly to: `0x${string}`; readonly amount: bigint }
   | { readonly kind: 'createCampaign' }
   | { readonly kind: 'addPasskey'; readonly credentialId: string }
   | { readonly kind: 'cancelRecovery' }
   | { readonly kind: 'revokeGuardian' }
-  | { readonly kind: 'addGuardian' };
+  /** C2, C4, A6: complete what the account lacks — create it, enable the module, add the guardian. */
+  | { readonly kind: 'configure' };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Which of the participant's two accounts an action runs on (A10). */
 export function roleFor(action: Action, requested: AccountRole | null): AccountRole {
@@ -113,6 +131,8 @@ export interface Prepared {
   readonly hash: Hex;
   /** A passkey whose signer must exist before the transaction runs (the one being added). */
   readonly extraSigner: Passkey | null;
+  /** C11: the transaction revokes the guardian or adds one back to an existing account. */
+  readonly guardianChange: boolean;
 }
 
 /**
@@ -166,11 +186,33 @@ async function actionCalls(
     }
     case 'transfer': {
       // 6.5 "transferências de prémio": the prize the account holds, to where its
-      // owner says. The token or collection and the amount come from the chain,
-      // through the same builder the derived-wallet delivery uses.
-      const delivery = await prizeDelivery(await readGiveaway(action.giveawayId), action.giveawayId, safe, action.to);
-      if (delivery === null) throw new RelayRefusal('nothing_to_transfer');
-      return { calls: [{ to: delivery.to, data: delivery.data }], extraSigner: null };
+      // owner says. The token or collection comes from the chain; the amount is
+      // the owner's, exactly (C7), and never more than the account holds.
+      const target = await accountBySafe(action.to);
+      if (target !== null && configurationGap(await accountState(target.safe)) !== null) {
+        // C4: never into a platform account that is not deployed and configured.
+        throw new RelayRefusal('destination_not_ready');
+      }
+      const campaign = await readGiveaway(action.giveawayId);
+      if (campaign.prizeKind === PrizeKind.NFT) {
+        // One prize position is one item: an ERC-721 token, or one ERC-1155 unit
+        // (the module hands out nothing else), built as the delivery builds it.
+        if (action.amount !== 1n) throw new RelayRefusal('amount');
+        const delivery = await prizeDelivery(campaign, action.giveawayId, safe, action.to);
+        if (delivery === null) throw new RelayRefusal('nothing_to_transfer');
+        return { calls: [{ to: delivery.to, data: delivery.data }], extraSigner: null };
+      }
+      if (action.amount <= 0n) throw new RelayRefusal('amount');
+      if ((await erc20BalanceOf(campaign.feeToken, safe)) < action.amount) throw new RelayRefusal('amount');
+      return {
+        calls: [
+          {
+            to: campaign.feeToken,
+            data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [action.to, action.amount] }),
+          },
+        ],
+        extraSigner: null,
+      };
     }
     case 'createCampaign': {
       // 6.5 "approve (dois)" and "createGiveaway", from the creator account and in
@@ -246,17 +288,20 @@ async function actionCalls(
       if (current === undefined) throw new RelayRefusal('no_guardian');
       return { calls: revokeGuardianCalls(current, state.recoveryExecuteAfter > 0n), extraSigner: null };
     }
-    case 'addGuardian': {
-      // A6: the rotated guardian, added by the account itself at its next login.
-      if (state.guardians.length > 0) throw new RelayRefusal('guardian_present');
+    case 'configure': {
+      // C2 (b), C4, A6: what the account lacks and nothing else. A missing
+      // account or module is the whole configuration, which prepareAction puts
+      // in front as the first transaction; a missing guardian is the current one
+      // added back by the account itself (A6: "no próximo login").
+      if (configurationGap(state) !== 'guardian') return { calls: [], extraSigner: null };
       return { calls: addGuardianCalls(guardianAddress()), extraSigner: null };
     }
   }
 }
 
-/** The guardian a transaction may name: the account's own, or the configured one for addGuardian. */
+/** The guardian a transaction may name: the account's own, or the configured one when one is added back. */
 function guardianFor(account: Account, action: Action): `0x${string}` {
-  return action.kind === 'addGuardian' ? guardianAddress() : account.guardian;
+  return action.kind === 'configure' ? guardianAddress() : account.guardian;
 }
 
 /**
@@ -272,18 +317,33 @@ export async function prepareAction(
   if (account === null) throw new RelayRefusal('no_account');
 
   const state = await accountState(account.safe);
-  if (!state.deployed && ['cancelRecovery', 'revokeGuardian', 'addGuardian', 'addPasskey'].includes(action.kind)) {
+  const gap = configurationGap(state);
+  if (action.kind === 'configure') {
+    if (gap === null) throw new RelayRefusal('already_configured');
+  } else if (gap === 'module' || gap === 'guardian') {
+    // C2 (b): an account on-chain without its module or its guardian is
+    // completed with its passkey before the relay does anything else with it.
+    throw new RelayRefusal('configuration_incomplete');
+  } else if (gap === 'account' && ['cancelRecovery', 'revokeGuardian', 'addPasskey'].includes(action.kind)) {
     throw new RelayRefusal('not_deployed');
   }
 
+  // C11: the relayer pays for a bounded number of guardian changes per account.
+  const guardianChange = action.kind === 'revokeGuardian' || (action.kind === 'configure' && gap === 'guardian');
+  if (guardianChange && (await guardianChangesSince(account.id, new Date(Date.now() - DAY_MS))) >= GUARDIAN_CHANGES_PER_DAY) {
+    throw new RelayRefusal('guardian_change_limit');
+  }
+
   const { calls, extraSigner } = await actionCalls(participantId, account, state, action);
-  const configuration = state.deployed ? null : configurationCalls(account.safe, account.guardian);
+  // 6.1.4 and B4: an account's first transaction — a new account's, or one
+  // somebody else deployed bare — starts with its configuration, at nonce 0.
+  const configuration = gap === 'account' || gap === 'module' ? configurationCalls(account.safe, account.guardian) : null;
   const tx = safeTxFor([...(configuration ?? []), ...calls], state.nonce);
 
   const refusal = refusalFor(account.safe, tx, configuration, guardianFor(account, action));
   if (refusal !== null) throw new RelayRefusal(refusal);
 
-  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner };
+  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange };
 }
 
 /** A browser assertion over the prepared hash, as the route received it. */
@@ -381,15 +441,19 @@ export async function submitAction(
     }
   }
 
+  // C11: counted before it is sent, so a change that then fails still counts.
+  if (prepared.guardianChange) await recordGuardianChange(account.id);
+
   const sent = await sendAsRelayer(batch, log);
   if (sent === null) throw new RelayRefusal('relayer_unavailable');
   if (sent.receipt === null || sent.receipt.status !== 'success') {
     return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null };
   }
 
-  if (!state.deployed) {
-    // R-4, on every account the moment it exists: the configuration read back
-    // from the chain, not the one that was asked for.
+  if (account.deployedAt === null) {
+    // R-4, on every account the moment it is ours to use — created here, or
+    // deployed bare by somebody else and completed here (C2): the configuration
+    // read back from the chain, not the one that was asked for.
     const refusal = configurationRefusal(await accountState(account.safe), account.guardian, [account.initialSigner]);
     if (refusal === null) {
       await markDeployed(account.id, sent.hash);
@@ -409,7 +473,9 @@ export async function submitAction(
     }
   }
   if (action.kind === 'revokeGuardian') await recordGuardian(account.id, account.guardian, true);
-  if (action.kind === 'addGuardian') await recordGuardian(account.id, guardianAddress(), false);
+  if (action.kind === 'configure' && configurationGap(state) === 'guardian') {
+    await recordGuardian(account.id, guardianAddress(), false);
+  }
 
   await log.event('account.relayed', { action: action.kind, deployed: state.deployed });
   return { txHash: sent.hash, receipt: sent.receipt, giveawayId };

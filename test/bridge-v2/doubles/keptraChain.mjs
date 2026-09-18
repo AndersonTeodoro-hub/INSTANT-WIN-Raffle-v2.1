@@ -10,23 +10,13 @@
 
 import {
   FALLBACK_HANDLER_SLOT,
-  SAFE_L2_SINGLETON,
   configurationRefusal,
   confirmRecoveryCall,
-  createdSigners,
   finalizeRecoveryCall,
   relayerCall,
 } from '../../../lib/bridge-v2/keptraChain.ts';
 
-export {
-  FALLBACK_HANDLER_SLOT,
-  SAFE_L2_SINGLETON,
-  configurationRefusal,
-  confirmRecoveryCall,
-  createdSigners,
-  finalizeRecoveryCall,
-  relayerCall,
-};
+export { FALLBACK_HANDLER_SLOT, configurationRefusal, confirmRecoveryCall, finalizeRecoveryCall, relayerCall };
 
 export const calls = [];
 
@@ -48,7 +38,6 @@ const DEFAULTS = () => ({
   hasCode: false,
   isValidPasskeySignature: false,
   accountState: EMPTY_STATE,
-  singletonOf: SAFE_L2_SINGLETON,
   recoveryHash: `0x${'ab'.repeat(32)}`,
   chainNow: BigInt(Math.floor(Date.now() / 1000)),
   sendRelayed: `0x${'cd'.repeat(32)}`,
@@ -77,7 +66,6 @@ export const signerAddressOf = (...args) => answer('signerAddressOf', args);
 export const hasCode = (...args) => answer('hasCode', args);
 export const isValidPasskeySignature = (...args) => answer('isValidPasskeySignature', args);
 export const accountState = (...args) => answer('accountState', args);
-export const singletonOf = (...args) => answer('singletonOf', args);
 export const recoveryHash = (...args) => answer('recoveryHash', args);
 export const chainNow = (...args) => answer('chainNow', args);
 

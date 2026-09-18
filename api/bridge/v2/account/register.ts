@@ -3,9 +3,10 @@ import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { parseCredentialId, parseUint256 } from '../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
-import { signerAddressOf } from '../../../../lib/bridge-v2/keptraChain.js';
+import { accountState, signerAddressOf } from '../../../../lib/bridge-v2/keptraChain.js';
 import { ensureAccounts, liveRecovery, registerPasskey } from '../../../../lib/bridge-v2/accounts.js';
 import { guardianAddress } from '../../../../lib/bridge-v2/guardian.js';
+import { configurationGap, recoveryActive } from '../../../../lib/bridge-v2/keptra.js';
 
 /** The P-256 field prime: a public key coordinate is below it. */
 const P256_P = BigInt('0xffffffff00000001000000000000000000000000' + 'ffffffffffffffffffffffff');
@@ -60,18 +61,24 @@ const route = handle('account/register', async ({ request, log }) => {
   if (passkey === 'TAKEN') return refuse(409, 'This passkey is already registered.');
 
   const accounts = await ensureAccounts(session.participantId, signer, guardianAddress());
+  const states = await Promise.all(accounts.map((account) => accountState(account.safe)));
   const recovery = await liveRecovery(session.participantId);
   await log.event('account.registered');
 
   return ok({
     signer,
-    accounts: accounts.map((account) => ({
+    accounts: accounts.map((account, i) => ({
       role: account.role,
-      address: account.safe,
-      deployed: account.deployedAt !== null,
-      // A6: an account that revoked its guardian has no recovery until it adds
-      // the new one, and the page has to say so.
-      recoveryEnabled: account.guardianRevokedAt === null,
+      // C4: an account's address is shown only once it exists on-chain with its
+      // module and guardian; before that it is not a place to send anything. The
+      // page asks for `configure` (account/relay) and reads it again.
+      address: configurationGap(states[i]) === null ? account.safe : null,
+      deployed: states[i].deployed,
+      configured: configurationGap(states[i]) === null,
+      // A6 and C6: read from the chain against the CURRENT guardian, so an account
+      // that revoked its guardian, or still holds one rotated away, shows no
+      // recovery until it adds the new one.
+      recoveryEnabled: recoveryActive(states[i], guardianAddress()),
     })),
     recovery: recovery === null ? null : { status: recovery.status, executeAfter: recovery.executeAfter },
   });

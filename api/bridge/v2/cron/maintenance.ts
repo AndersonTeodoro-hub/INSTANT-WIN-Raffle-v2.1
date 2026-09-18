@@ -32,6 +32,7 @@ import {
   confirmVerifiedRecoveries,
 } from '../../../../lib/bridge-v2/recovery.js';
 import { migrateAuthorizedWallets, seedRetirementReadiness } from '../../../../lib/bridge-v2/migration.js';
+import { expireAbandonedRecoveries } from '../../../../lib/bridge-v2/accounts.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/maintenance
@@ -293,6 +294,12 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       if (collisions.length > 0) await alert(log, 'two server roles share a key', { pairs: collisions.length });
       return collisions.length === 0;
     });
+    // Adenda C3: a request whose Telegram link expired unused closes by itself.
+    const recoveriesExpired = await safely(log, 'recovery_expire', async () => {
+      const expired = await expireAbandonedRecoveries();
+      if (expired > 0) await log.event('recovery.expired', { requests: expired });
+      return expired;
+    });
     // 6.3 and R-6: confirm what passed A14 and R-1, notify, finalise what is due.
     const recoveriesConfirmed = await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
     const recoveriesClosed = await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
@@ -325,6 +332,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       routeErrors: Object.fromEntries(perRoute),
       accounts: {
         roleKeysDistinct,
+        recoveriesExpired,
         recoveriesConfirmed,
         recoveriesClosed,
         recoveriesUnregistered,

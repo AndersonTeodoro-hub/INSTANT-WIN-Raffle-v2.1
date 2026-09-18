@@ -4,6 +4,8 @@ import { extractSignals } from '../../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../../lib/bridge-v2/session.js';
 import { findCreatorByParticipant } from '../../../../../lib/bridge-v2/creators.js';
 import { findLatestCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
+import { accountState } from '../../../../../lib/bridge-v2/keptraChain.js';
+import { configurationGap } from '../../../../../lib/bridge-v2/keptra.js';
 
 /**
  * POST /api/bridge/v2/creator/campaign/status
@@ -40,9 +42,15 @@ const route = handle('creator/campaign/status', async ({ request, log }) => {
   await log.event('route.ok');
   if (campaign === null) return ok({ status: 'NONE' });
 
+  // SPEC-BLOCO-03 Adenda C4: a creator account is shown as the deposit address
+  // only while it exists on-chain with its module and guardian (a revocation,
+  // A6, takes the guardian away until the account adds one back).
+  const depositShown =
+    creator.walletIndex !== null || configurationGap(await accountState(creator.walletAddress)) === null;
+
   return ok({
     status: campaign.status,
-    depositAddress: creator.walletAddress,
+    depositAddress: depositShown ? creator.walletAddress : null,
     giveawayId: campaign.giveawayId?.toString() ?? null,
     txHash: campaign.txHash,
   });

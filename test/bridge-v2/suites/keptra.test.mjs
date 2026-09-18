@@ -6,9 +6,10 @@
  * Postgres. The on-chain half is test/bridge-v2/fork, against the real contracts.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { encodeFunctionData, zeroAddress } from 'viem';
+import { encodeFunctionData, parseAbi, zeroAddress } from 'viem';
 import {
   assert,
   deadline,
@@ -88,6 +89,21 @@ function fresh({ participantId = 'participant-1' } = {}) {
   http.on('api.telegram.org', () => jsonResponse({ ok: true }));
   store.insert('bridge_v2_participants', { id: participantId, email_canonical: 'someone@example.test', wallet_index: null, wallet_address: null });
 }
+
+/** An account as the chain shows it once it exists with its configuration (6.1). */
+const readyState = (owners = [SIGNER], guardians = [guardianAddress()], extra = {}) => ({
+  deployed: true,
+  nonce: 1n,
+  owners,
+  threshold: 1n,
+  modules: [keptra.RECOVERY_MODULE],
+  fallbackHandler: keptra.FALLBACK_HANDLER,
+  guardians,
+  guardianThreshold: 1n,
+  recoveryExecuteAfter: 0n,
+  recoveryNewOwners: [],
+  ...extra,
+});
 
 const mails = () => http.requests.filter((r) => r.url.includes('resend')).map((r) => JSON.parse(r.body));
 const telegrams = () => http.requests.filter((r) => r.url.includes('api.telegram.org')).map((r) => JSON.parse(r.body));
@@ -305,16 +321,14 @@ await test(['KM43'], 'this piece deploys no contract: there is no Solidity in th
   assert.deepEqual(found, []);
 });
 
-await test(['KM46'], 'no new dependency: the manifest lists exactly what main lists', () => {
-  const manifest = JSON.parse(read('package.json'));
-  assert.deepEqual(Object.keys(manifest.dependencies).sort(), [
-    '@supabase/supabase-js', '@tanstack/react-query', 'clsx', 'lucide-react', 'react', 'react-dom',
-    'react-router-dom', 'resend', 'tailwind-merge', 'viem', 'wagmi',
-  ]);
-  assert.deepEqual(Object.keys(manifest.devDependencies).sort(), [
-    '@types/react', '@types/react-dom', '@vitejs/plugin-react', 'autoprefixer', 'embedded-postgres', 'pg',
-    'postcss', 'tailwindcss', 'typescript', 'vite',
-  ]);
+await test(['KM46', 'AC14'], 'no new dependency: the manifest and the lockfile are main’s, read from git', () => {
+  // C14: compared with main itself, not with a list written here.
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  const main = JSON.parse(git('show', 'main:package.json'));
+  const branch = JSON.parse(read('package.json'));
+  assert.deepEqual(branch.dependencies, main.dependencies);
+  assert.deepEqual(branch.devDependencies, main.devDependencies);
+  assert.equal(git('diff', '--name-only', 'main', '--', 'package.json', 'package-lock.json').trim(), '');
 });
 
 await test(['KM39', 'F1'], 'the guardian key is a root of its own, read by guardian.ts alone', () => {
@@ -483,6 +497,8 @@ await test(['KM32', 'KM33'], 'a migration is authorised only by an owner passkey
   store.rows('bridge_v2_participants')[0].wallet_address = derived;
   const { passkey } = await registered();
   const account = keptra.predictSafeAddress(SIGNER, 'PARTICIPANT');
+  // C4: the account exists and is configured before it is a destination.
+  kchain.set({ accountState: readyState() });
 
   const challengeResponse = await migrateRoute.POST(request(url('account/migrate'), { cookie: SESSION_COOKIE, body: { kind: 'PARTICIPANT' } }));
   const { challenge } = await challengeResponse.json();
@@ -706,6 +722,339 @@ await test(['KM13'], 'a winner with an account is emailed a link to claim with t
 });
 
 // ===========================================================================
+// Adenda C — the corrections after the audit of 1db7d21 (tagged ACn)
+// ===========================================================================
+
+/** Every .ts under lib/ and api/, with comments stripped. */
+function productionSources() {
+  const walk = (dir, out = []) => {
+    for (const name of readdirSync(`${root}${dir}`)) {
+      const path = `${dir}/${name}`;
+      if (statSync(`${root}${path}`).isDirectory()) walk(path, out);
+      else if (path.endsWith('.ts')) out.push(path);
+    }
+    return out;
+  };
+  return [...walk('lib'), ...walk('api')].map((path) => [
+    path,
+    read(path).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''),
+  ]);
+}
+
+// --- C1 and C14: reservations against the real budget ------------------------
+
+await test(['AC1', 'AC14'], 'the time double is production’s rule: finding 1’s reservation is refused, the migration’s fits', () => {
+  const run = deadline();
+  assert.equal(run.hasTimeFor(config.RUN_BUDGET_MS + 1), false);
+  assert.equal(run.hasTimeFor(360_000), false, 'the reservation of finding 1 would pass the double');
+  assert.equal(run.hasTimeFor(config.MIGRATION_ASSET_MS), true);
+  assert.equal(run.hasTimeFor(config.MIGRATION_SEAL_MS), true);
+  assert.equal(run.hasTimeFor(config.RECOVERY_CONFIRM_MS), true);
+  assert.equal(deadline(false).hasTimeFor(1), false);
+});
+
+await test(['AC1'], 'every reservation a maintenance step passes to hasTimeFor is declared in config.ts and inside the budget check', () => {
+  const found = [];
+  const collect = (where, text) => {
+    for (const [, argument] of text.matchAll(/hasTimeFor\(([^)]*)\)/g)) found.push([where, argument.trim()]);
+  };
+  for (const path of ['lib/bridge-v2/migration.ts', 'lib/bridge-v2/recovery.ts', 'api/bridge/v2/cron/maintenance.ts']) {
+    collect(path, read(path));
+  }
+  // The sweep, the one maintenance step that lives in processor.ts.
+  const processor = read('lib/bridge-v2/processor.ts');
+  const sweep = processor.slice(processor.indexOf('export async function sweepConfirmed'));
+  collect('processor.ts sweepConfirmed', sweep.slice(0, sweep.indexOf('\nexport ', 1)));
+  assert.ok(found.length >= 7, `only ${found.length} reservations found`);
+
+  const source = read('lib/bridge-v2/config.ts');
+  const block = source.slice(source.indexOf('export const EVERY_RESERVATION_MS'), source.indexOf('export const LARGEST_UNIT_MS'));
+  for (const [where, name] of found) {
+    assert.match(name, /^[A-Z][A-Z0-9_]*$/, `${where}: hasTimeFor(${name}) is not a reservation named in config.ts`);
+    assert.equal(typeof config[name], 'number', `${where}: ${name} is not exported by config.ts`);
+    assert.match(block, new RegExp(`\\b${name}\\b`), `${where}: ${name} is not in EVERY_RESERVATION_MS`);
+  }
+  for (const [unit, ms] of Object.entries(config.EVERY_RESERVATION_MS)) {
+    assert.ok(ms < config.RUN_BUDGET_MS, `${unit}: ${ms} ms does not fit the ${config.RUN_BUDGET_MS} ms budget`);
+  }
+});
+
+// --- C2: an account on-chain without its module or guardian ------------------
+
+await test(['AC2', 'KM6'], 'an account deployed without its module accepts only its completion, at nonce 0, through the closed list', async () => {
+  fresh();
+  const { passkey } = await registered();
+  const bare = readyState([SIGNER], [], { nonce: 0n, modules: [] });
+  kchain.set({ accountState: bare });
+  for (const kind of ['cancelRecovery', 'revokeGuardian', 'createCampaign']) {
+    const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind, role: 'CREATOR' } }));
+    assert.equal(refused.status, 409, kind);
+    assert.equal((await refused.json()).error, 'Your account needs to finish its setup first. Confirm it with your passkey.', kind);
+  }
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'configure' }, 'PARTICIPANT');
+  const safe = keptra.predictSafeAddress(SIGNER, 'PARTICIPANT');
+  const lower = (list) => list.map((c) => ({ to: c.to.toLowerCase(), data: c.data.toLowerCase() }));
+  assert.equal(prepared.tx.nonce, 0n);
+  assert.deepEqual(lower(keptra.callsOf(prepared.tx)), lower(keptra.configurationCalls(safe, guardianAddress())));
+  // The completion goes out with the passkey's signature and nothing else.
+  kchain.set({ isValidPasskeySignature: true, hasCode: true });
+  const assertion = await passkey.sign(prepared.hash);
+  const submitted = await relayRoute.POST(
+    request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'configure', nonce: '0', ...assertion } }),
+  );
+  assert.equal(submitted.status, 200);
+  const sent = kchain.calls.filter((c) => c.name === 'sendRelayed');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].args[1].to.toLowerCase(), safe.toLowerCase(), 'the account was deployed again, or something else was sent');
+});
+
+await test(['AC2'], 'an account without a guardian (after A6) accepts only the guardian added back', async () => {
+  fresh();
+  await registered();
+  kchain.set({ accountState: readyState([SIGNER], []) });
+  const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'cancelRecovery' } }));
+  assert.equal(refused.status, 409);
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'configure' }, null);
+  assert.deepEqual(keptra.callsOf(prepared.tx).map((c) => c.data), keptra.addGuardianCalls(guardianAddress()).map((c) => c.data));
+  // Complete: configure has nothing to do, and every action is back.
+  kchain.set({ accountState: readyState() });
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'configure' }, null), (error) => error.reason === 'already_configured');
+});
+
+// --- C3: an abandoned change of access -----------------------------------------
+
+await test(['AC3', 'KM14'], 'a request whose Telegram link expired closes by itself and never blocks a new one', async () => {
+  fresh();
+  const { passkey } = await registered();
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = new Date().toISOString();
+  });
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  const open = () => recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: passkey.credentialId } }));
+  assert.equal((await open()).status, 200);
+  assert.equal((await open()).status, 409, 'a live request was stacked on another');
+  // The link expires unused.
+  store.rows('bridge_v2_recoveries')[0].link_expires_at = new Date(Date.now() - 1_000).toISOString();
+  assert.equal((await open()).status, 200, 'the abandoned request blocked a new one');
+  assert.deepEqual(store.rows('bridge_v2_recoveries').map((row) => row.status), ['EXPIRED', 'AWAITING_PHONE']);
+
+  // With nobody asking: the maintenance pass closes the second one when its link expires.
+  store.rows('bridge_v2_recoveries')[1].link_expires_at = new Date(Date.now() - 1_000).toISOString();
+  const { TEST_CRON_SECRET } = await import('../harness.mjs');
+  const maintenance = await import('../../../api/bridge/v2/cron/maintenance.ts');
+  db.on('rpc:bridge_v2_try_lock', () => ({ data: 'holder-abc', error: null }));
+  db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
+  db.on('rpc:bridge_v2_cleanup', () => ({ data: [], error: null }));
+  db.on('bridge_v2_external_spend:select', () => ({ data: [], error: null }));
+  const response = await maintenance.GET(request(url('cron/maintenance'), { method: 'GET', headers: { authorization: `Bearer ${TEST_CRON_SECRET}` } }));
+  assert.equal((await response.json()).accounts.recoveriesExpired, 1);
+  assert.deepEqual(store.rows('bridge_v2_recoveries').map((row) => row.status), ['EXPIRED', 'EXPIRED']);
+  assert.equal((await open()).status, 200);
+  // Only a request still waiting on its link: one past the phone step is the pass's to finish.
+  const verified = store.insert('bridge_v2_recoveries', { participant_id: 'participant-9', passkey_id: 'p9', status: 'PHONE_VERIFIED', link_code_hash: 'v', link_expires_at: new Date(Date.now() - 1_000).toISOString() });
+  assert.equal(await accounts.expireAbandonedRecoveries(), 0);
+  assert.equal(verified.status, 'PHONE_VERIFIED');
+});
+
+// --- C4: value only into accounts that exist, configured ------------------------
+
+await test(['AC4'], 'the migration authorisation is refused, with no address shown, until the account is set up', async () => {
+  fresh();
+  store.rows('bridge_v2_participants')[0].wallet_index = 12;
+  store.rows('bridge_v2_participants')[0].wallet_address = addressOf(12);
+  await registered();
+  for (const state of [undefined, readyState([SIGNER], [], { modules: [] }), readyState([SIGNER], [])]) {
+    kchain.reset();
+    if (state !== undefined) kchain.set({ accountState: state });
+    const response = await migrateRoute.POST(request(url('account/migrate'), { cookie: SESSION_COOKIE, body: { kind: 'PARTICIPANT' } }));
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.equal(body.challenge, undefined, 'a challenge naming the account was handed out');
+  }
+  kchain.set({ accountState: readyState() });
+  const ready = await migrateRoute.POST(request(url('account/migrate'), { cookie: SESSION_COOKIE, body: { kind: 'PARTICIPANT' } }));
+  assert.equal(ready.status, 200);
+});
+
+await test(['AC4'], 'the creator deposit address is shown only once the creator account is deployed and configured', async () => {
+  fresh();
+  await registered();
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  const startRoute = await import('../../../api/bridge/v2/creator/campaign/start.ts');
+  const statusRoute = await import('../../../api/bridge/v2/creator/campaign/status.ts');
+  const draft = { module: '0x2247aeF54C66bD5149989f9c66522d3b439a4A7b', prizeToken: config.USDC, prizeAmount: '10000000', durationSeconds: 3600, winnersCount: 1, slotCap: 10 };
+  const start = () => startRoute.POST(request(url('creator/campaign/start'), { cookie: SESSION_COOKIE, body: draft }));
+
+  const refused = await start();
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).depositAddress, undefined);
+  assert.equal(store.rows('bridge_v2_creator_campaigns').length, 0, 'a draft was opened for an address not yet shown');
+
+  kchain.set({ accountState: readyState() });
+  const started = await start();
+  assert.equal(started.status, 200);
+  const creatorSafe = keptra.predictSafeAddress(SIGNER, 'CREATOR');
+  assert.equal((await started.json()).depositAddress, creatorSafe);
+
+  // A revocation takes the guardian away: the address is no longer shown.
+  kchain.set({ accountState: readyState([SIGNER], []) });
+  const status = await statusRoute.POST(request(url('creator/campaign/status'), { cookie: SESSION_COOKIE }));
+  assert.equal((await status.json()).depositAddress, null);
+});
+
+await test(['AC4', 'AC6'], 'register shows an address only for a configured account, and recovery as active only with the current guardian on-chain', async () => {
+  fresh();
+  const first = await registered();
+  // Not deployed yet: no address, no recovery.
+  assert.deepEqual(first.body.accounts.map((a) => [a.address, a.deployed, a.configured, a.recoveryEnabled]), [
+    [null, false, false, false],
+    [null, false, false, false],
+  ]);
+  const view = async (state, signer) => {
+    kchain.set({ accountState: state });
+    return (await registered(signer)).body.accounts;
+  };
+  const current = await view(readyState(), '0x7777777777777777777777777777777777777777');
+  assert.ok(current.every((a) => a.address !== null && a.configured && a.recoveryEnabled));
+  // After a rotation the account still holds the old key: configured, but no working recovery (C6).
+  const rotated = await view(readyState([SIGNER], ['0x3333333333333333333333333333333333333333']), '0x7676767676767676767676767676767676767676');
+  assert.ok(rotated.every((a) => a.configured && !a.recoveryEnabled), 'a rotated-away guardian was shown as recovery');
+  // Revoked (A6): neither.
+  const revoked = await view(readyState([SIGNER], []), '0x7575757575757575757575757575757575757575');
+  assert.ok(revoked.every((a) => a.address === null && !a.configured && !a.recoveryEnabled));
+});
+
+await test(['AC4', 'AC7'], 'a transfer never goes into a platform account that is not set up', async () => {
+  fresh();
+  await registered();
+  const other = keptra.predictSafeAddress('0x7474747474747474747474747474747474747474', 'PARTICIPANT');
+  store.insert('bridge_v2_accounts', { participant_id: 'participant-2', role: 'PARTICIPANT', safe_address: other, initial_signer: SIGNER, guardian_address: guardianAddress() });
+  const ours = keptra.predictSafeAddress(SIGNER, 'PARTICIPANT');
+  kchain.set({ accountState: (safe) => (safe.toLowerCase() === ours.toLowerCase() ? readyState() : { ...readyState(), deployed: false }) });
+  chain.set({ erc20BalanceOf: 5n });
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  await assert.rejects(
+    relayLib.prepareAction('participant-1', { kind: 'transfer', giveawayId: 1n, to: other.toLowerCase(), amount: 1n }, null),
+    (error) => error.reason === 'destination_not_ready',
+  );
+});
+
+// --- C5: erasure removes the chat ------------------------------------------------
+
+await test(['AC5'], 'erasure on request removes the encrypted Telegram chat too', async () => {
+  fresh();
+  await storeTelegramChat('participant-1', 4242);
+  assert.ok(store.rows('bridge_v2_participants')[0].telegram_chat_enc);
+  db.on('rpc:bridge_v2_release_phone', () => ({ data: 1, error: null }));
+  db.on('bridge_v2_sessions:update', () => ({ data: [{ id: 'session-1' }], error: null }));
+  const erase = await import('../../../api/bridge/v2/privacy/erase.ts');
+  const response = await erase.POST(request(url('privacy/erase'), { cookie: SESSION_COOKIE }));
+  assert.equal(response.status, 200);
+  const row = store.rows('bridge_v2_participants')[0];
+  assert.equal(row.telegram_chat_enc, null, 'the chat survived erasure');
+  assert.equal(await telegramChatOf('participant-1'), null);
+  assert.match(row.email_canonical, /^erased-[0-9a-f]{32}@invalid$/);
+});
+
+// --- C7: the amount the owner stated --------------------------------------------
+
+await test(['AC7', 'KM26'], 'a token transfer moves exactly the stated amount, never the whole balance, and never more than is held', async () => {
+  fresh();
+  await registered();
+  const destination = '0x7373737373737373737373737373737373737373';
+  const noAmount = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'transfer', giveawayId: '1', to: destination } }));
+  assert.equal(noAmount.status, 400, 'a transfer with no amount was accepted');
+
+  kchain.set({ accountState: readyState() });
+  chain.set({ erc20BalanceOf: 9_000_000n });
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'transfer', giveawayId: 1n, to: destination, amount: 2_500_000n }, null);
+  const [call] = keptra.callsOf(prepared.tx);
+  assert.equal(call.to.toLowerCase(), config.USDC.toLowerCase());
+  assert.equal(call.data, encodeFunctionData({ abi: parseAbi(['function transfer(address,uint256) returns (bool)']), functionName: 'transfer', args: [destination, 2_500_000n] }));
+  assert.ok(!chain.calls.some((c) => c.name === 'prizeDelivery'), 'the balance-sweeping builder was used for a token');
+  await assert.rejects(
+    relayLib.prepareAction('participant-1', { kind: 'transfer', giveawayId: 1n, to: destination, amount: 9_000_001n }, null),
+    (error) => error.reason === 'amount',
+  );
+});
+
+// --- C9: the relying party and the origin -----------------------------------------
+
+await test(['AC9', 'KM10'], 'an assertion made for another site or another origin is refused before the chain is asked', async () => {
+  const challenge = keptra.migrationChallenge(SAFE, SIGNER);
+  for (const [options, what] of [
+    [{ rpId: 'keptra.xyz' }, 'rpIdHash'],
+    [{ origin: 'https://instntwin.com' }, 'origin'],
+    [{ rpId: 'evil.example', origin: 'https://evil.example' }, 'both'],
+  ]) {
+    const foreign = await createPasskey(options);
+    const assertion = await foreign.sign(challenge);
+    assert.equal(
+      keptra.assertionToSignature(challenge, assertion.authenticatorData, assertion.clientDataJSON, assertion.signature),
+      null,
+      `an assertion with the wrong ${what} was accepted`,
+    );
+  }
+  // Through the relay: 401, and the signer contract is never asked.
+  fresh();
+  const passkey = await createPasskey({ origin: 'https://keptra.io.evil.example' });
+  kchain.set({ signerAddressOf: SIGNER });
+  await register.POST(request(url('account/register'), { cookie: SESSION_COOKIE, body: { x: passkey.x.toString(), y: passkey.y.toString(), credentialId: passkey.credentialId } }));
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  kchain.set({ accountState: readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: 10n }), isValidPasskeySignature: true });
+  const tx = await relayLib.prepareAction('participant-1', { kind: 'cancelRecovery' }, null);
+  const assertion = await passkey.sign(tx.hash);
+  const refused = await relayRoute.POST(
+    request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'cancelRecovery', nonce: tx.tx.nonce.toString(), ...assertion } }),
+  );
+  assert.equal(refused.status, 401);
+  assert.equal(kchain.calls.filter((c) => c.name === 'isValidPasskeySignature').length, 0);
+  assert.equal(kchain.calls.filter((c) => c.name === 'sendRelayed').length, 0);
+});
+
+// --- C11: guardian changes the relayer pays for -----------------------------------
+
+await test(['AC11'], 'a fourth guardian change in 24 hours is refused before anything is signed or sent; older ones do not count', async () => {
+  fresh();
+  await registered();
+  kchain.set({ accountState: readyState() });
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const account = store.rows('bridge_v2_accounts').find((row) => row.role === 'PARTICIPANT');
+  const change = (hoursAgo) => store.insert('bridge_v2_guardian_changes', { account_id: account.id, created_at: new Date(Date.now() - hoursAgo * 3_600_000).toISOString() });
+  change(30);
+  change(23);
+  change(2);
+  assert.equal((await relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null)).guardianChange, true);
+  change(1);
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null), (error) => error.reason === 'guardian_change_limit');
+  kchain.set({ accountState: readyState([SIGNER], []) });
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'configure' }, null), (error) => error.reason === 'guardian_change_limit');
+  // Any other action is not a guardian change and is not limited by it.
+  kchain.set({ accountState: readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: 10n }) });
+  assert.equal((await relayLib.prepareAction('participant-1', { kind: 'cancelRecovery' }, null)).guardianChange, false);
+  const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'revokeGuardian' } }));
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, 'Recovery settings were changed too often today. Try again tomorrow.');
+});
+
+// --- C13: nothing in production only the tests use -------------------------------
+
+await test(['AC13'], 'production code carries nothing only the tests use, and RP_ID is used (C9)', () => {
+  const sources = productionSources();
+  for (const name of ['SHARED_SIGNER', 'singletonOf', 'createdSigners', 'RECOVERY_PERIOD_SECONDS']) {
+    const users = sources.filter(([, text]) => new RegExp(`\\b${name}\\b`).test(text)).map(([path]) => path);
+    assert.deepEqual(users, [], `${name} is still in production code`);
+  }
+  const chainHalf = sources.find(([path]) => path === 'lib/bridge-v2/keptraChain.ts')[1];
+  assert.ok(!/export \{/.test(chainHalf), 'a re-export is left in keptraChain.ts');
+  const pure = sources.find(([path]) => path === 'lib/bridge-v2/keptra.ts')[1];
+  assert.ok((pure.match(/\bRP_ID\b/g) ?? []).length >= 2, 'RP_ID is declared and never used');
+});
+
+// ===========================================================================
 // migration 0012, executed — M3, M29, M31, and the grants
 // ===========================================================================
 
@@ -782,8 +1131,36 @@ if (engine !== null) {
     assert.equal((await notice()).code, '23505');
   });
 
-  await test(['KM1'], '0012: the new tables are closed to the browser roles', async () => {
-    for (const table of ['bridge_v2_passkeys', 'bridge_v2_accounts', 'bridge_v2_recoveries', 'bridge_v2_recovery_notices', 'bridge_v2_migrations']) {
+  await test(['AC3'], '0012: EXPIRED is a state, it frees the one-live-request index, and the expiry statement is the one accounts.ts runs', async () => {
+    const { id } = await participant('expired@example.test');
+    const passkey = (await q(`INSERT INTO bridge_v2_passkeys (participant_id, credential_id, public_x, public_y, signer_address) VALUES ($1, $2, 1, 2, $3) RETURNING id`, [id, 'e'.repeat(20), '0x9898989898989898989898989898989898989898'])).rows[0].id;
+    const open = (code, expires) => attempt(engine.pool, `INSERT INTO bridge_v2_recoveries (participant_id, passkey_id, status, link_code_hash, link_expires_at) VALUES ($1, $2, 'AWAITING_PHONE', $3, $4) RETURNING id`, [id, passkey, code, expires]);
+    assert.equal((await open('exp-1', new Date(Date.now() - 60_000).toISOString())).ok, true);
+    assert.equal((await open('exp-2', new Date(Date.now() + 60_000).toISOString())).code, '23505');
+    // What expireAbandonedRecoveries sends: one conditional UPDATE.
+    const expired = await q(`UPDATE bridge_v2_recoveries SET status = 'EXPIRED', updated_at = now() WHERE status = 'AWAITING_PHONE' AND link_expires_at <= now() AND participant_id = $1 RETURNING id`, [id]);
+    assert.equal(expired.rowCount, 1);
+    assert.equal((await open('exp-3', new Date(Date.now() + 60_000).toISOString())).ok, true, 'an expired request still held the index');
+    const unknown = await attempt(engine.pool, `UPDATE bridge_v2_recoveries SET status = 'LOST' WHERE participant_id = $1`, [id]);
+    assert.equal(unknown.code, '23514');
+  });
+
+  await test(['AC11'], '0012: guardian changes are recorded per account by the service, stamped by the database, and counted in a window', async () => {
+    const { id } = await participant('guardian@example.test');
+    const account = (await q(`INSERT INTO bridge_v2_accounts (participant_id, role, safe_address, initial_signer, guardian_address) VALUES ($1, 'PARTICIPANT', $2, $3, $3) RETURNING id`, [id, '0x9797979797979797979797979797979797979797', SIGNER])).rows[0].id;
+    for (let i = 0; i < 3; i += 1) {
+      const insert = await asRole(engine, 'service_role', (client) => attempt(client, `INSERT INTO bridge_v2_guardian_changes (account_id) VALUES ($1) RETURNING created_at`, [account]));
+      assert.equal(insert.ok, true);
+    }
+    // The query guardianChangesSince makes.
+    const counted = await q(`SELECT id FROM bridge_v2_guardian_changes WHERE account_id = $1 AND created_at >= $2`, [account, new Date(Date.now() - 86_400_000).toISOString()]);
+    assert.equal(counted.rowCount, 3);
+    const orphan = await attempt(engine.pool, `INSERT INTO bridge_v2_guardian_changes (account_id) VALUES (gen_random_uuid())`);
+    assert.equal(orphan.code, '23503');
+  });
+
+  await test(['KM1', 'AC11'], '0012: the new tables are closed to the browser roles', async () => {
+    for (const table of ['bridge_v2_passkeys', 'bridge_v2_accounts', 'bridge_v2_recoveries', 'bridge_v2_recovery_notices', 'bridge_v2_migrations', 'bridge_v2_guardian_changes']) {
       for (const role of ['anon', 'authenticated']) {
         const outcome = await asRole(engine, role, (client) => attempt(client, `SELECT 1 FROM ${table} LIMIT 1`));
         assert.equal(outcome.ok, false, `${role} can read ${table}`);

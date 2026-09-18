@@ -89,8 +89,12 @@ export function memdb(db, tables, unique = {}) {
     db.on(`${table}:insert`, (op) => {
       const payloads = Array.isArray(op.payload) ? op.payload : [op.payload];
       const inserted = [];
+      // A column the insert did not write and asks to read back is NULL, as in
+      // Postgres, not missing.
+      const returned = (op.columns ?? '').split(',').map((column) => column.trim().split('::')[0]).filter((name) => /^\w+$/.test(name));
       for (const payload of payloads) {
         const row = { id: randomUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...payload };
+        for (const name of returned) if (!(name in row)) row[name] = null;
         if (violates(table, row, null)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
         data.get(table).push(row);
         inserted.push(row);
@@ -142,6 +146,7 @@ export const KEPTRA_TABLES = [
   'bridge_v2_recoveries',
   'bridge_v2_recovery_notices',
   'bridge_v2_migrations',
+  'bridge_v2_guardian_changes',
   'bridge_v2_phones',
   'bridge_v2_ops_events',
 ];

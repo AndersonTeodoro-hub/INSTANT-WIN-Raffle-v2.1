@@ -432,6 +432,42 @@ export const PHASE_STARVATION_BOUND_RUNS = PIPELINE_PHASES.length;
 export const SWEEP_WORST_CASE_MS = 5 * RPC_TIMEOUT_MS;
 
 /**
+ * SPEC-BLOCO-03 6.6 and Adenda C1: what the migration reserves before it moves
+ * ONE asset of a derived wallet into its account — gas to the wallet and the
+ * transfer, both awaited, which is the shape of an entry — plus the reads that
+ * check the account is ready to receive it (C4).
+ *
+ * Per asset and not per wallet. The reservation it replaces was three assets at
+ * once, 360_000 ms against this 280_000 ms budget: false on the first
+ * millisecond of every run, so no balance was ever moved — the prize stage's
+ * outage again, which is why it is declared here and checked below.
+ */
+export const MIGRATION_ASSET_MS = ENTRY_WORST_CASE_MS + 2 * RPC_TIMEOUT_MS;
+/**
+ * C1: closing one migrated wallet — the sweep of its remaining ETH (H7) and the
+ * reads that decide whether it may be sealed (A8): what it still holds, and the
+ * rights still tied to it.
+ */
+export const MIGRATION_SEAL_MS = SWEEP_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS + 2 * DB_TIMEOUT_MS;
+
+/**
+ * SPEC-BLOCO-03 6.3 and C1: one recovery request confirmed — the new signer
+ * created, then one guardian confirmation per account (two, A10), each awaited.
+ */
+export const RECOVERY_CONFIRM_MS = 3 * (RECEIPT_TIMEOUT_MS + 3 * RPC_TIMEOUT_MS);
+/** C1: one confirmed request advanced — its state reads and one finalisation, awaited (R-6). */
+export const RECOVERY_ADVANCE_MS = RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
+/** C1, C10: one page of accounts read for a recovery nobody registered. Reads only. */
+export const RECOVERY_SCAN_MS = 2 * RPC_TIMEOUT_MS;
+
+/**
+ * SPEC-BLOCO-03 Adenda C11: the guardian changes (a revocation, or the guardian
+ * added back) the relayer pays for on one account in 24 hours. Above it, the
+ * relay refuses.
+ */
+export const GUARDIAN_CHANGES_PER_DAY = 3;
+
+/**
  * G4 and §7/G4, checked rather than declared.
  *
  * A reservation larger than the whole budget is a unit of work that can never
@@ -457,16 +493,28 @@ export const SWEEP_WORST_CASE_MS = 5 * RPC_TIMEOUT_MS;
  * and every reservation, each strictly under the budget: 50_000 for a root
  * publication and for one SUBMITTED reconciliation, 20_000 for a FUNDING
  * reconciliation, 50_000 for a sweep, 100_000 for an entry, 80_000 for a lifecycle
- * transition, 240_000 for a prize.
+ * transition, 240_000 for a prize; and in the maintenance pass (C1) 120_000 for
+ * one migrated asset, 106_000 for sealing a migrated wallet, 180_000 for a
+ * recovery confirmation, 70_000 for advancing one, 20_000 for a page of the
+ * recovery scan.
  * The largest leaves 40_000 ms of margin.
+ *
+ * Adenda C1: EVERY reservation a maintenance step passes to hasTimeFor is in
+ * this map. The keptra suite checks the source for it, so a reservation written
+ * at a call site again fails a test rather than a run.
  */
-const EVERY_RESERVATION_MS: Record<string, number> = {
+export const EVERY_RESERVATION_MS: Record<string, number> = {
   ...PHASE_RESERVATION_MS,
   sweep: SWEEP_WORST_CASE_MS,
   // Not a phase, checked anyway: the unit that disappeared was the one whose
   // reservation nobody compared against the budget.
   settlementNotice: SETTLEMENT_NOTICE_MS,
   passkeyEntry: PASSKEY_ENTRY_RECONCILE_MS,
+  migrationAsset: MIGRATION_ASSET_MS,
+  migrationSeal: MIGRATION_SEAL_MS,
+  recoveryConfirm: RECOVERY_CONFIRM_MS,
+  recoveryAdvance: RECOVERY_ADVANCE_MS,
+  recoveryScan: RECOVERY_SCAN_MS,
 };
 
 export const LARGEST_UNIT_MS = Math.max(...Object.values(EVERY_RESERVATION_MS));

@@ -12,6 +12,7 @@
  * write.
  */
 
+import { getAddress } from 'viem';
 import { checked, checkedMaybe, DatabaseError, getDb } from './db.js';
 import { DB_TIMEOUT_MS } from './config.js';
 import { predictSafeAddress, type AccountRole, type NoticeStage } from './keptra.js';
@@ -251,14 +252,17 @@ export async function recordGuardian(accountId: string, guardian: `0x${string}`,
   );
 }
 
-/** Deployed accounts after `afterId`, a page at a time, for the checks run over all of them. */
-export async function deployedAccounts(afterId: string, limit: number): Promise<Account[]> {
+/**
+ * Every account after `afterId`, a page at a time, for the checks run over all
+ * of them. Marked deployed or not (C10): an account somebody else deployed at
+ * its address has code on-chain and no deployed_at here, and is still ours.
+ */
+export async function accountsPage(afterId: string, limit: number): Promise<Account[]> {
   const rows = checked(
-    'account.list_deployed',
+    'account.list_page',
     await getDb()
       .from('bridge_v2_accounts')
       .select(ACCOUNT_COLUMNS)
-      .not('deployed_at', 'is', null)
       .gt('id', afterId)
       .order('id', { ascending: true })
       .limit(limit)
@@ -267,11 +271,63 @@ export async function deployedAccounts(afterId: string, limit: number): Promise<
   return Array.isArray(rows) ? rows.map(toAccount) : [];
 }
 
+/** C4: the platform account at this address, if the address is one. */
+export async function accountBySafe(safe: `0x${string}`): Promise<Account | null> {
+  const row = checkedMaybe(
+    'account.by_safe',
+    await getDb()
+      .from('bridge_v2_accounts')
+      .select(ACCOUNT_COLUMNS)
+      .eq('safe_address', getAddress(safe))
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as AccountRow | null;
+  return row === null ? null : toAccount(row);
+}
+
+/**
+ * C11: the guardian changes the relayer paid for on this account since `since`.
+ * Each is recorded BEFORE it is sent (recordGuardianChange), so a change that
+ * then fails still counts: the count can be high, never low.
+ */
+export async function guardianChangesSince(accountId: string, since: Date): Promise<number> {
+  const rows = checked(
+    'account.guardian_changes',
+    await getDb()
+      .from('bridge_v2_guardian_changes')
+      .select('id')
+      .eq('account_id', accountId)
+      .gte('created_at', since.toISOString())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { id: string }[] | null;
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+export async function recordGuardianChange(accountId: string): Promise<void> {
+  checked(
+    'account.guardian_change',
+    await getDb()
+      .from('bridge_v2_guardian_changes')
+      .insert({ account_id: accountId })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
+}
+
 // -----------------------------------------------------------------------------
 // recoveries — 6.3, 6.4, A14
 // -----------------------------------------------------------------------------
 
-export type RecoveryStatus = 'AWAITING_PHONE' | 'PHONE_VERIFIED' | 'CONFIRMED' | 'FINALIZED' | 'CANCELED' | 'REFUSED';
+export type RecoveryStatus =
+  | 'AWAITING_PHONE'
+  | 'PHONE_VERIFIED'
+  | 'CONFIRMED'
+  | 'FINALIZED'
+  | 'CANCELED'
+  | 'REFUSED'
+  | 'EXPIRED';
+
+/** The states the one-live-request index covers (0012). */
+export const LIVE_RECOVERY_STATUSES: readonly RecoveryStatus[] = ['AWAITING_PHONE', 'PHONE_VERIFIED', 'CONFIRMED'];
 
 export interface Recovery {
   readonly id: string;
@@ -305,8 +361,31 @@ function toRecovery(row: RecoveryRow): Recovery {
 }
 
 /**
+ * Adenda C3: a request whose Telegram link expired before the number was
+ * confirmed is closed as EXPIRED — every such request, or one participant's.
+ * One conditional statement (G1); the maintenance pass runs it for everybody,
+ * and openRecovery for the participant asking, so an abandoned request never
+ * holds the one-live-request index against a new one.
+ */
+export async function expireAbandonedRecoveries(participantId?: string): Promise<number> {
+  const now = new Date().toISOString();
+  let query = getDb()
+    .from('bridge_v2_recoveries')
+    .update({ status: 'EXPIRED', updated_at: now })
+    .eq('status', 'AWAITING_PHONE')
+    .lte('link_expires_at', now);
+  if (participantId !== undefined) query = query.eq('participant_id', participantId);
+  const rows = checked(
+    'recovery.expire',
+    await query.select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { id: string }[] | null;
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+/**
  * Opens a request. One live request per participant is the unique index's rule,
- * so a second request while one is running is refused rather than stacked.
+ * so a second request while one is running is refused rather than stacked — but
+ * one whose link expired unused is closed first (C3) and does not count.
  */
 export async function openRecovery(
   participantId: string,
@@ -314,6 +393,7 @@ export async function openRecovery(
   linkCodeHash: string,
   linkExpiresAt: Date,
 ): Promise<Recovery | 'ALREADY_OPEN'> {
+  await expireAbandonedRecoveries(participantId);
   const inserted = await getDb()
     .from('bridge_v2_recoveries')
     .insert({
@@ -340,11 +420,24 @@ export async function liveRecovery(participantId: string): Promise<Recovery | nu
       .from('bridge_v2_recoveries')
       .select(RECOVERY_COLUMNS)
       .eq('participant_id', participantId)
-      .in('status', ['AWAITING_PHONE', 'PHONE_VERIFIED', 'CONFIRMED'])
+      .in('status', [...LIVE_RECOVERY_STATUSES])
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as RecoveryRow | null;
   return row === null ? null : toRecovery(row);
+}
+
+/** C10: every request in a live state, whatever its step. At most one per participant. */
+export async function liveRecoveries(): Promise<Recovery[]> {
+  const rows = checked(
+    'recovery.live_all',
+    await getDb()
+      .from('bridge_v2_recoveries')
+      .select(RECOVERY_COLUMNS)
+      .in('status', [...LIVE_RECOVERY_STATUSES])
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as RecoveryRow[] | null;
+  return Array.isArray(rows) ? rows.map(toRecovery) : [];
 }
 
 /** A14, step 1: /start with the recovery code attaches the chat. Single statement (G1). */

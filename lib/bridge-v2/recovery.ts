@@ -24,7 +24,7 @@
 import type { Logger } from './log.js';
 import { alert } from './alert.js';
 import type { RunDeadline } from './runlock.js';
-import { RPC_TIMEOUT_MS, RECEIPT_TIMEOUT_MS } from './config.js';
+import { RECOVERY_ADVANCE_MS, RECOVERY_CONFIRM_MS, RECOVERY_SCAN_MS } from './config.js';
 import {
   accountState,
   chainNow,
@@ -36,8 +36,9 @@ import {
 import { createSignerCall, dueNoticeStages, newOwnersRefusal, type NoticeStage } from './keptra.js';
 import {
   accountsOf,
+  accountsPage,
   advanceRecovery,
-  deployedAccounts,
+  liveRecoveries,
   passkeyById,
   recordRecoveryNotice,
   recoveriesIn,
@@ -52,8 +53,6 @@ import { telegramChatOf } from './phone.js';
 import { sendRecoveryNoticeEmail } from './mail.js';
 import { BOT_MESSAGES, sendText } from './telegram.js';
 
-/** One request's confirmation: a signer creation and one confirmation per account, each awaited. */
-export const RECOVERY_CONFIRM_WORST_CASE_MS = 3 * (RECEIPT_TIMEOUT_MS + 3 * RPC_TIMEOUT_MS);
 const BATCH = 5;
 
 const sameOwners = (a: readonly string[], b: readonly string[]) =>
@@ -66,7 +65,7 @@ const sameOwners = (a: readonly string[], b: readonly string[]) =>
 export async function confirmVerifiedRecoveries(log: Logger, deadline: RunDeadline): Promise<number> {
   let confirmed = 0;
   for (const request of await recoveriesIn('PHONE_VERIFIED', BATCH)) {
-    if (!deadline.hasTimeFor(RECOVERY_CONFIRM_WORST_CASE_MS)) break;
+    if (!deadline.hasTimeFor(RECOVERY_CONFIRM_MS)) break;
     try {
       if (await confirmOne(request, log)) confirmed += 1;
     } catch (error) {
@@ -195,7 +194,7 @@ export async function advanceConfirmedRecoveries(
 ): Promise<number> {
   let finished = 0;
   for (const request of await recoveriesIn('CONFIRMED', 20)) {
-    if (!deadline.hasTimeFor(RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS)) break;
+    if (!deadline.hasTimeFor(RECOVERY_ADVANCE_MS)) break;
     try {
       const passkey = await passkeyById(request.passkeyId);
       if (passkey === null) continue;
@@ -237,25 +236,35 @@ export async function advanceConfirmedRecoveries(
 }
 
 /**
- * M22: a recovery pending on an account with no confirmed request of ours behind
- * it. The guardian is the platform's key, so this is either a compromised
- * guardian or a request this side lost — an alert either way, never a
- * finalisation. One page of accounts per call, read concurrently.
+ * M22 as Adenda C10 fixes it: the alert fires if, and only if, a platform
+ * account has a recovery pending on-chain that matches no registered request in
+ * a live state — AWAITING_PHONE, PHONE_VERIFIED or CONFIRMED, so a request
+ * confirmed on one account and not yet marked CONFIRMED is not a false alarm.
+ * Every account is read, marked deployed or not: one with code at its address
+ * that this side never marked (deployed by somebody else, C2) is still ours.
+ *
+ * The guardian is the platform's key, so a hit is either a compromised guardian
+ * or a request this side lost — an alert either way, never a finalisation. One
+ * page of accounts per step, read concurrently. A pass the deadline cuts short
+ * says so with its own alert, rather than reporting "none" for accounts it
+ * never read.
  */
-export async function alertUnregisteredRecoveries(log: Logger, deadline?: RunDeadline): Promise<number> {
-  const confirmed = await recoveriesIn('CONFIRMED', 200);
+export async function alertUnregisteredRecoveries(log: Logger, deadline: RunDeadline): Promise<number> {
   const registered = new Map<string, string>();
-  for (const request of confirmed) {
+  for (const request of await liveRecoveries()) {
     const passkey = await passkeyById(request.passkeyId);
     if (passkey !== null) registered.set(request.participantId, passkey.signer.toLowerCase());
   }
   let unregistered = 0;
-  // ponytail: one state read per deployed account per pass; an event cursor on
-  // RecoveryExecuted replaces this if the account count makes the pass slow.
+  // ponytail: one state read per account per pass (B7 accepts it); an event
+  // cursor on RecoveryExecuted replaces this if the account count makes it slow.
   let afterId = '00000000-0000-0000-0000-000000000000';
   for (;;) {
-    if (deadline !== undefined && !deadline.hasTimeFor(2 * RPC_TIMEOUT_MS)) break;
-    const accounts = await deployedAccounts(afterId, 50);
+    if (!deadline.hasTimeFor(RECOVERY_SCAN_MS)) {
+      await alert(log, 'recovery scan did not reach every account');
+      break;
+    }
+    const accounts = await accountsPage(afterId, 50);
     if (accounts.length === 0) break;
     const states = await Promise.all(accounts.map((account) => accountState(account.safe)));
     for (const [i, account] of accounts.entries()) {

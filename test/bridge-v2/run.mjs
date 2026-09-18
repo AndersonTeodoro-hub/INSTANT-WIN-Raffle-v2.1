@@ -65,6 +65,9 @@ const REQUIREMENTS = [
   // SPEC-BLOCO-03 piece 1: M1-M46 of MATRIZ-PECA1-KEPTRA, as KMn so they do not
   // collide with SPEC-BRIDGE-V2 §18's M1-M8 above.
   ...Array.from({ length: 46 }, (_unused, index) => `KM${index + 1}`),
+  // SPEC-BLOCO-03 Adenda C, as ACn (C1-C9 are SPEC-BRIDGE-V2's). C8 is accepted
+  // as a limit and C12 belongs to piece 6, so neither is listed.
+  'AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC9', 'AC10', 'AC11', 'AC13', 'AC14',
 ];
 
 for (const path of SUITES) {
