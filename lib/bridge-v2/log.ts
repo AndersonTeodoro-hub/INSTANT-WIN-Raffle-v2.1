@@ -73,6 +73,25 @@ export type OpsKind =
   | 'lifecycle.failed'
   | 'lifecycle.deferred'
   | 'lifecycle.skipped'
+  // SPEC-BLOCO-03 section 6: Keptra accounts. Never an address, a key or a
+  // credential in the detail — the kind of action and the reason, nothing else.
+  | 'account.registered'
+  | 'account.relayed'
+  | 'account.refused'
+  | 'entry.reminded'
+  | 'recovery.requested'
+  | 'recovery.verified'
+  | 'recovery.confirmed'
+  | 'recovery.notified'
+  | 'recovery.finalized'
+  | 'recovery.canceled'
+  | 'recovery.refused'
+  | 'recovery.failed'
+  | 'migration.authorized'
+  | 'migration.moved'
+  | 'migration.sealed'
+  | 'migration.failed'
+  | 'migration.readiness'
   | 'alert';
 
 /**

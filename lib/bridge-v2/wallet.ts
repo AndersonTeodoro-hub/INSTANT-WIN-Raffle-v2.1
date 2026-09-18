@@ -22,6 +22,7 @@
 import { mnemonicToAccount } from 'viem/accounts';
 import type { Hex, TransactionSerializable } from 'viem';
 import { requireEnv } from './env.js';
+import { isIndexSealed } from './accounts.js';
 
 /**
  * The derivation index comes from a Postgres sequence, never from a count.
@@ -54,6 +55,12 @@ export async function signAsDerived(
   transaction: TransactionSerializable,
 ): Promise<Hex> {
   assertIndex(index);
+  // SPEC-BLOCO-03 6.6 (M2): a wallet whose migration finished is sealed, and the
+  // derived key is never used for it again — whoever asks, for whatever reason.
+  // Asked here, at the one place the key is used, so no caller can skip it.
+  if (await isIndexSealed(index)) {
+    throw new Error('[bridge-v2] this derived wallet was migrated and is sealed');
+  }
   const account = mnemonicToAccount(requireEnv('BRIDGE_V2_WALLET_SEED'), { addressIndex: index });
   return account.signTransaction(transaction);
 }

@@ -29,6 +29,20 @@ function hashLinkCode(code: string): Promise<string> {
  * Telegram start parameter without escaping. The plaintext is returned once, to
  * be put in the link; only the hash is persisted.
  */
+/**
+ * SPEC-BLOCO-03 A14: the deep link a recovery is confirmed through. Same shape
+ * and same root as an entry's link code, its own label, so a code issued for one
+ * purpose never matches the other. The row that holds it is the recovery itself
+ * (accounts.ts); this module only makes and hashes the code.
+ */
+export function newRecoveryCode(): string {
+  return toBase64Url(randomBytes(LINK_CODE_BYTES));
+}
+
+export function hashRecoveryCode(code: string): Promise<string> {
+  return keyedHash('BRIDGE_V2_CODE_HMAC_KEY', 'telegram-recovery-v1', code);
+}
+
 export async function issueLinkCode(participantId: string, giveawayId: bigint): Promise<string> {
   const code = toBase64Url(randomBytes(LINK_CODE_BYTES));
   const db = getDb();

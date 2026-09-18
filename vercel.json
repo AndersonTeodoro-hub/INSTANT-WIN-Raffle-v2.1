@@ -21,7 +21,10 @@
     "api/bridge/v2/entry/resume.ts": { "maxDuration": 68 },
     "api/bridge/v2/creator/campaign/start.ts": { "maxDuration": 100 },
     "api/bridge/v2/creator/campaign/submit.ts": { "maxDuration": 270 },
-    "api/bridge/v2/campaign/identity/save.ts": { "maxDuration": 106 }
+    "api/bridge/v2/campaign/identity/save.ts": { "maxDuration": 106 },
+    "api/bridge/v2/account/register.ts": { "maxDuration": 106 },
+    "api/bridge/v2/account/migrate.ts": { "maxDuration": 108 },
+    "api/bridge/v2/account/relay.ts": { "maxDuration": 280 }
   },
   "crons": [
     { "path": "/api/bridge/v2/cron/process", "schedule": "* * * * *" },

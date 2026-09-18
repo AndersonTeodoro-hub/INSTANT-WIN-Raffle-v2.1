@@ -1,0 +1,416 @@
+/**
+ * The relay: what the bridge does with a Keptra account. SPEC-BLOCO-03 6.1.5,
+ * 6.2.2, 6.5 and 6.4.
+ *
+ * Two steps, the same inputs both times. prepare builds the account's next
+ * transaction for one action and returns the hash the passkey must sign; submit
+ * builds it again from scratch, checks that the passkey signed exactly that hash,
+ * and sends it — paid by the relayer, authorised by nothing but the signature
+ * (section 5: "submeter transacções assinadas por passkeys e pagar o gás").
+ *
+ * WHAT CAN BE BUILT is the Action union below and nothing else. The account is
+ * always the session's own (M36): the route passes a participant id from the
+ * cookie, and no address of an account ever arrives from a request. Every
+ * transaction passes keptra.refusalFor before a hash is returned and again
+ * before anything is sent (R-4, R-5, M21).
+ *
+ * The first action an account takes also creates it (6.1.6): the relayer sends
+ * createSigner, createProxyWithNonce and the account's first execTransaction as
+ * one atomic batch, and that first transaction starts with the configuration
+ * that enables the recovery module and adds the guardian (6.1.4).
+ */
+
+import { encodeFunctionData, type Hex } from 'viem';
+import { alert } from './alert.js';
+import { claimSpend } from './spend.js';
+import type { Logger } from './log.js';
+import { CREATOR_APPROVAL_ABI, CREATOR_CAMPAIGN_MANAGER_ABI, GIVEAWAY_MANAGER_V2_ABI } from './abi.js';
+import { GIVEAWAY_MANAGER_V2, USDC } from './config.js';
+import {
+  claimableFor,
+  erc20BalanceOf,
+  encodeTokenPrizeData,
+  giveawayIdFromLogs,
+  prizeDelivery,
+  readGiveaway,
+  waitForReceipt,
+  type MinedReceipt,
+} from './chain.js';
+import {
+  accountState,
+  configurationRefusal,
+  hasCode,
+  isValidPasskeySignature,
+  relayerCall,
+  sendRelayed,
+  type AccountState,
+} from './keptraChain.js';
+import {
+  addGuardianCalls,
+  addOwnerCalls,
+  assertionToSignature,
+  cancelRecoveryCalls,
+  configurationCalls,
+  createAccountCall,
+  createSignerCall,
+  encodeSafeSignature,
+  execTransactionData,
+  refusalFor,
+  revokeGuardianCalls,
+  safeTxFor,
+  safeTxHash,
+  type AccountRole,
+  type SafeCall,
+  type SafeTx,
+} from './keptra.js';
+import {
+  findAccount,
+  findPasskey,
+  markDeployed,
+  recordGuardian,
+  type Account,
+  type Passkey,
+} from './accounts.js';
+import { findEntry } from './entries.js';
+import { proofForAddress } from './eligibility.js';
+import { findCreatorByParticipant } from './creators.js';
+import { advanceCampaign, findActiveCampaign } from './creatorCampaigns.js';
+import { acquireFunder, disableFunder, releaseFunder, signAsFunder } from './funders.js';
+import { guardianAddress } from './guardian.js';
+
+/** Everything an account can be asked to do through the relay. A closed union. */
+export type Action =
+  | { readonly kind: 'enter'; readonly giveawayId: bigint }
+  | { readonly kind: 'claim'; readonly giveawayId: bigint }
+  | { readonly kind: 'transfer'; readonly giveawayId: bigint; readonly to: `0x${string}` }
+  | { readonly kind: 'createCampaign' }
+  | { readonly kind: 'addPasskey'; readonly credentialId: string }
+  | { readonly kind: 'cancelRecovery' }
+  | { readonly kind: 'revokeGuardian' }
+  | { readonly kind: 'addGuardian' };
+
+/** Which of the participant's two accounts an action runs on (A10). */
+export function roleFor(action: Action, requested: AccountRole | null): AccountRole {
+  if (action.kind === 'enter' || action.kind === 'claim' || action.kind === 'transfer') return 'PARTICIPANT';
+  if (action.kind === 'createCampaign') return 'CREATOR';
+  return requested ?? 'PARTICIPANT';
+}
+
+/** A refusal the route turns into a status, never an exception. */
+export class RelayRefusal extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`[bridge-v2] relay refused: ${reason}`);
+    this.name = 'RelayRefusal';
+    this.reason = reason;
+  }
+}
+
+export interface Prepared {
+  readonly account: Account;
+  readonly state: AccountState;
+  readonly tx: SafeTx;
+  readonly hash: Hex;
+  /** A passkey whose signer must exist before the transaction runs (the one being added). */
+  readonly extraSigner: Passkey | null;
+}
+
+/**
+ * The calls an action makes, built from the chain and the database, never from
+ * the request beyond the action's own identifiers.
+ */
+async function actionCalls(
+  participantId: string,
+  account: Account,
+  state: AccountState,
+  action: Action,
+): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null }> {
+  const safe = account.safe;
+  switch (action.kind) {
+    case 'enter': {
+      // A4: the entry is signed once its root is published. The proof is for the
+      // account's address, which is the leaf the root was built from (M30).
+      const entry = await findEntry(participantId, action.giveawayId);
+      if (entry === null || !entry.passkey) throw new RelayRefusal('no_entry');
+      if (entry.walletAddress.toLowerCase() !== safe.toLowerCase()) throw new RelayRefusal('no_entry');
+      if (entry.status !== 'ELIGIBLE' || entry.rootIndex === null) throw new RelayRefusal('not_eligible_yet');
+      const proof = await proofForAddress(action.giveawayId, safe, entry.rootIndex);
+      if (proof === null) throw new RelayRefusal('proof_unavailable');
+      return {
+        calls: [
+          {
+            to: GIVEAWAY_MANAGER_V2,
+            data: encodeFunctionData({
+              abi: GIVEAWAY_MANAGER_V2_ABI,
+              functionName: 'enter',
+              args: [action.giveawayId, proof.rootIndex, proof.proof],
+            }),
+          },
+        ],
+        extraSigner: null,
+      };
+    }
+    case 'claim': {
+      // 6.2.3 and F3: the prize stays in the contract until the winner claims it,
+      // and only the winner can.
+      if ((await claimableFor(action.giveawayId, safe)) <= 0n) throw new RelayRefusal('nothing_to_claim');
+      return {
+        calls: [
+          {
+            to: GIVEAWAY_MANAGER_V2,
+            data: encodeFunctionData({ abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'claimPrize', args: [action.giveawayId] }),
+          },
+        ],
+        extraSigner: null,
+      };
+    }
+    case 'transfer': {
+      // 6.5 "transferências de prémio": the prize the account holds, to where its
+      // owner says. The token or collection and the amount come from the chain,
+      // through the same builder the derived-wallet delivery uses.
+      const delivery = await prizeDelivery(await readGiveaway(action.giveawayId), action.giveawayId, safe, action.to);
+      if (delivery === null) throw new RelayRefusal('nothing_to_transfer');
+      return { calls: [{ to: delivery.to, data: delivery.data }], extraSigner: null };
+    }
+    case 'createCampaign': {
+      // 6.5 "approve (dois)" and "createGiveaway", from the creator account and in
+      // one transaction. The draft was priced by creator/campaign/start, exactly as
+      // for a derived creator, and its numbers are the ones signed here.
+      const creator = await findCreatorByParticipant(participantId);
+      if (creator === null || creator.walletIndex !== null) throw new RelayRefusal('no_campaign');
+      if (creator.walletAddress.toLowerCase() !== safe.toLowerCase()) throw new RelayRefusal('no_campaign');
+      const campaign = await findActiveCampaign(creator.id);
+      if (campaign === null) throw new RelayRefusal('no_campaign');
+      // The contract's own split (GiveawayManagerV2.createGiveaway): the module
+      // pulls the prize, the core pulls the fee in the prize token and the slots
+      // in USDC. For a USDC prize that is two approvals (6.5 "approve (dois)");
+      // for any other token the fee and the slots are two allowances on the core.
+      const sameToken = campaign.prizeToken.toLowerCase() === (USDC as string).toLowerCase();
+      const prizeHeld = await erc20BalanceOf(campaign.prizeToken, safe);
+      const usdcHeld = sameToken ? prizeHeld : await erc20BalanceOf(USDC, safe);
+      const prizeNeeded = campaign.prizeAmount + campaign.feeAmount + (sameToken ? campaign.slotsCost : 0n);
+      const usdcNeeded = sameToken ? 0n : campaign.slotsCost;
+      if (prizeHeld < prizeNeeded || usdcHeld < usdcNeeded) throw new RelayRefusal('deposit_missing');
+      const approve = (token: `0x${string}`, spender: `0x${string}`, amount: bigint): SafeCall => ({
+        to: token,
+        data: encodeFunctionData({ abi: CREATOR_APPROVAL_ABI, functionName: 'approve', args: [spender, amount] }),
+      });
+      const allowances = sameToken
+        ? [approve(USDC, GIVEAWAY_MANAGER_V2, campaign.feeAmount + campaign.slotsCost)]
+        : [
+            approve(campaign.prizeToken, GIVEAWAY_MANAGER_V2, campaign.feeAmount),
+            approve(USDC, GIVEAWAY_MANAGER_V2, campaign.slotsCost),
+          ];
+      return {
+        calls: [
+          approve(campaign.prizeToken, campaign.module, campaign.prizeAmount),
+          ...allowances,
+          {
+            to: GIVEAWAY_MANAGER_V2,
+            data: encodeFunctionData({
+              abi: CREATOR_CAMPAIGN_MANAGER_ABI,
+              functionName: 'createGiveaway',
+              args: [
+                campaign.module,
+                encodeTokenPrizeData(campaign.prizeToken, campaign.prizeAmount),
+                campaign.prizeAmount,
+                0n,
+                campaign.durationSeconds,
+                campaign.winnersCount,
+                campaign.slotCap,
+              ],
+            }),
+          },
+        ],
+        extraSigner: null,
+      };
+    }
+    case 'addPasskey': {
+      // 6.2.4 and A3: a second passkey of the same participant, never a third.
+      const added = await findPasskey(participantId, action.credentialId);
+      if (added === null) throw new RelayRefusal('unknown_passkey');
+      if (state.owners.some((owner) => owner.toLowerCase() === added.signer.toLowerCase())) {
+        throw new RelayRefusal('already_owner');
+      }
+      if (state.owners.length >= 2) throw new RelayRefusal('owner_count');
+      return { calls: addOwnerCalls(safe, added.signer), extraSigner: added };
+    }
+    case 'cancelRecovery': {
+      // 6.3.3 and R-2.
+      if (state.recoveryExecuteAfter === 0n) throw new RelayRefusal('no_recovery');
+      return { calls: cancelRecoveryCalls(), extraSigner: null };
+    }
+    case 'revokeGuardian': {
+      // R-3 as A6 corrects it.
+      const current = state.guardians[0];
+      if (current === undefined) throw new RelayRefusal('no_guardian');
+      return { calls: revokeGuardianCalls(current, state.recoveryExecuteAfter > 0n), extraSigner: null };
+    }
+    case 'addGuardian': {
+      // A6: the rotated guardian, added by the account itself at its next login.
+      if (state.guardians.length > 0) throw new RelayRefusal('guardian_present');
+      return { calls: addGuardianCalls(guardianAddress()), extraSigner: null };
+    }
+  }
+}
+
+/** The guardian a transaction may name: the account's own, or the configured one for addGuardian. */
+function guardianFor(account: Account, action: Action): `0x${string}` {
+  return action.kind === 'addGuardian' ? guardianAddress() : account.guardian;
+}
+
+/**
+ * Builds the account's next transaction for one action and the hash its passkey
+ * must sign. Throws RelayRefusal for anything the closed list does not admit.
+ */
+export async function prepareAction(
+  participantId: string,
+  action: Action,
+  requestedRole: AccountRole | null,
+): Promise<Prepared> {
+  const account = await findAccount(participantId, roleFor(action, requestedRole));
+  if (account === null) throw new RelayRefusal('no_account');
+
+  const state = await accountState(account.safe);
+  if (!state.deployed && ['cancelRecovery', 'revokeGuardian', 'addGuardian', 'addPasskey'].includes(action.kind)) {
+    throw new RelayRefusal('not_deployed');
+  }
+
+  const { calls, extraSigner } = await actionCalls(participantId, account, state, action);
+  const configuration = state.deployed ? null : configurationCalls(account.safe, account.guardian);
+  const tx = safeTxFor([...(configuration ?? []), ...calls], state.nonce);
+
+  const refusal = refusalFor(account.safe, tx, configuration, guardianFor(account, action));
+  if (refusal !== null) throw new RelayRefusal(refusal);
+
+  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner };
+}
+
+/** A browser assertion over the prepared hash, as the route received it. */
+export interface Assertion {
+  readonly credentialId: string;
+  readonly authenticatorData: Hex;
+  readonly clientDataJSON: string;
+  readonly signature: Hex;
+}
+
+export interface Submitted {
+  readonly txHash: Hex;
+  readonly receipt: MinedReceipt | null;
+  readonly giveawayId: bigint | null;
+}
+
+/**
+ * Sends one relayed batch from a funder lease and waits for it, bounded. The
+ * nonce accounting and the release are the processor's (G6).
+ */
+export async function sendAsRelayer(
+  calls: readonly SafeCall[],
+  log: Logger,
+): Promise<{ hash: Hex; receipt: MinedReceipt | null } | null> {
+  if (!(await claimSpend('chain', 1, log))) return null;
+  const lease = await acquireFunder();
+  if (lease === null) {
+    await log.event('funder.exhausted');
+    await alert(log, 'no funder available for a relayed account transaction');
+    return null;
+  }
+  let nextNonce = lease.nextNonce;
+  try {
+    const hash = await sendRelayed(lease, relayerCall(calls), signAsFunder, (spent) => {
+      nextNonce = spent;
+    });
+    return { hash, receipt: await waitForReceipt(hash) };
+  } finally {
+    if (!(await releaseFunder(lease, nextNonce))) {
+      await disableFunder(lease.index);
+      await log.event('funder.disabled', { funder_index: lease.index });
+      await alert(log, 'funder lease could not be released', { funder_index: lease.index });
+    }
+  }
+}
+
+/**
+ * Rebuilds the transaction, checks the passkey signed exactly its hash, and
+ * relays it. `nonce` is the nonce the passkey signed for: a transaction that
+ * landed in between moved the account on, and the signature is then for a
+ * transaction that no longer exists (stale_nonce).
+ */
+export async function submitAction(
+  participantId: string,
+  action: Action,
+  requestedRole: AccountRole | null,
+  nonce: bigint,
+  assertion: Assertion,
+  log: Logger,
+): Promise<Submitted> {
+  const prepared = await prepareAction(participantId, action, requestedRole);
+  const { account, state, tx, hash } = prepared;
+  if (tx.nonce !== nonce) throw new RelayRefusal('stale_nonce');
+
+  // The passkey is looked up among the session's own; another participant's is
+  // never found (M36).
+  const passkey = await findPasskey(participantId, assertion.credentialId);
+  if (passkey === null) throw new RelayRefusal('unknown_passkey');
+
+  // M10: the assertion must be over this hash, and the signer contract must
+  // accept it. Both before a funder is touched.
+  const signature = assertionToSignature(hash, assertion.authenticatorData, assertion.clientDataJSON, assertion.signature);
+  if (signature === null || !(await isValidPasskeySignature(hash, signature, passkey.x, passkey.y))) {
+    throw new RelayRefusal('bad_signature');
+  }
+
+  const isOwner = state.deployed
+    ? state.owners.some((owner) => owner.toLowerCase() === passkey.signer.toLowerCase())
+    : passkey.signer.toLowerCase() === account.initialSigner.toLowerCase();
+  if (!isOwner) throw new RelayRefusal('not_owner');
+
+  const batch: SafeCall[] = [];
+  if (!(await hasCode(passkey.signer))) batch.push(createSignerCall(passkey.x, passkey.y));
+  if (prepared.extraSigner !== null && !(await hasCode(prepared.extraSigner.signer))) {
+    batch.push(createSignerCall(prepared.extraSigner.x, prepared.extraSigner.y));
+  }
+  if (!state.deployed) batch.push(createAccountCall(account.initialSigner, account.role));
+  batch.push({ to: account.safe, data: execTransactionData(tx, encodeSafeSignature(passkey.signer, signature)) });
+
+  if (action.kind === 'createCampaign') {
+    const creator = await findCreatorByParticipant(participantId);
+    const campaign = creator === null ? null : await findActiveCampaign(creator.id);
+    if (campaign !== null && campaign.status === 'PENDING_DEPOSIT') {
+      await advanceCampaign(campaign.id, 'PENDING_DEPOSIT', 'FUNDING');
+    }
+  }
+
+  const sent = await sendAsRelayer(batch, log);
+  if (sent === null) throw new RelayRefusal('relayer_unavailable');
+  if (sent.receipt === null || sent.receipt.status !== 'success') {
+    return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null };
+  }
+
+  if (!state.deployed) {
+    // R-4, on every account the moment it exists: the configuration read back
+    // from the chain, not the one that was asked for.
+    const refusal = configurationRefusal(await accountState(account.safe), account.guardian, [account.initialSigner]);
+    if (refusal === null) {
+      await markDeployed(account.id, sent.hash);
+    } else {
+      await alert(log, 'account configuration check failed after creation', { reason: refusal });
+    }
+  }
+
+  let giveawayId: bigint | null = null;
+  if (action.kind === 'createCampaign') {
+    giveawayId = giveawayIdFromLogs(sent.receipt.logs);
+    const creator = await findCreatorByParticipant(participantId);
+    const campaign = creator === null ? null : await findActiveCampaign(creator.id);
+    if (campaign !== null && giveawayId !== null) {
+      await advanceCampaign(campaign.id, 'FUNDING', 'CONFIRMED', { giveaway_id: giveawayId.toString(), tx_hash: sent.hash });
+      await log.event('creator_campaign.confirmed', { giveaway_id: giveawayId.toString() });
+    }
+  }
+  if (action.kind === 'revokeGuardian') await recordGuardian(account.id, account.guardian, true);
+  if (action.kind === 'addGuardian') await recordGuardian(account.id, guardianAddress(), false);
+
+  await log.event('account.relayed', { action: action.kind, deployed: state.deployed });
+  return { txHash: sent.hash, receipt: sent.receipt, giveawayId };
+}

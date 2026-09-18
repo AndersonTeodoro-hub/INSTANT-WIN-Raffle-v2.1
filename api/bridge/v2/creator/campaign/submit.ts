@@ -75,6 +75,11 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
 
   const creator = await findCreatorByParticipant(session.participantId);
   if (creator === null) return refuse(404, 'No campaign in progress.');
+  // SPEC-BLOCO-03 6.5: a creator account signs its own approvals and
+  // createGiveaway with the passkey (account/relay, createCampaign). The bridge
+  // holds no key for it and signs nothing here.
+  if (creator.walletIndex === null) return refuse(409, 'Sign this campaign with your passkey.');
+  const walletIndex = creator.walletIndex;
 
   const campaign = await findActiveCampaign(creator.id);
   if (campaign === null) return refuse(404, 'No campaign in progress.');
@@ -121,7 +126,7 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
         campaign.module,
         campaign.prizeAmount,
       );
-      await fundAndSend(lease, creator.walletIndex, creator.walletAddress, campaign.prizeToken, approve1, (n) => {
+      await fundAndSend(lease, walletIndex, creator.walletAddress, campaign.prizeToken, approve1, (n) => {
         nextNonce = n;
       });
 
@@ -133,7 +138,7 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
         GIVEAWAY_MANAGER_V2,
         campaign.feeAmount + campaign.slotsCost,
       );
-      await fundAndSend(lease, creator.walletIndex, creator.walletAddress, USDC, approve2, (n) => {
+      await fundAndSend(lease, walletIndex, creator.walletAddress, USDC, approve2, (n) => {
         nextNonce = n;
       });
 
@@ -150,7 +155,7 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
       );
       const receipt = await fundAndSend(
         lease,
-        creator.walletIndex,
+        walletIndex,
         creator.walletAddress,
         GIVEAWAY_MANAGER_V2,
         create,

@@ -83,6 +83,29 @@ export function parseAddress(value: unknown): `0x${string}` | null {
   return /^0x[0-9a-fA-F]{40}$/.test(address) ? (address.toLowerCase() as `0x${string}`) : null;
 }
 
+/**
+ * SPEC-BLOCO-03: a WebAuthn credential id, base64url as the browser gives it.
+ * Opaque to the bridge; only ever compared with the ones this participant
+ * registered.
+ */
+export function parseCredentialId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return /^[A-Za-z0-9_-]{16,1400}$/.test(value) ? value : null;
+}
+
+/** Hex bytes of bounded length (authenticator data, a DER signature). */
+export function parseHexBytes(value: unknown, maxBytes: number): `0x${string}` | null {
+  if (typeof value !== 'string') return null;
+  if (!/^0x([0-9a-fA-F]{2})+$/.test(value) || (value.length - 2) / 2 > maxBytes) return null;
+  return value.toLowerCase() as `0x${string}`;
+}
+
+/** clientDataJSON as the browser serialised it: text, bounded, never parsed as a whole here. */
+export function parseClientDataJson(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length < 40 || value.length > 1024) return null;
+  return value;
+}
+
 /** A phone number as Telegram delivers it. Digits, optionally a leading plus. */
 export function parsePhone(value: unknown): string | null {
   if (typeof value !== 'string') return null;

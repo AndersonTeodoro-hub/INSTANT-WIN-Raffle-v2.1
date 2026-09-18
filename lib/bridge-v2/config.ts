@@ -356,6 +356,22 @@ export type PipelinePhase = keyof typeof PHASE_RESERVATION_MS;
 export const SELF_CUSTODY_RECONCILE_MS = 2 * RPC_TIMEOUT_MS;
 
 /**
+ * SPEC-BLOCO-03 A4: a Keptra-account entry reconciles like a self-custody one
+ * and may also send its one "confirm your entry" email — the campaign read, the
+ * root's publication time, the spend claim, the reminder claim, the email
+ * address and the post. Runs under the processEntries reservation for the same
+ * reason SELF_CUSTODY_RECONCILE_MS does, and is checked against the budget below.
+ */
+export const PASSKEY_ENTRY_RECONCILE_MS = 3 * RPC_TIMEOUT_MS + HTTP_TIMEOUT_MS + 6 * DB_TIMEOUT_MS;
+
+/**
+ * A4: how long after its root is published a Keptra-account entry waits before
+ * the email is sent. The page asks for the passkey the moment the root lands; a
+ * participant still looking at it should not also be emailed about it.
+ */
+export const ENTER_REMINDER_DELAY_MS = 10 * 60 * 1000;
+
+/**
  * What one settlement notice costs: the two reads that decide whether a wallet
  * won, the one email, and the writes around them. It signs nothing and waits for
  * no receipt.
@@ -450,6 +466,7 @@ const EVERY_RESERVATION_MS: Record<string, number> = {
   // Not a phase, checked anyway: the unit that disappeared was the one whose
   // reservation nobody compared against the budget.
   settlementNotice: SETTLEMENT_NOTICE_MS,
+  passkeyEntry: PASSKEY_ENTRY_RECONCILE_MS,
 };
 
 export const LARGEST_UNIT_MS = Math.max(...Object.values(EVERY_RESERVATION_MS));
@@ -528,6 +545,14 @@ export const GAS_BANDS = {
    * 46_598, requestDraw 128_358, finalizeWinners with two winners 196_781.
    */
   LIFECYCLE: { min: 21_000n, max: 6_000_000n },
+  /**
+   * SPEC-BLOCO-03 6.1.5: what the relayer sends for a Keptra account — the
+   * account's creation batched with its first transaction, a relayed
+   * execTransaction, a guardian confirmation, a finalisation. The ceiling admits
+   * a campaign created from an account (two approvals and createGiveaway in one
+   * batch) with the account's creation in front of it; the floor is intrinsic.
+   */
+  ACCOUNT: { min: 21_000n, max: 3_000_000n },
 } as const;
 
 export type GasBand = (typeof GAS_BANDS)[keyof typeof GAS_BANDS];
@@ -703,6 +728,21 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // model.
   'api/bridge/v2/campaign/identity/save.ts':
     maxDurationSeconds(2, 7) + Math.ceil((2 * STORAGE_TIMEOUT_MS) / 1000),
+  // SPEC-BLOCO-03. One RPC stage (getSigner) and seven database stages: the
+  // session read and slide, three rate-limit axes, the passkey insert and the
+  // re-read a lost race takes, the two account rows, the recovery read, the ops
+  // event, and the envelope's.
+  'api/bridge/v2/account/register.ts': maxDurationSeconds(1, 12),
+  // Two RPC stages (the account state, the on-chain signature check) and eleven
+  // database stages around them.
+  'api/bridge/v2/account/migrate.ts': maxDurationSeconds(2, 11),
+  // The relay rebuilds the transaction (the account state and the reads its
+  // action needs: up to six RPC stages), checks the signature on-chain and the
+  // signers' code (three), leases a funder and prices the batch (three), sends
+  // it and waits for one receipt, then reads the new account back (one). About
+  // fifteen database stages around them. Not derived through the helper alone,
+  // because of the receipt.
+  'api/bridge/v2/account/relay.ts': maxDurationSeconds(13, 15) + Math.ceil(RECEIPT_TIMEOUT_MS / 1000),
 };
 
 /**

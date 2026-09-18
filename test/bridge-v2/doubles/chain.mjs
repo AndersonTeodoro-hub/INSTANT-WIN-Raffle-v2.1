@@ -168,6 +168,12 @@ export function roleAddress() {
   return behaviour.roleAddress;
 }
 
+/** keeperAddress too. SPEC-BLOCO-03 M39 compares it with the other roles. */
+export function keeperAddress() {
+  calls.push({ name: 'keeperAddress', args: [] });
+  return behaviour.keeperAddress ?? '0x000000000000000000000000000000000000beef';
+}
+
 /**
  * submitAsDerived and fundDerivedWallet keep the real signatures, including the
  * signer callbacks and the nonce callback, because what the processor does with

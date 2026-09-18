@@ -35,6 +35,10 @@ const SUITES = [
   // §18: the campaign lifecycle the keeper drives, with the chain doubled.
   './suites/lifecycle.test.mjs',
   './suites/contracts.test.mjs',
+  // SPEC-BLOCO-03 piece 1: Keptra accounts — the pure half, the routes, the
+  // pipeline, the recovery pass and migration 0012, with the chain doubled. The
+  // on-chain half runs in ./fork, below.
+  './suites/keptra.test.mjs',
 ];
 
 /**
@@ -58,6 +62,9 @@ const REQUIREMENTS = [
   'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10',
   'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8',
   'OWNER-D1', 'OWNER-D2',
+  // SPEC-BLOCO-03 piece 1: M1-M46 of MATRIZ-PECA1-KEPTRA, as KMn so they do not
+  // collide with SPEC-BRIDGE-V2 §18's M1-M8 above.
+  ...Array.from({ length: 46 }, (_unused, index) => `KM${index + 1}`),
 ];
 
 for (const path of SUITES) {
@@ -78,6 +85,32 @@ restoreFetch();
 // The cluster is a child process with open connections; without this the run
 // finishes its output and then hangs on an event loop that never empties.
 await stopEngine();
+
+// SPEC-BLOCO-03: the on-chain suite, in a process of its own because it needs
+// the real chain modules and this process has them doubled (loader.mjs). It
+// starts anvil from ANVIL_BIN on a local fork of Arbitrum One and prints its
+// results as one JSON line, merged here so the requirement map is one map.
+{
+  const { spawnSync } = await import('node:child_process');
+  const child = spawnSync(
+    process.execPath,
+    ['--experimental-strip-types', '--import', './test/bridge-v2/fork/register.mjs', 'test/bridge-v2/fork/run.mjs'],
+    { cwd: new URL('../../', import.meta.url), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60 * 1000 },
+  );
+  const marker = '::keptra-fork-results::';
+  const line = (child.stdout ?? '').split('\n').find((text) => text.startsWith(marker));
+  if (line === undefined) {
+    results.push({
+      suite: 'fork',
+      requirements: [],
+      name: 'the on-chain suite ran and reported',
+      ok: false,
+      error: `no results from the fork process (exit ${child.status}): ${String(child.stderr ?? '').slice(-2000)}`,
+    });
+  } else {
+    results.push(...JSON.parse(line.slice(marker.length)));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // output

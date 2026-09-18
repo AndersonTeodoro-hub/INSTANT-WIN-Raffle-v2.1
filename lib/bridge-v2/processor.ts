@@ -23,7 +23,11 @@ import {
   advance,
   campaignsAwaitingOutcome,
   campaignsWithVerified,
+  claimEnterReminder,
   claimNotice,
+  eligibleLongEnough,
+  participantEmail,
+  releaseEnterReminder,
   fundingMark,
   listAwaitingOutcome,
   listEligible,
@@ -42,12 +46,13 @@ import {
 } from './entries.js';
 import {
   FUNDING_STALE_MS,
+  PASSKEY_ENTRY_RECONCILE_MS,
   PHASE_RESERVATION_MS,
   SELF_CUSTODY_RECONCILE_MS,
   SETTLEMENT_NOTICE_MS,
   SWEEP_WORST_CASE_MS,
 } from './config.js';
-import { sendSettlementEmail } from './mail.js';
+import { sendEnterReminderEmail, sendSettlementEmail } from './mail.js';
 import { campaignLabel } from './campaignIdentity.js';
 import type { CampaignLabel } from '../campaign-identity.js';
 import { GiveawayStatus, PrizeKind } from './abi.js';
@@ -288,10 +293,14 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
   }
 
   const participant = await getParticipant(entry.participantId);
-  if (participant === null) {
+  // walletIndex null: a participant with no derived wallet (SPEC-BLOCO-03
+  // 6.6.1), whose entries are passkey entries and never reach this function.
+  // One that did would have nothing to sign with.
+  if (participant === null || participant.walletIndex === null) {
     await advance(entry.id, 'ELIGIBLE', 'FAILED');
     return;
   }
+  const walletIndex = participant.walletIndex;
 
   const proof = await proofForAddress(entry.giveawayId, entry.walletAddress, entry.rootIndex);
   if (proof === null) {
@@ -383,7 +392,7 @@ async function processEligible(entry: Entry, log: Logger): Promise<void> {
     }
 
     const hash = await submitAsDerived(
-      participant.walletIndex,
+      walletIndex,
       entry.walletAddress,
       GIVEAWAY_MANAGER_V2,
       quote.data,
@@ -467,7 +476,11 @@ export async function processEligibleEntries(log: Logger, deadline: RunDeadline)
     // costs the full processEntries reservation. Checked per row, against
     // whichever budget this row is actually about to spend, rather than one
     // reservation guarding two different costs.
-    const reservation = entry.selfCustody ? SELF_CUSTODY_RECONCILE_MS : PHASE_RESERVATION_MS.processEntries;
+    const reservation = entry.passkey
+      ? PASSKEY_ENTRY_RECONCILE_MS
+      : entry.selfCustody
+        ? SELF_CUSTODY_RECONCILE_MS
+        : PHASE_RESERVATION_MS.processEntries;
     if (!deadline.hasTimeFor(reservation)) break;
     attempted += 1;
 
@@ -509,13 +522,51 @@ export async function processEligibleEntries(log: Logger, deadline: RunDeadline)
 async function reconcileSelfCustodyEntry(entry: Entry, log: Logger): Promise<void> {
   if (await hasEntered(entry.giveawayId, entry.walletAddress)) {
     if (await advance(entry.id, 'ELIGIBLE', 'CONFIRMED')) {
-      await log.event('entry.confirmed', { reason: 'self_custody' });
+      await log.event('entry.confirmed', { reason: entry.passkey ? 'passkey' : 'self_custody' });
     }
-  } else {
-    // Nothing to do yet; only the queue position changes, so the next run
-    // does not read the same entry first for ever while others wait.
-    await touch(entry.id);
+    return;
   }
+  // SPEC-BLOCO-03 A4: a Keptra-account entry is signed by the participant once
+  // its root is published. The page waits for that and asks for the passkey;
+  // a participant who left gets one email with the link, valid until the
+  // campaign closes. Once, whatever happens after (claimEnterReminder).
+  if (entry.passkey) await remindToEnter(entry, log);
+  // Nothing to do yet; only the queue position changes, so the next run
+  // does not read the same entry first for ever while others wait.
+  await touch(entry.id);
+}
+
+/**
+ * A4's email. Sent only while the campaign still accepts entries — a link to
+ * confirm an entry that can no longer be made is worse than none — and only
+ * after ENTER_REMINDER_DELAY_MS, so a participant still on the page is not sent
+ * an email about the prompt in front of them.
+ */
+async function remindToEnter(entry: Entry, log: Logger): Promise<void> {
+  const campaign = await readGiveaway(entry.giveawayId);
+  if (!campaign.acceptsEntries) return;
+  if (entry.rootIndex === null || !(await eligibleLongEnough(entry.giveawayId, entry.rootIndex))) return;
+  const email = await participantEmail(entry.participantId);
+  // An erased participant (privacy/erase.ts) has nothing to write to; the
+  // reminder is claimed so it is not reconsidered on every run.
+  if (email === null || !deliverable(email)) {
+    await claimEnterReminder(entry.id);
+    return;
+  }
+  if (!(await claimSpend('email', 1, log))) return;
+  if (!(await claimEnterReminder(entry.id))) return;
+  const sent =
+    (await sendEnterReminderEmail(email, {
+      giveawayId: entry.giveawayId,
+      closesAt: new Date(Number(campaign.effectiveEndTime) * 1000),
+      campaign: await campaignLabel(entry.giveawayId),
+    })).sent;
+  if (!sent) {
+    await releaseEnterReminder(entry.id);
+    await log.event('entry.reminded', { giveaway_id: entry.giveawayId.toString(), sent: false });
+    return;
+  }
+  await log.event('entry.reminded', { giveaway_id: entry.giveawayId.toString(), sent: true });
 }
 
 /**
@@ -714,7 +765,7 @@ export async function sweepConfirmed(
     if (!deadline.hasTimeFor(SWEEP_WORST_CASE_MS)) break;
 
     const participant = await getParticipant(entry.participantId);
-    if (participant === null) {
+    if (participant === null || participant.walletIndex === null) {
       // No participant row means no derivation index, so this wallet can never
       // be signed for. Marked, or it holds the head of the queue for ever.
       await markSwept(entry.id);
@@ -887,10 +938,11 @@ async function processPrize(
   }
 
   const participant = await getParticipant(pending.participantId);
-  if (participant === null) {
+  if (participant === null || participant.walletIndex === null) {
     await touchCustody(custody.entryId);
     return false;
   }
+  const walletIndex = participant.walletIndex;
 
   // E4: only a destination the participant confirmed counts. A merely proposed
   // one is an address they have been shown and have not yet agreed to.
@@ -988,7 +1040,7 @@ async function processPrize(
     const quote = await quoteClaim(giveawayId, walletAddress);
     const claimHash = await fundAndSubmit(
       custody.entryId,
-      participant.walletIndex,
+      walletIndex,
       walletAddress,
       GIVEAWAY_MANAGER_V2,
       quote.data,
@@ -1071,7 +1123,7 @@ async function processPrize(
   // here from a request.
   const deliveryHash = await fundAndSubmit(
     custody.entryId,
-    participant.walletIndex,
+    walletIndex,
     walletAddress,
     delivery.to,
     delivery.data,
@@ -1243,6 +1295,7 @@ async function notifyOutcome(
     requiresOwnWallet: policyFor(campaign.prizeKind, winnerShare, campaign.feeToken)
       .requiresOwnWallet,
     selfCustody: target.selfCustody,
+    passkey: target.passkey,
     campaign: label,
   });
 

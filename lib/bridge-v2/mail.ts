@@ -17,6 +17,7 @@
 import type { CampaignLabel } from '../campaign-identity.js';
 import { GIVEAWAY_MANAGER_V2, HTTP_TIMEOUT_MS } from './config.js';
 import { requireEnv } from './env.js';
+import { KEPTRA_BASE } from './keptra.js';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
@@ -150,6 +151,12 @@ export interface SettlementNotice {
    */
   readonly selfCustody: boolean;
   /**
+   * SPEC-BLOCO-03 6.2.5: the winner entered with their Keptra account. The prize
+   * stays in the contract until they claim it with the passkey, so the email is
+   * what brings them back — and it has to say so and link to where it is done.
+   */
+  readonly passkey?: boolean;
+  /**
    * L8: the name and brand the creator published, or null when there are none
    * or they could not be read — in which case the notice is the one sent before
    * campaign identities existed (L9).
@@ -211,7 +218,17 @@ function noticeBody(notice: SettlementNotice): string {
   // one is worse than sending none: a self-custody winner who waits for a
   // delivery that is never coming can lose the prize to the 90-day claim
   // deadline (GiveawayManagerV2.sol, CLAIM_DEADLINE).
-  const next = notice.selfCustody
+  const next = notice.passkey === true
+    ? [
+        'Claim it with your passkey, on your account page:',
+        '',
+        `  ${KEPTRA_BASE}/events/${notice.giveawayId}`,
+        '',
+        'Nobody can claim it for you, and it is not sent automatically: it stays in the',
+        'contract until you claim it. The contract closes claims 90 days after settlement,',
+        'and after that the creator may reclaim what nobody took.',
+      ]
+    : notice.selfCustody
     ? [
         'You entered with your own wallet, so the prize is yours to collect directly:',
         'call claimPrize on the contract from that wallet. This platform holds no key',
@@ -262,4 +279,80 @@ function noticeBody(notice: SettlementNotice): string {
  */
 export function sendSettlementEmail(to: string, notice: SettlementNotice): Promise<MailResult> {
   return post(to, noticeSubject(notice), noticeBody(notice));
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-BLOCO-03 — Keptra accounts
+// ---------------------------------------------------------------------------
+
+/** A4: the one reminder to confirm an entry the participant has not signed yet. */
+export interface EnterReminder {
+  readonly giveawayId: bigint;
+  /** effectiveEndTime: until when the link works. */
+  readonly closesAt: Date;
+  readonly campaign: CampaignLabel | null;
+}
+
+function reminderSubject(reminder: EnterReminder): string {
+  return reminder.campaign === null
+    ? `Confirm your entry in giveaway #${reminder.giveawayId}`
+    : `Confirm your entry in ${reminder.campaign.name}`;
+}
+
+export function sendEnterReminderEmail(to: string, reminder: EnterReminder): Promise<MailResult> {
+  const named =
+    reminder.campaign === null
+      ? `giveaway #${reminder.giveawayId}`
+      : `${reminder.campaign.name} by ${reminder.campaign.brand} (giveaway #${reminder.giveawayId})`;
+  return post(
+    to,
+    reminderSubject(reminder),
+    [
+      `Your place in ${named} is ready, and one step is left: confirm it with your passkey.`,
+      '',
+      `  ${KEPTRA_BASE}/events/${reminder.giveawayId}`,
+      '',
+      `The link works until the entries close, ${reminder.closesAt.toISOString().replace('T', ' ').slice(0, 16)} UTC.`,
+      'Until you confirm, you are not entered.',
+      '',
+      'Nobody from this platform will ever ask you for a seed phrase, a private key or a',
+      'payment. If a message does, it is not us.',
+    ].join('\n'),
+  );
+}
+
+/** 6.3.2: which of the three notices, and how long is left when it goes. */
+export type RecoveryNoticeStage = 'START' | 'MID' | 'FINAL';
+
+const RECOVERY_LEAD: Record<RecoveryNoticeStage, string> = {
+  START: 'A change of access to your Keptra account was requested just now.',
+  MID: 'Reminder: a change of access to your Keptra account is half-way through its waiting period.',
+  FINAL: 'Last reminder: a change of access to your Keptra account takes effect in less than 24 hours.',
+};
+
+/**
+ * 6.3.2 and A5: the email half of the recovery notices. Email is the main
+ * channel (A5); Telegram carries the same warning without a link (R2).
+ */
+export function sendRecoveryNoticeEmail(
+  to: string,
+  stage: RecoveryNoticeStage,
+  executeAfter: Date,
+): Promise<MailResult> {
+  return post(
+    to,
+    'Security notice: a change of access to your Keptra account',
+    [
+      RECOVERY_LEAD[stage],
+      '',
+      `If nothing is done, the new passkey replaces the old one on ${executeAfter.toISOString().replace('T', ' ').slice(0, 16)} UTC.`,
+      '',
+      'If it was you, there is nothing to do.',
+      'If it was not you, cancel it now with the passkey you already use:',
+      '',
+      `  ${KEPTRA_BASE}/account`,
+      '',
+      'Cancelling needs only your current passkey and works at any moment until then.',
+    ].join('\n'),
+  );
 }

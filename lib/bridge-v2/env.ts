@@ -67,6 +67,12 @@ export const REQUIRED_ENV = [
   // own so that lifecycle gas cannot drain the key that publishes eligibility.
   // Required, not optional, for the reason CRON_SECRET gives below.
   'BRIDGE_V2_KEEPER_KEY',
+  // SPEC-BLOCO-03 A15: the guardian of every Keptra account. It signs one thing,
+  // off-chain — the module's recovery hash for a new owner that passed R-1 — and
+  // the relayer (the funder pool) submits it. It is never an owner of any account
+  // (6.1.4) and cannot move anything without the 7-day window (A7). A root of its
+  // own, so no other role's compromise starts a recovery (section 5).
+  'BRIDGE_V2_GUARDIAN_KEY',
 
   // Email. J7 requires our own authenticated sender domain.
   'RESEND_API_KEY',

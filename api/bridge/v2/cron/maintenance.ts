@@ -11,6 +11,7 @@ import {
   SPEND_CAPS,
   VRF_LOW_LINK_JUELS,
   DB_TIMEOUT_MS,
+  SWEEP_WORST_CASE_MS,
 } from '../../../../lib/bridge-v2/config.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { sweepConfirmed } from '../../../../lib/bridge-v2/processor.js';
@@ -24,6 +25,13 @@ import {
   vrfSubscriptionLink,
 } from '../../../../lib/bridge-v2/chain.js';
 import { alert, assertConfigured } from '../../../../lib/bridge-v2/alert.js';
+import { roleCollisions } from '../../../../lib/bridge-v2/guardian.js';
+import {
+  advanceConfirmedRecoveries,
+  alertUnregisteredRecoveries,
+  confirmVerifiedRecoveries,
+} from '../../../../lib/bridge-v2/recovery.js';
+import { migrateAuthorizedWallets, seedRetirementReadiness } from '../../../../lib/bridge-v2/migration.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/maintenance
@@ -148,6 +156,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     const size = await safely(log, 'pool_size', async () => poolSize());
     let swept: number | null = 0;
     let sweepSkipped = false;
+    let migrationsSealed: number | null = 0;
     if (size !== null && size > 0) {
       const pipeline = await acquireRunLock('cron/process');
       if (pipeline === null) {
@@ -155,6 +164,9 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       } else {
         try {
           swept = await safely(log, 'sweep', () => sweepConfirmed(log, size, deadline));
+          // SPEC-BLOCO-03 6.6: the migration of derived wallets signs as a
+          // derived wallet too, so it runs under the same borrowed lock.
+          migrationsSealed = await safely(log, 'migration', () => migrateAuthorizedWallets(log, size, deadline));
         } finally {
           await releaseRunLock(pipeline);
         }
@@ -272,6 +284,27 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       return value;
     });
 
+    // SPEC-BLOCO-03 section 6 — Keptra accounts. Each check its own `safely`,
+    // like everything above: one that cannot run is reported as null.
+    //
+    // M39, section 5: every role its own key.
+    const roleKeysDistinct = await safely(log, 'role_keys', async () => {
+      const collisions = roleCollisions();
+      if (collisions.length > 0) await alert(log, 'two server roles share a key', { pairs: collisions.length });
+      return collisions.length === 0;
+    });
+    // 6.3 and R-6: confirm what passed A14 and R-1, notify, finalise what is due.
+    const recoveriesConfirmed = await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
+    const recoveriesClosed = await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
+    // M22: a pending recovery with no request of ours behind it.
+    const recoveriesUnregistered = await safely(log, 'recovery_unregistered', () => alertUnregisteredRecoveries(log, deadline));
+    // M34, 6.6.4 as A8 rewrites it: whether the derivation seed can be retired.
+    const seedRetirable = await safely(log, 'seed_readiness', async () => {
+      const readiness = await seedRetirementReadiness(() => deadline.hasTimeFor(SWEEP_WORST_CASE_MS));
+      await log.event('migration.readiness', { ready: readiness.ready, blocking: readiness.blocking, wallets: readiness.wallets });
+      return readiness.ready;
+    });
+
     // null everywhere means "this check could not run", and is reported as such
     // rather than as a healthy value. An operator reading `bridgeRegistered:
     // null` knows to look; reading `false` for the same thing would send them
@@ -290,6 +323,14 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       bridgeRegistered: bridgeRegistered?.matches ?? null,
       contractPaused: paused,
       routeErrors: Object.fromEntries(perRoute),
+      accounts: {
+        roleKeysDistinct,
+        recoveriesConfirmed,
+        recoveriesClosed,
+        recoveriesUnregistered,
+        migrationsSealed,
+        seedRetirable,
+      },
     };
 
     await log.event('route.ok', {

@@ -5,34 +5,37 @@
  * and never afterwards. The row carries a derivation index and the public
  * address that index produces, and nothing else about the person.
  *
- * I9 shapes the creation order. The V1 inserted the row and then wrote the
- * address, so a failed second statement left wallet_address as the literal '0x'
- * for good — finding K5. Here the index is reserved first, the address is
- * derived from it, and the row is written complete. There is no moment at which
- * a participant exists without a usable address.
+ * SPEC-BLOCO-03 6.6.1 (M9, M31): A NEW PARTICIPANT GETS NO DERIVED WALLET. Their
+ * entries are made by their Keptra account, created with a passkey at their first
+ * action. The index and address below exist only on rows created before that
+ * decision, and only until the wallet is migrated (6.6.2, A8). I9 still holds for
+ * those: the pair is all or nothing (0012's CHECK), never an address without an
+ * index.
  */
 
-import { checked, checkedMaybe, getDb } from './db.js';
+import { checkedMaybe, getDb } from './db.js';
 import { DB_TIMEOUT_MS } from './config.js';
-import { addressOf } from './wallet.js';
 
 export interface Participant {
   readonly id: string;
-  readonly walletIndex: number;
-  readonly walletAddress: `0x${string}`;
+  /** Legacy derived wallet, or null for every participant created since 6.6.1. */
+  readonly walletIndex: number | null;
+  readonly walletAddress: `0x${string}` | null;
 }
 
 interface ParticipantRow {
   id: string;
-  wallet_index: number;
-  wallet_address: string;
+  wallet_index: number | null;
+  wallet_address: string | null;
 }
 
 function toParticipant(row: ParticipantRow): Participant {
   return {
     id: row.id,
-    walletIndex: row.wallet_index,
-    walletAddress: row.wallet_address as `0x${string}`,
+    // == null, not === null: a row selected before 0012 or built by hand may
+    // carry undefined, and it means no derived wallet just the same.
+    walletIndex: row.wallet_index == null ? null : Number(row.wallet_index),
+    walletAddress: (row.wallet_address ?? null) as `0x${string}` | null,
   };
 }
 
@@ -64,22 +67,11 @@ export async function getOrCreateParticipant(canonicalEmail: string): Promise<Pa
 
   const db = getDb();
 
-  // Reserved before the address is derived, so the row can be written complete.
-  const index = checked(
-    'participant.reserve_index',
-    await db.rpc('bridge_v2_next_wallet_index').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-  ) as number | string;
-
-  const walletIndex = Number(index);
-  const walletAddress = addressOf(walletIndex);
-
+  // No index is reserved and no address is derived (6.6.1): the row is the
+  // email and nothing else until the participant creates their passkey.
   const inserted = await db
     .from('bridge_v2_participants')
-    .insert({
-      email_canonical: canonicalEmail,
-      wallet_index: walletIndex,
-      wallet_address: walletAddress,
-    })
+    .insert({ email_canonical: canonicalEmail })
     .select('id, wallet_index, wallet_address')
     .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
     .maybeSingle();

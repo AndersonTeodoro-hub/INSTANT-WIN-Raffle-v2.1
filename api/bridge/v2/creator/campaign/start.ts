@@ -100,6 +100,9 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
   }
 
   const creator = await getOrCreateCreator(session.participantId);
+  // SPEC-BLOCO-03 6.6.1/6.6.3: a new creator's deposit address is their creator
+  // account, which exists once they have a passkey.
+  if (creator === null) return refuse(409, 'Create your passkey first.');
 
   const existing = await findActiveCampaign(creator.id);
   if (existing !== null) {
