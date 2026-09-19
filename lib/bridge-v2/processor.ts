@@ -1359,6 +1359,8 @@ async function retire(
  * on max(updated_at) so one write is enough.
  */
 export async function notifySettlements(log: Logger, deadline: RunDeadline): Promise<number> {
+  // SPEC-BLOCO-03 Adenda F7: not even the queue is read without one notice's time left.
+  if (!deadline.hasTimeFor(SETTLEMENT_NOTICE_MS)) return 0;
   const campaigns = await campaignsAwaitingOutcome(NOTICE_CAMPAIGN_BATCH);
   if (campaigns.length === 0) return 0;
 

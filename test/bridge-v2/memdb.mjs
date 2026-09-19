@@ -68,6 +68,15 @@ export function memdb(db, tables, unique = {}) {
     return { data: rows, error: null };
   };
 
+  // SPEC-BLOCO-03 Adenda F4: { count: 'exact' } counts every row the filters
+  // admit, before the limit, as PostgREST's Content-Range does; `head` returns
+  // the count alone.
+  const counted = (table, op) => {
+    const count = select(table, { ...op, order: [], limit: undefined }).length;
+    if (op.selectOptions?.head === true) return { data: null, count, error: null };
+    return { ...shape(op, select(table, op)), count };
+  };
+
   // A unique set is a column list, or { columns, where } for a partial index:
   // only rows the predicate admits take part, as in Postgres.
   const violates = (table, candidate, except) =>
@@ -85,7 +94,7 @@ export function memdb(db, tables, unique = {}) {
     });
 
   for (const table of tables) {
-    db.on(`${table}:select`, (op) => shape(op, select(table, op)));
+    db.on(`${table}:select`, (op) => (op.selectOptions?.count === 'exact' ? counted(table, op) : shape(op, select(table, op))));
     db.on(`${table}:insert`, (op) => {
       const payloads = Array.isArray(op.payload) ? op.payload : [op.payload];
       const inserted = [];
@@ -108,6 +117,12 @@ export function memdb(db, tables, unique = {}) {
         if (violates(table, next, row)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
       }
       for (const row of rows) Object.assign(row, op.payload);
+      return shape(op, rows);
+    });
+    // Adenda F10: a delete removes what the filters admit and returns it.
+    db.on(`${table}:delete`, (op) => {
+      const rows = select(table, { ...op, order: [], limit: undefined });
+      data.set(table, data.get(table).filter((row) => !rows.includes(row)));
       return shape(op, rows);
     });
     db.on(`${table}:upsert`, (op) => {

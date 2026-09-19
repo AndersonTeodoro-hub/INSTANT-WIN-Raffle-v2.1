@@ -3,13 +3,13 @@ import { enforce, retryAfterHeaders } from '../../../../../lib/bridge-v2/ratelim
 import { extractSignals } from '../../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../../lib/bridge-v2/session.js';
 import { findCreatorByParticipant } from '../../../../../lib/bridge-v2/creators.js';
-import { advanceCampaign, findActiveCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
-import { acquireRunLock, releaseRunLock } from '../../../../../lib/bridge-v2/runlock.js';
+import { advanceCampaign, creatorCampaignLock, findActiveCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
+import { acquireRunLock, releaseRunLock, runDeadline } from '../../../../../lib/bridge-v2/runlock.js';
 import { acquireFunder, releaseFunder, renewLease, signAsFunder } from '../../../../../lib/bridge-v2/funders.js';
 import { signAsDerived } from '../../../../../lib/bridge-v2/wallet.js';
 import { claimSpend } from '../../../../../lib/bridge-v2/spend.js';
 import { alert } from '../../../../../lib/bridge-v2/alert.js';
-import { GIVEAWAY_MANAGER_V2, USDC } from '../../../../../lib/bridge-v2/config.js';
+import { CREATOR_SUBMIT_UNIT_MS, GIVEAWAY_MANAGER_V2, USDC } from '../../../../../lib/bridge-v2/config.js';
 import {
   ChainError,
   erc20BalanceOf,
@@ -41,7 +41,7 @@ import type { FunderLease } from '../../../../../lib/bridge-v2/funders.js';
  * two overlapping cron runs are.
  *
  * EACH STEP IS FUNDED, BROADCAST AND AWAITED BEFORE THE NEXT IS QUOTED. See
- * config.ts's CREATOR_SUBMIT_WORST_CASE_MS for why: createGiveaway calls
+ * config.ts's CREATOR_SUBMIT_STEP_MS for why: createGiveaway calls
  * takeCustody, which reverts unless the module's allowance is already mined,
  * so quoting it before the approve that grants that allowance is confirmed
  * would be quoting a revert.
@@ -57,6 +57,12 @@ import type { FunderLease } from '../../../../../lib/bridge-v2/funders.js';
  * recovered by this pass.
  */
 const route = handle('creator/campaign/submit', async ({ request, log }) => {
+  // SPEC-BLOCO-03 Adenda F7: three steps of this route do not fit the platform's
+  // ceiling when each stage is counted at its timeout, so the route budgets
+  // itself from the moment the request arrived and starts a step only when it
+  // and what follows it fit (CREATOR_SUBMIT_UNIT_MS). A step that does not start
+  // leaves the campaign in FUNDING, which a retry resumes.
+  const deadline = runDeadline();
   const guard = methodGuard(request, 'POST');
   if (guard !== null) return guard;
 
@@ -84,7 +90,8 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
   const campaign = await findActiveCampaign(creator.id);
   if (campaign === null) return refuse(404, 'No campaign in progress.');
 
-  const lock = await acquireRunLock(`creator-campaign:${creator.id}`);
+  // SPEC-BLOCO-03 Adenda F2: the migration of this wallet takes the same lock.
+  const lock = await acquireRunLock(creatorCampaignLock(creator.id));
   if (lock === null) {
     return refuse(409, 'This campaign is already being submitted.');
   }
@@ -119,7 +126,9 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
     }
 
     let nextNonce = lease.nextNonce;
+    const outOfTime = () => refuse(503, 'The bridge cannot finish this right now. Try again shortly.');
     try {
+      if (!deadline.hasTimeFor(CREATOR_SUBMIT_UNIT_MS)) return outOfTime();
       const approve1 = await quoteApprove(
         creator.walletAddress,
         campaign.prizeToken,
@@ -130,6 +139,7 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
         nextNonce = n;
       });
 
+      if (!deadline.hasTimeFor(CREATOR_SUBMIT_UNIT_MS)) return outOfTime();
       const approve2 = await quoteApprove(
         creator.walletAddress,
         USDC,
@@ -142,6 +152,7 @@ const route = handle('creator/campaign/submit', async ({ request, log }) => {
         nextNonce = n;
       });
 
+      if (!deadline.hasTimeFor(CREATOR_SUBMIT_UNIT_MS)) return outOfTime();
       const prizeData = encodeTokenPrizeData(campaign.prizeToken, campaign.prizeAmount);
       const create = await quoteCreateGiveaway(
         creator.walletAddress,

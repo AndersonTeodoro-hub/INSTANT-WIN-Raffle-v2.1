@@ -2,7 +2,7 @@ import { handle, ok, refuse } from '../../../../lib/bridge-v2/http.js';
 import { requireEnv } from '../../../../lib/bridge-v2/env.js';
 import { assertConfigured } from '../../../../lib/bridge-v2/alert.js';
 import { timingSafeEqualHex } from '../../../../lib/bridge-v2/crypto.js';
-import { PIPELINE_PHASES, type PipelinePhase } from '../../../../lib/bridge-v2/config.js';
+import { PHASE_RESERVATION_MS, PIPELINE_PHASES, type PipelinePhase } from '../../../../lib/bridge-v2/config.js';
 import type { Logger } from '../../../../lib/bridge-v2/log.js';
 import {
   processEligibleEntries,
@@ -58,6 +58,15 @@ const STAGES: Record<PipelinePhase, (log: Logger, deadline: RunDeadline) => Prom
  * spend gas.
  */
 const route = handle('cron/process', async ({ request, log }) => {
+  // G4. The platform kills a function at maxDuration wherever it happens to be,
+  // and where it happens to be may be between a broadcast transaction and the
+  // row that records its hash — the V1's lost tx_hash, reintroduced by a
+  // scheduler instead of by a missing timeout. Each stage checks this before
+  // starting another unit of work, so a run stops between units and leaves
+  // nothing half-written. SPEC-BLOCO-03 Adenda F7: measured from the moment the
+  // run began, so the lock and the sequence read are inside the budget too.
+  const deadline = runDeadline();
+
   // K8: EVERY VARIABLE THE PIPELINE DEPENDS ON, CHECKED HERE, ON THE RUN THAT
   // WOULD OTHERWISE FAIL ONE DEEP CHAIN CALL AT A TIME.
   //
@@ -100,14 +109,6 @@ const route = handle('cron/process', async ({ request, log }) => {
     return ok({ skipped: 'run_in_progress' });
   }
 
-  // G4. The platform kills a function at maxDuration wherever it happens to be,
-  // and where it happens to be may be between a broadcast transaction and the
-  // row that records its hash — the V1's lost tx_hash, reintroduced by a
-  // scheduler instead of by a missing timeout. Each stage checks this before
-  // starting another unit of work, so a run stops between units and leaves
-  // nothing half-written.
-  const deadline = runDeadline();
-
   try {
     // §7/G4: WHERE THIS RUN STARTS, AND WHY IT IS NOT ALWAYS THE SAME PLACE.
     //
@@ -143,6 +144,13 @@ const route = handle('cron/process', async ({ request, log }) => {
     const counts: Record<string, number> = {};
     for (let step = 0; step < PIPELINE_PHASES.length; step += 1) {
       const phase = PIPELINE_PHASES[(offset + step) % PIPELINE_PHASES.length];
+      // SPEC-BLOCO-03 Adenda F7: a phase that could not start one unit does not
+      // start at all — not even the read of its queue — so past the budget
+      // nothing runs but the last event and the lock's release.
+      if (!deadline.hasTimeFor(PHASE_RESERVATION_MS[phase])) {
+        counts[phase] = 0;
+        continue;
+      }
       counts[phase] = await STAGES[phase](log, deadline);
     }
 

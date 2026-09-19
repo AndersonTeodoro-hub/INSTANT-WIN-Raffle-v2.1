@@ -127,7 +127,12 @@ export interface Account {
   readonly role: AccountRole;
   readonly safe: `0x${string}`;
   readonly initialSigner: `0x${string}`;
-  readonly guardian: `0x${string}`;
+  /**
+   * The guardian the account was registered with, and — once its module is on —
+   * the one the chain holds, or null when it holds none (Adenda F1,
+   * reconcileGuardians). A record: no decision about a guardian reads it.
+   */
+  readonly guardian: `0x${string}` | null;
   readonly deployedAt: string | null;
 }
 
@@ -137,7 +142,7 @@ interface AccountRow {
   role: AccountRole;
   safe_address: string;
   initial_signer: string;
-  guardian_address: string;
+  guardian_address: string | null;
   deployed_at: string | null;
 }
 
@@ -150,7 +155,7 @@ function toAccount(row: AccountRow): Account {
     role: row.role,
     safe: row.safe_address as `0x${string}`,
     initialSigner: row.initial_signer as `0x${string}`,
-    guardian: row.guardian_address as `0x${string}`,
+    guardian: (row.guardian_address ?? null) as `0x${string}` | null,
     // ?? null: a column never written reads as undefined from a row built by
     // hand, and means the same as NULL to every reader here.
     deployedAt: row.deployed_at ?? null,
@@ -259,8 +264,11 @@ export async function readdressAccount(account: Account, signer: `0x${string}`):
   );
 }
 
-/** A6: the guardian an account added back after a rotation, which the closed list then names (refusalFor). */
-export async function recordGuardian(accountId: string, guardian: `0x${string}`): Promise<void> {
+/**
+ * A6: the guardian an account added back after a rotation; Adenda F1: the one
+ * the chain holds, or none (null), when the maintenance pass reconciles it.
+ */
+export async function recordGuardian(accountId: string, guardian: `0x${string}` | null): Promise<void> {
   checked(
     'account.guardian',
     await getDb()
@@ -411,6 +419,26 @@ export async function recordRelayed(accountId: string): Promise<void> {
       .insert({ account_id: accountId })
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
+}
+
+/**
+ * Adenda F10: the two tables the relay counts in (C11, E2) keep no row older
+ * than `days`. Each count looks at 24 hours; nothing reads further back but
+ * accountsAwaitingRecognition (E3), which the maintenance pass runs hourly, so a
+ * lost first receipt is recognised long before its row goes. Run by that pass.
+ */
+export async function purgeRelayRecords(days: number): Promise<number> {
+  const before = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const db = getDb();
+  const relayed = checked(
+    'account.relay_retention',
+    await db.from('bridge_v2_relayed_transactions').delete().lt('created_at', before).select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { id: string }[] | null;
+  const changes = checked(
+    'account.guardian_retention',
+    await db.from('bridge_v2_guardian_changes').delete().lt('created_at', before).select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { id: string }[] | null;
+  return (relayed?.length ?? 0) + (changes?.length ?? 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -795,13 +823,21 @@ export async function pendingMigrations(limit: number): Promise<Migration[]> {
   return Array.isArray(rows) ? rows.map(toMigration) : [];
 }
 
-/** The derived key is never used for this index again (M2). */
-export async function sealMigration(id: string): Promise<void> {
+/**
+ * The derived key is never used for this index again (M2). `sweepCostWei`: what
+ * the last sweep of the wallet cost (Adenda F6) — the remainder it left is below
+ * it, and seed readiness does not count that remainder as a balance.
+ */
+export async function sealMigration(id: string, sweepCostWei: bigint | null): Promise<void> {
   checked(
     'migration.seal',
     await getDb()
       .from('bridge_v2_migrations')
-      .update({ sealed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({
+        sealed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        sweep_cost_wei: sweepCostWei === null ? null : sweepCostWei.toString(),
+      })
       .eq('id', id)
       .is('sealed_at', null)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
@@ -834,29 +870,102 @@ export async function isIndexSealed(walletIndex: number): Promise<boolean> {
   return row !== null;
 }
 
+export interface DerivedWallet {
+  readonly kind: 'PARTICIPANT' | 'CREATOR';
+  readonly ownerId: string;
+  readonly walletIndex: number;
+  readonly address: `0x${string}`;
+  readonly sealed: boolean;
+  /** Sealed: what its last sweep cost (Adenda F6, sealMigration), or null. */
+  readonly sweepCostWei: bigint | null;
+}
+
+/** Adenda F4: rows per page of the read below. */
+const WALLET_PAGE = 500;
+
+type WalletRow = { id: string; wallet_index: number; wallet_address: string };
+
+/**
+ * Every row of one table that holds a derived wallet, or null when it cannot be
+ * confirmed that every one was read (Adenda F4).
+ *
+ * A page at a time, by id, until a page comes back EMPTY — so a server that caps
+ * its rows below the page size shortens pages but cannot end the read early —
+ * and what was read must equal the exact count the database gives for the same
+ * filter. A count that does not come, or does not match, is null — and so is a
+ * read the caller's budget (`hasTime`, Adenda F7) stopped before its end.
+ */
+async function everyWalletRow(
+  table: 'bridge_v2_participants' | 'bridge_v2_creators',
+  hasTime: () => boolean,
+): Promise<WalletRow[] | null> {
+  const db = getDb();
+  if (!hasTime()) return null;
+  const counted = await db
+    .from(table)
+    .select('id', { count: 'exact', head: true })
+    .not('wallet_index', 'is', null)
+    .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS));
+  if (counted.error || typeof counted.count !== 'number') return null;
+  const rows: WalletRow[] = [];
+  let afterId = '00000000-0000-0000-0000-000000000000';
+  for (;;) {
+    if (!hasTime()) return null;
+    const page = checked(
+      'migration.derived_wallets',
+      await db
+        .from(table)
+        .select('id, wallet_index, wallet_address')
+        .not('wallet_index', 'is', null)
+        .gt('id', afterId)
+        .order('id', { ascending: true })
+        .limit(WALLET_PAGE)
+        .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+    ) as WalletRow[] | null;
+    if (!Array.isArray(page) || page.length === 0) break;
+    rows.push(...page);
+    afterId = page[page.length - 1].id;
+  }
+  return rows.length === counted.count ? rows : null;
+}
+
 /**
  * Every derived wallet, participants and creators, sealed or not (M34 as Adenda
  * E1 reads it): a sealed wallet is still read for what it holds.
+ *
+ * Adenda F4: `complete` is whether every one that exists was read; readiness
+ * answers "not ready" when it is not. A sealed flag missed only makes a wallet
+ * look unsealed, which is read for more, never for less.
  */
-export async function derivedWallets(): Promise<
-  { kind: 'PARTICIPANT' | 'CREATOR'; ownerId: string; walletIndex: number; address: `0x${string}`; sealed: boolean }[]
-> {
-  const db = getDb();
-  const [participants, creators, sealed] = await Promise.all([
-    db.from('bridge_v2_participants').select('id, wallet_index, wallet_address').not('wallet_index', 'is', null).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-    db.from('bridge_v2_creators').select('id, wallet_index, wallet_address').not('wallet_index', 'is', null).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-    db.from('bridge_v2_migrations').select('wallet_index').not('sealed_at', 'is', null).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-  ]);
-  type Row = { id: string; wallet_index: number; wallet_address: string };
-  const sealedSet = new Set(
-    ((checked('migration.sealed_list', sealed) as { wallet_index: number }[] | null) ?? []).map((row) => Number(row.wallet_index)),
-  );
-  const out: { kind: 'PARTICIPANT' | 'CREATOR'; ownerId: string; walletIndex: number; address: `0x${string}`; sealed: boolean }[] = [];
-  for (const [kind, result] of [['PARTICIPANT', participants], ['CREATOR', creators]] as const) {
-    for (const row of (checked(`migration.${kind.toLowerCase()}_wallets`, result) as Row[] | null) ?? []) {
+export async function derivedWallets(hasTime: () => boolean = () => true): Promise<{ wallets: DerivedWallet[]; complete: boolean }> {
+  const sealed = checked(
+    'migration.sealed_list',
+    await getDb()
+      .from('bridge_v2_migrations')
+      .select('wallet_index, sweep_cost_wei::text')
+      .not('sealed_at', 'is', null)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { wallet_index: number; sweep_cost_wei: string | null }[] | null;
+  const sealedCost = new Map((sealed ?? []).map((row) => [Number(row.wallet_index), row.sweep_cost_wei == null ? null : BigInt(row.sweep_cost_wei)]));
+  const wallets: DerivedWallet[] = [];
+  let complete = true;
+  for (const [kind, table] of [['PARTICIPANT', 'bridge_v2_participants'], ['CREATOR', 'bridge_v2_creators']] as const) {
+    const rows = await everyWalletRow(table, hasTime);
+    if (rows === null) {
+      complete = false;
+      continue;
+    }
+    for (const row of rows) {
       const walletIndex = Number(row.wallet_index);
-      out.push({ kind, ownerId: row.id, walletIndex, address: row.wallet_address as `0x${string}`, sealed: sealedSet.has(walletIndex) });
+      wallets.push({
+        kind,
+        ownerId: row.id,
+        walletIndex,
+        address: row.wallet_address as `0x${string}`,
+        sealed: sealedCost.has(walletIndex),
+        sweepCostWei: sealedCost.get(walletIndex) ?? null,
+      });
     }
   }
-  return out;
+  return { wallets, complete };
 }

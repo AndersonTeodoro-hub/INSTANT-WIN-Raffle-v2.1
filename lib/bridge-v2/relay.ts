@@ -38,24 +38,37 @@
  * spend ceiling. Adenda E3 and E10: "deployed" and "never configured" are the
  * chain's answer (readAccount). Adenda E7: the maintenance pass settles from the
  * chain a campaign whose receipt never came (reconcileRelayedCampaigns).
+ *
+ * Adenda F1: every decision about an account's guardian — R-3's revocation
+ * among them — is about the guardian the account holds on-chain, never the one
+ * recorded here, and the maintenance pass brings the record into line
+ * (reconcileGuardians). Adenda F5: a draft in FUNDING with no hash is released
+ * only when the chain shows no campaign of the creator account since it.
+ * Adenda F7: a submission sends nothing unless its irreversible part fits the
+ * route's own budget (submitAction, RELAY_SEND_MS). Adenda F10: the closed list
+ * reads the calls before they are encoded.
  */
 
 import { encodeFunctionData, type Hex } from 'viem';
 import { alert } from './alert.js';
 import { claimSpend } from './spend.js';
 import type { Logger } from './log.js';
-import type { RunDeadline } from './runlock.js';
+import { runDeadline, type RunDeadline } from './runlock.js';
 import { CREATOR_APPROVAL_ABI, CREATOR_CAMPAIGN_MANAGER_ABI, ERC20_ABI, GIVEAWAY_MANAGER_V2_ABI, PrizeKind } from './abi.js';
 import {
   ACCOUNT_RECOGNITION_MS,
   CAMPAIGN_RECONCILE_MS,
   GIVEAWAY_MANAGER_V2,
   GUARDIAN_CHANGES_PER_DAY,
+  GUARDIAN_RECORD_MS,
+  GUARDIAN_SCAN_MS,
   RELAYED_CAMPAIGN_STALE_MS,
   RELAYED_TRANSACTIONS_PER_DAY,
+  RELAY_SEND_MS,
   USDC,
 } from './config.js';
 import {
+  campaignsCreatedBy,
   claimableFor,
   erc20BalanceOf,
   encodeTokenPrizeData,
@@ -98,6 +111,7 @@ import {
 import {
   accountBySafe,
   accountsAwaitingRecognition,
+  accountsPage,
   findAccount,
   findPasskey,
   guardianChangesSince,
@@ -114,7 +128,13 @@ import {
 import { findEntry } from './entries.js';
 import { proofForAddress } from './eligibility.js';
 import { findCreatorById, findCreatorByParticipant } from './creators.js';
-import { advanceCampaign, findActiveCampaign, fundingCampaigns, type CreatorCampaign } from './creatorCampaigns.js';
+import {
+  advanceCampaign,
+  findActiveCampaign,
+  fundingCampaigns,
+  registeredGiveawayIds,
+  type CreatorCampaign,
+} from './creatorCampaigns.js';
 import { acquireFunder, disableFunder, releaseFunder, signAsFunder } from './funders.js';
 import { guardianAddress } from './guardian.js';
 
@@ -195,11 +215,17 @@ export async function readAccount(account: Account): Promise<AccountView> {
 }
 
 /**
- * 6.1 as the chain holds it — R-4 among it — with the owners A3 admits: one or
- * two signers of the participant's own passkeys, threshold 1.
+ * 6.1 as the chain holds it — R-4 among it — with the one guardian the chain
+ * holds (Adenda F1: never the value recorded here). The reason it is not, or null.
  */
+function compositionRefusal(state: AccountState): string | null {
+  if (state.guardians.length !== 1) return 'guardians';
+  return configurationRefusal(state, state.guardians[0], state.owners);
+}
+
+/** compositionRefusal, with the owners A3 admits: one or two signers of the participant's own passkeys. */
 async function meetsComposition(account: Account, state: AccountState): Promise<boolean> {
-  if (configurationRefusal(state, account.guardian, state.owners) !== null) return false;
+  if (compositionRefusal(state) !== null) return false;
   if (state.owners.length === 0 || state.owners.length > 2) return false;
   const signers = await passkeySigners(account.participantId);
   return state.owners.every((owner) => signers.has(owner.toLowerCase()));
@@ -387,9 +413,15 @@ async function actionCalls(
   }
 }
 
-/** The guardian a transaction may name: the account's own, or the configured one when one is added back. */
-function guardianFor(account: Account, action: Action): `0x${string}` {
-  return action.kind === 'configure' ? guardianAddress() : account.guardian;
+/**
+ * The guardian a transaction may name. Adding one back (A6) names the platform's
+ * current key; anything else names the account's own guardian as the chain holds
+ * it — R-3 revokes that one — and never the value recorded in the database, which
+ * a rotation (B6) or a lost receipt can leave different (Adenda F1). Null when
+ * the account holds none: then no guardian may be named.
+ */
+function guardianFor(state: AccountState, action: Action): `0x${string}` | null {
+  return action.kind === 'configure' ? guardianAddress() : (state.guardians[0] ?? null);
 }
 
 /**
@@ -418,14 +450,18 @@ export async function prepareAction(
   }
 
   // 6.1.4 and B4: an account's first transaction — a new account's, or one
-  // somebody else deployed bare — starts with its configuration, at nonce 0.
-  const configuration = gap === 'account' || gap === 'module' ? configurationCalls(account.safe, account.guardian) : null;
+  // somebody else deployed bare — starts with its configuration, at nonce 0,
+  // adding the guardian the account was registered with. An account with no
+  // module on-chain holds no guardian, so the recorded one is still the one to
+  // add (F1 reconciles it only once the module is on; B6 rotates it before).
+  const registered = account.guardian ?? guardianAddress();
+  const configuration = gap === 'account' || gap === 'module' ? configurationCalls(account.safe, registered) : null;
   // D1: during a guardian compromise configure waits for the rotation, and no
   // transaction adds a key the incident listed — the one configured now, or the
   // one an account was registered with.
   const named = new Set<`0x${string}`>();
   if (action.kind === 'configure') named.add(guardianAddress());
-  if (configuration !== null) named.add(account.guardian);
+  if (configuration !== null) named.add(registered);
   for (const guardian of named) {
     if (await guardianCompromised(guardian)) throw new RelayRefusal('guardian_incident');
   }
@@ -442,10 +478,11 @@ export async function prepareAction(
   }
 
   const { calls, extraSigner, campaign = null } = await actionCalls(participantId, account, state, action);
-  const tx = safeTxFor([...(configuration ?? []), ...calls], state.nonce);
-
-  const refusal = refusalFor(account.safe, tx, configuration, guardianFor(account, action));
+  // F10: the closed list reads the calls before they are encoded, not a decoding of them.
+  const all = [...(configuration ?? []), ...calls];
+  const refusal = refusalFor(account.safe, all, state.nonce, configuration, guardianFor(state, action));
   if (refusal !== null) throw new RelayRefusal(refusal);
+  const tx = safeTxFor(all, state.nonce);
 
   return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign };
 }
@@ -506,6 +543,11 @@ export async function sendAsRelayer(
  * relays it. `nonce` is the nonce the passkey signed for: a transaction that
  * landed in between moved the account on, and the signature is then for a
  * transaction that no longer exists (stale_nonce).
+ *
+ * Adenda F7: `deadline` is the route's own budget, running since the request
+ * arrived (account/relay). Nothing is recorded or sent unless the part that
+ * cannot be taken back — RELAY_SEND_MS — still fits in it; otherwise the request
+ * is refused as if the relayer were busy, and a retry starts afresh.
  */
 export async function submitAction(
   participantId: string,
@@ -514,6 +556,7 @@ export async function submitAction(
   nonce: bigint,
   assertion: Assertion,
   log: Logger,
+  deadline: RunDeadline = runDeadline(),
 ): Promise<Submitted> {
   const prepared = await prepareAction(participantId, action, requestedRole);
   const { account, state, tx, hash } = prepared;
@@ -543,6 +586,9 @@ export async function submitAction(
   }
   if (!state.deployed) batch.push(createAccountCall(account.initialSigner, account.role));
   batch.push({ to: account.safe, data: execTransactionData(tx, encodeSafeSignature(passkey.signer, signature)) });
+
+  // F7: from here on nothing can be taken back; it starts only if it can finish.
+  if (!deadline.hasTimeFor(RELAY_SEND_MS)) throw new RelayRefusal('relayer_unavailable');
 
   // E2: counted before it is sent, so one that then fails still counts. Every
   // submission passed prepareAction's count on its own; counted again once this
@@ -580,7 +626,7 @@ export async function submitAction(
     const view = await readAccount(account);
     if (!view.configured) {
       await alert(log, 'account configuration check failed after creation', {
-        reason: configurationRefusal(view.state, account.guardian, view.state.owners) ?? 'owners',
+        reason: compositionRefusal(view.state) ?? 'owners',
       });
     }
   }
@@ -614,6 +660,8 @@ export async function recognizeDeployedAccounts(log: Logger, deadline: RunDeadli
   let recognized = 0;
   let afterId = '00000000-0000-0000-0000-000000000000';
   for (;;) {
+    // F7: not even the next page is read without one account's time left.
+    if (!deadline.hasTimeFor(ACCOUNT_RECOGNITION_MS)) return recognized;
     const page = await accountsAwaitingRecognition(afterId, 50);
     if (page.length === 0) return recognized;
     for (const account of page) {
@@ -632,12 +680,49 @@ export async function recognizeDeployedAccounts(log: Logger, deadline: RunDeadli
 }
 
 /**
+ * Adenda F1: the recorded guardian of every account whose module is on follows
+ * the chain — its one guardian, or none once its user revoked it (R-3). An
+ * account with no module on-chain holds no guardian and keeps the registered one,
+ * which is what its configuration will add (B6 rotates it). Nothing decides on
+ * the recorded value any more (guardianFor, compositionRefusal); this keeps it
+ * from saying otherwise.
+ */
+export async function reconcileGuardians(log: Logger, deadline: RunDeadline): Promise<number> {
+  let reconciled = 0;
+  let afterId = '00000000-0000-0000-0000-000000000000';
+  // ponytail: one state read per account per pass (B7 accepts it, as for C10).
+  for (;;) {
+    if (!deadline.hasTimeFor(GUARDIAN_SCAN_MS)) return reconciled;
+    const page = await accountsPage(afterId, 50);
+    if (page.length === 0) return reconciled;
+    const states = await Promise.all(page.map((account) => accountState(account.safe)));
+    for (const [i, account] of page.entries()) {
+      const gap = configurationGap(states[i]);
+      if (gap === 'account' || gap === 'module') continue;
+      const onChain = states[i].guardians[0] ?? null;
+      if ((onChain?.toLowerCase() ?? null) === (account.guardian?.toLowerCase() ?? null)) continue;
+      if (!deadline.hasTimeFor(GUARDIAN_RECORD_MS)) return reconciled;
+      await recordGuardian(account.id, onChain);
+      reconciled += 1;
+      await log.event('account.guardian_reconciled', { role: account.role, guardian: onChain === null ? 'none' : 'on_chain' });
+    }
+    afterId = page[page.length - 1].id;
+  }
+}
+
+/**
  * Adenda E7: a campaign the relay sent whose receipt never came is settled from
  * the chain at the next maintenance pass. Mined, it is registered — CONFIRMED,
- * with the id its event carries. Not mined — reverted, unknown to the node, or
- * never sent by a request that no longer runs — it is released: back to
- * PENDING_DEPOSIT, where the deposit still in the creator account can be signed
- * for again. Still pending, it waits.
+ * with the id its event carries. Not mined — reverted, or unknown to the node —
+ * it is released: back to PENDING_DEPOSIT, where the deposit still in the
+ * creator account can be signed for again. Still pending, it waits.
+ *
+ * Adenda F5: a draft in FUNDING with no transaction recorded — its request died
+ * between the move to FUNDING and the hash — is released only once the chain
+ * shows the creator account created no campaign since the draft. Time alone
+ * releases nothing: it only says the request that could have sent it is over.
+ * A campaign the account did create since then, with the draft's terms, is the
+ * draft's (E7: registered); one with other terms is alerted and the draft waits.
  *
  * Only the relay's campaigns: those of a creator whose deposit address is the
  * creator account (E1 counts a sealed one). The same pattern in module 2's
@@ -650,7 +735,7 @@ export async function reconcileRelayedCampaigns(log: Logger, deadline: RunDeadli
     try {
       const creator = await findCreatorById(campaign.creatorId);
       if (creator === null || creator.walletIndex !== null) continue;
-      if (await settleCampaign(campaign, log)) settled += 1;
+      if (await settleCampaign(campaign, creator.walletAddress, log)) settled += 1;
     } catch (error) {
       await log.failure('creator_campaign.failed', error);
     }
@@ -658,14 +743,46 @@ export async function reconcileRelayedCampaigns(log: Logger, deadline: RunDeadli
   return settled;
 }
 
-async function settleCampaign(campaign: CreatorCampaign, log: Logger): Promise<boolean> {
+/**
+ * F5: how far before the draft's creation the chain is searched, for a server
+ * clock and a block clock that disagree by a little. A campaign of the account
+ * inside this margin that another draft already registered is not counted.
+ */
+const CLOCK_MARGIN_MS = 5 * 60 * 1000;
+
+async function settleCampaign(campaign: CreatorCampaign, account: `0x${string}`, log: Logger): Promise<boolean> {
   const release = async (reason: string): Promise<boolean> => {
     if (!(await advanceCampaign(campaign.id, 'FUNDING', 'PENDING_DEPOSIT', { tx_hash: null }))) return false;
     await log.event('creator_campaign.released', { reason });
     return true;
   };
   if (campaign.txHash === null) {
-    return Date.parse(campaign.updatedAt) + RELAYED_CAMPAIGN_STALE_MS <= Date.now() ? release('never_sent') : false;
+    if (Date.parse(campaign.updatedAt) + RELAYED_CAMPAIGN_STALE_MS > Date.now()) return false;
+    const since = BigInt(Math.floor((Date.parse(campaign.createdAt) - CLOCK_MARGIN_MS) / 1000));
+    const created = await campaignsCreatedBy(account, since);
+    // The chain could not be read back far enough: nothing is shown, nothing is released.
+    if (created === null) {
+      await alert(log, 'relay campaign in FUNDING with no hash, older than the campaigns the pass reads back');
+      return false;
+    }
+    const taken = await registeredGiveawayIds(campaign.creatorId);
+    const candidates = created.filter((found) => !taken.has(found.giveawayId));
+    if (candidates.length === 0) return release('never_sent');
+    const mine = candidates.find(
+      (found) =>
+        found.prizeModule.toLowerCase() === campaign.module.toLowerCase() &&
+        found.prizeAmount === campaign.prizeAmount &&
+        found.winnersCount === campaign.winnersCount &&
+        found.slotCap === campaign.slotCap &&
+        found.durationSeconds === campaign.durationSeconds,
+    );
+    if (mine === undefined) {
+      await alert(log, 'relay campaign in FUNDING with no hash, and a campaign of its creator on-chain with other terms');
+      return false;
+    }
+    if (!(await advanceCampaign(campaign.id, 'FUNDING', 'CONFIRMED', { giveaway_id: mine.giveawayId.toString() }))) return false;
+    await log.event('creator_campaign.confirmed', { giveaway_id: mine.giveawayId.toString(), reconciled: true });
+    return true;
   }
   const hash = campaign.txHash as Hex;
   const receipt = await waitForReceipt(hash);

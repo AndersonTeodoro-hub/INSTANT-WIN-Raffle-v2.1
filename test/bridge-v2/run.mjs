@@ -15,6 +15,7 @@
 
 import { installEnv, installFetchDouble, restoreFetch, results } from './harness.mjs';
 import { stopEngine } from './pg.mjs';
+import { BASELINE_FAILURES, exitWith, verdict } from './verdict.mjs';
 
 installEnv();
 installFetchDouble();
@@ -72,6 +73,8 @@ const REQUIREMENTS = [
   'AD1', 'AD3', 'AD4', 'AD6',
   // SPEC-BLOCO-03 Adenda E, as AEn. E6 and E12 ask for no code; E8 is a comment.
   'AE1', 'AE2', 'AE3', 'AE4', 'AE5', 'AE7', 'AE9', 'AE10', 'AE11',
+  // SPEC-BLOCO-03 Adenda F, as AFn. F9 is comments and F11 asks for no code.
+  'AF1', 'AF2', 'AF3', 'AF4', 'AF5', 'AF6', 'AF7', 'AF8', 'AF10', 'AF12',
 ];
 
 for (const path of SUITES) {
@@ -168,4 +171,10 @@ console.log(`requisitos: ${REQUIREMENTS.length}  (sem teste: ${uncovered.length}
 if (uncovered.length > 0) console.log(`sem teste:  ${uncovered.join(', ')}`);
 if (unknown.length > 0) console.log(`identificadores desconhecidos: ${unknown.join(', ')}`);
 
-process.exitCode = failed > 0 ? 1 : 0;
+// SPEC-BLOCO-03 Adenda F12: non-zero when any test fails that is not a declared
+// baseline failure, and only then.
+const outcome = verdict(results);
+console.log(`falhas de base: ${outcome.baseline.length} de ${BASELINE_FAILURES.length} declaradas`);
+console.log(`falhas novas:   ${outcome.unexpected.length}`);
+console.log(`código de saída: ${outcome.exitCode}`);
+exitWith(outcome.exitCode);

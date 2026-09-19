@@ -35,6 +35,7 @@ import { assert, deadline, recordingLogger, request, suite, test, TEST_FUNDER_KE
 import * as db from '../doubles/db.mjs';
 import { KEPTRA_TABLES, KEPTRA_UNIQUE, memdb } from '../memdb.mjs';
 import { createPasskey } from '../passkey.mjs';
+import { callsOf } from '../safecalls.mjs';
 import { assertLocalFork, rpcClient, setUsdcBalance } from './anvil.mjs';
 import * as keptra from '../../../lib/bridge-v2/keptra.ts';
 import * as kchain from '../../../lib/bridge-v2/keptraChain.ts';
@@ -49,6 +50,7 @@ import { buildTree, proofFor } from '../../../lib/bridge-v2/merkle.ts';
 import { GIVEAWAY_MANAGER_V2, USDC } from '../../../lib/bridge-v2/config.ts';
 import { GIVEAWAY_MANAGER_V2_ABI } from '../../../lib/bridge-v2/abi.ts';
 import { runDeadline } from '../../../lib/bridge-v2/runlock.ts';
+import { expireUnfundedDrafts } from '../../../lib/bridge-v2/creatorCampaigns.ts';
 import * as registerRoute from '../../../api/bridge/v2/account/register.ts';
 
 suite('fork');
@@ -127,6 +129,9 @@ db.on('rpc:bridge_v2_acquire_funder', () => ({
 for (const name of ['reconcile_funder_nonce', 'renew_funder_lease', 'release_funder', 'disable_funder']) {
   db.on(`rpc:bridge_v2_${name}`, () => ({ data: true, error: null }));
 }
+// Run locks (the migration of a creator's wallet takes the creator's, Adenda F2): always free here.
+db.on('rpc:bridge_v2_try_lock', () => ({ data: 'fork-lock-holder', error: null }));
+db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
 for (let index = 0; index < TEST_FUNDER_KEYS.length; index += 1) {
   await rpc.setBalance(funderAddress(index), 10n ** 18n);
 }
@@ -151,7 +156,7 @@ async function execAs(account, passkey, signer, calls) {
   const state = await kchain.accountState(account.safe);
   const tx = keptra.safeTxFor(calls, state.nonce);
   // The relay's closed list admits it: a call to a token, never to the account or the module.
-  assert.equal(keptra.refusalFor(account.safe, tx, null, guardianAddress()), null);
+  assert.equal(keptra.refusalFor(account.safe, calls, state.nonce, null, guardianAddress()), null);
   const hash = keptra.safeTxHash(account.safe, tx);
   const assertion = await passkey.sign(hash);
   const signature = keptra.assertionToSignature(hash, assertion.authenticatorData, assertion.clientDataJSON, assertion.signature);
@@ -176,7 +181,7 @@ async function deployOnly(account, passkey, signer) {
     log,
   );
   assert.equal(sent.receipt.status, 'success');
-  await accounts.markDeployed(account.id, sent.hash);
+  await accounts.markDeployed(account.id);
   return sent;
 }
 
@@ -655,8 +660,7 @@ await test(['KM37'], 'the module refuses the guardian as an owner, and an owner 
   });
   assert.match(asGuardian ?? '', /GS: guardian cannot be an owner/);
   // And the relay would never build it: the allow-list names only the platform's guardian.
-  const tx = keptra.safeTxFor(keptra.addGuardianCalls(player.signer), 0n);
-  assert.equal(keptra.refusalFor(player.participant.safe, tx, null, guardianAddress()), 'guardian_mismatch');
+  assert.equal(keptra.refusalFor(player.participant.safe, keptra.addGuardianCalls(player.signer), 0n, null, guardianAddress()), 'guardian_mismatch');
 });
 
 // ===========================================================================
@@ -706,7 +710,7 @@ await test(['KM16', 'KM18'], 'the old passkey cancels: cancelRecovery and invali
   const prepared = await relay.prepareAction('lost-1', { kind: 'cancelRecovery' }, 'PARTICIPANT');
   assert.equal(prepared.tx.operation, 1);
   assert.equal(prepared.tx.to.toLowerCase(), keptra.MULTI_SEND_CALL_ONLY.toLowerCase());
-  assert.equal(keptra.callsOf(prepared.tx).length, 2);
+  assert.equal(callsOf(prepared.tx).length, 2);
   const submitted = await relayAs('lost-1', lostKey, { kind: 'cancelRecovery' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
   const events = parseEventLogs({ abi: ABI, logs: submitted.receipt.logs }).map((e) => e.eventName);
@@ -807,7 +811,7 @@ await test(['KM19', 'AC2'], 'R-3 as A6 corrects it: with a recovery pending, one
   assert.ok(BigInt(pendingBefore.executeAfter) > 0n);
 
   const prepared = await relay.prepareAction('revoke-1', { kind: 'revokeGuardian' }, 'PARTICIPANT');
-  assert.equal(keptra.callsOf(prepared.tx).length, 3);
+  assert.equal(callsOf(prepared.tx).length, 3);
   const submitted = await relayAs('revoke-1', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
   assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [subject.participant.safe]), 0n);
@@ -836,7 +840,7 @@ await test(['KM19'], 'R-3 with no recovery pending does not revert: invalidate a
   const subject = await registerParticipant('revoke-2', key);
   await deployOnly(subject.participant, key, subject.signer);
   const prepared = await relay.prepareAction('revoke-2', { kind: 'revokeGuardian' }, 'PARTICIPANT');
-  assert.equal(keptra.callsOf(prepared.tx).length, 2);
+  assert.equal(callsOf(prepared.tx).length, 2);
   const submitted = await relayAs('revoke-2', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
   assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [subject.participant.safe]), 0n);
@@ -965,13 +969,15 @@ await test(['KM34', 'AE1', 'AE11'], 'with every derived wallet empty and sealed,
   assert.equal((await migration.seedRetirementReadiness(log)).ready, true);
 });
 
-await test(['KM34', 'KM2'], 'a derived wallet with a right still open is moved but not sealed (A8)', async () => {
+await test(['KM34', 'KM2', 'AF3'], 'a derived wallet with a right still open — an entry its campaign still takes (F3) — is moved but not sealed (A8)', async () => {
   const index = 902;
   const address = wallet.addressOf(index);
   const key = await createPasskey();
   const signer = await kchain.signerAddressOf(key.x, key.y);
   store.insert('bridge_v2_participants', { id: 'legacy-2', email_canonical: 'legacy2@example.test', wallet_index: index, wallet_address: address });
-  store.insert('bridge_v2_entries', { participant_id: 'legacy-2', giveaway_id: '999', status: 'VERIFIED', wallet_address: address, passkey: false, self_custody: false, outcome: null });
+  // Adenda F3: a right while its campaign still takes entries — a real one, open now.
+  const open = await openCampaign();
+  store.insert('bridge_v2_entries', { participant_id: 'legacy-2', giveaway_id: open.toString(), status: 'VERIFIED', wallet_address: address, passkey: false, self_custody: false, outcome: null });
   await accounts.registerPasskey('legacy-2', key.credentialId, key.x, key.y, signer);
   const [account] = (await accounts.ensureAccounts('legacy-2', signer, guardianAddress())).filter((a) => a.role === 'PARTICIPANT');
   await setUsdcBalance(rpc, USDC, address, 700_000n);
@@ -1267,7 +1273,7 @@ await test(['KM27', 'KM28', 'AC14'], 'B5: a creator account with a non-USDC priz
     tx_hash: null,
   });
   const prepared = await relay.prepareAction('creator-1', { kind: 'createCampaign' }, null);
-  assert.equal(keptra.callsOf(prepared.tx).length, 4, 'three approvals and createGiveaway');
+  assert.equal(callsOf(prepared.tx).length, 4, 'three approvals and createGiveaway');
   const submitted = await relayAs('creator-1', creatorKey, { kind: 'createCampaign' });
   assert.equal(submitted.receipt.status, 'success');
   const approvals = parseEventLogs({ abi: ABI, eventName: 'Approval', logs: submitted.receipt.logs })
@@ -1423,7 +1429,7 @@ const draftFor = (creatorId, status = 'PENDING_DEPOSIT', extra = {}) =>
     ...extra,
   });
 
-await test(['AE3', 'AE7', 'AE10', 'AE11', 'KM8'], 'E3, E7, E10: the receipt of a creator account’s first transaction never comes — the next maintenance pass recognises the account from the chain and registers the campaign it created; its guardian revoked, it stays usable', async () => {
+await test(['AE3', 'AE7', 'AE10', 'AE11', 'KM8', 'AF7'], 'E3, E7, E10: the receipt of a creator account’s first transaction never comes — the next maintenance pass recognises the account from the chain and registers the campaign it created; its guardian revoked, it stays usable', async () => {
   const key = await createPasskey();
   const subject = await accountCreator('receipt-1', key);
   const draft = draftFor(subject.creatorRow.id);
@@ -1672,6 +1678,189 @@ await test(['AE11', 'KM25', 'KM26'], 'an ERC-1155 prize is claimed by the accoun
   assert.equal((await relayAs('player-1', playerKey, { kind: 'transfer', giveawayId: prize.giveaway, to: destination, amount: 1n })).receipt.status, 'success');
   assert.equal(await unitsOf(destination), received + 1n);
   assert.equal(await unitsOf(player.participant.safe), before);
+});
+
+// ===========================================================================
+// Adenda F — the decisions after the audit of 6ec6d50, on the real contracts (AFn)
+// ===========================================================================
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_AGO = () => new Date(Date.now() - 7 * DAY_MS - 60_000).toISOString();
+const STALE = () => new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+/** A legacy participant or creator with a derived wallet, a passkey and its account set up (C4). */
+async function legacyWithAccount(id, index, kind) {
+  const key = await createPasskey();
+  const signer = await kchain.signerAddressOf(key.x, key.y);
+  const derived = wallet.addressOf(index);
+  const isCreator = kind === 'CREATOR';
+  store.insert('bridge_v2_participants', {
+    id,
+    email_canonical: `${id}@example.test`,
+    wallet_index: isCreator ? null : index,
+    wallet_address: isCreator ? null : derived,
+    telegram_chat_enc: null,
+  });
+  const creatorRow = isCreator ? store.insert('bridge_v2_creators', { participant_id: id, wallet_index: index, wallet_address: derived }) : null;
+  await accounts.registerPasskey(id, key.credentialId, key.x, key.y, signer);
+  const account = (await accounts.ensureAccounts(id, signer, guardianAddress())).find((a) => a.role === kind);
+  assert.equal((await relayAs(id, key, { kind: 'configure' }, kind)).receipt.status, 'success');
+  return { key, signer, derived, account, creatorRow };
+}
+
+await test(['AF1', 'KM19'], 'F1 on the real contracts: with the recorded guardian moved on (B6), R-3 still revokes the guardian the account holds, and the pass then records none', async () => {
+  const key = await createPasskey();
+  const subject = await registerParticipant('f1-held', key);
+  await deployOnly(subject.participant, key, subject.signer);
+  const safe = subject.participant.safe;
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [safe, guardianAddress()]), true);
+  // B6: the rotation rewrote the recorded guardian; the account on-chain still holds the old key.
+  const row = store.rows('bridge_v2_accounts').find((a) => a.id === subject.participant.id);
+  row.guardian_address = privateKeyToAccount(generatePrivateKey()).address;
+  const submitted = await relayAs('f1-held', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
+  assert.equal(submitted.receipt.status, 'success', 'the reaction to a compromise was refused while the account holds a guardian');
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [safe]), 0n);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [safe, guardianAddress()]), false);
+  // The maintenance pass records what the chain holds now: none.
+  await relay.reconcileGuardians(log, tick());
+  assert.equal(row.guardian_address, null);
+  // And the current guardian is added back by the account, as A6 says, then recorded again.
+  assert.equal((await relayAs('f1-held', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
+  assert.equal(row.guardian_address.toLowerCase(), guardianAddress().toLowerCase());
+});
+
+await test(['AF2', 'KM33', 'KM34'], 'F2 on the real contracts: a derived creator’s deposit is not moved while its draft is alive, and moves once the draft is gone; a draft nobody funded in seven days closes, one with its deposit does not', async () => {
+  const subject = await legacyWithAccount('f2-creator', 908, 'CREATOR');
+  await setUsdcBalance(rpc, USDC, subject.derived, 3_000_000n);
+  await accounts.authorizeMigration(908, subject.derived, subject.account.id, 'CREATOR');
+  const draft = draftFor(subject.creatorRow.id, 'PENDING_DEPOSIT', { creator: { wallet_address: subject.derived } });
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await usdcOf(subject.derived), 3_000_000n, 'the deposit moved while its draft was alive');
+  assert.equal(await usdcOf(subject.account.safe), 0n);
+  assert.equal(await accounts.isIndexSealed(908), false);
+  // Seven days on, its deposit address holds USDC: F2's closure leaves it.
+  draft.created_at = WEEK_AGO();
+  await expireUnfundedDrafts(log, tick());
+  assert.equal(draft.status, 'PENDING_DEPOSIT', 'a draft with its deposit was closed');
+  // The draft stopped (an admin, FAILED): the deposit moves into the creator account and the index is sealed.
+  draft.status = 'FAILED';
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await usdcOf(subject.derived), 0n);
+  assert.equal(await usdcOf(subject.account.safe), 3_000_000n);
+  assert.equal(await accounts.isIndexSealed(908), true);
+  // An account creator's draft nobody funded for seven days: its balances read on the chain, closed.
+  const idle = await accountCreator('f2-idle', await createPasskey());
+  const unfunded = draftFor(idle.creatorRow.id, 'PENDING_DEPOSIT', { created_at: WEEK_AGO() });
+  assert.equal(await usdcOf(idle.creator.safe), 0n);
+  await expireUnfundedDrafts(log, tick());
+  assert.equal(unfunded.status, 'EXPIRED');
+});
+
+/** A campaign still taking entries, created by creator-1's account through the relay. */
+async function openCampaign() {
+  store.insert('bridge_v2_creator_campaigns', {
+    creator_id: creatorRow.id,
+    status: 'PENDING_DEPOSIT',
+    module: ERC20_PRIZE_MODULE,
+    prize_token: USDC,
+    prize_amount: PRIZE.toString(),
+    duration_seconds: '3600',
+    winners_count: 10,
+    slot_cap: 10,
+    fee_amount: fee.toString(),
+    slots_cost: slotsCost.toString(),
+    giveaway_id: null,
+    tx_hash: null,
+  });
+  await setUsdcBalance(rpc, USDC, creator.creator.safe, PRIZE + fee + slotsCost);
+  const created = await relayAs('creator-1', creatorKey, { kind: 'createCampaign' });
+  assert.equal(created.receipt.status, 'success');
+  const { readGiveaway } = await import('../../../lib/bridge-v2/chain.ts');
+  assert.equal((await readGiveaway(created.giveawayId)).acceptsEntries, true);
+  return created.giveawayId;
+}
+
+await test(['AF3', 'KM34', 'KM2'], 'F3 on the real contracts: an entry left in a campaign that no longer takes entries, never entered and with nothing to claim, is no right — the wallet is sealed; an entry in a campaign still taking entries is one', async () => {
+  const { readGiveaway } = await import('../../../lib/bridge-v2/chain.ts');
+  // The suite's first campaign is settled, and this wallet never entered it.
+  assert.equal((await readGiveaway(giveawayId)).isSettled, true);
+  const abandoned = await legacyWithAccount('f3-abandoned', 909, 'PARTICIPANT');
+  store.insert('bridge_v2_entries', { participant_id: 'f3-abandoned', giveaway_id: giveawayId.toString(), status: 'VERIFIED', wallet_address: abandoned.derived, passkey: false, self_custody: false, outcome: null });
+  await setUsdcBalance(rpc, USDC, abandoned.derived, 500_000n);
+  await accounts.authorizeMigration(909, abandoned.derived, abandoned.account.id, 'PARTICIPANT');
+  assert.equal(await migration.openRights('PARTICIPANT', abandoned.derived), 0);
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await usdcOf(abandoned.account.safe), 500_000n);
+  assert.equal(await accounts.isIndexSealed(909), true, 'an abandoned entry kept the derived key');
+  // A campaign that still takes entries: the entry may still be made, so it is a right.
+  const open = await openCampaign();
+  const waiting = await legacyWithAccount('f3-open', 910, 'PARTICIPANT');
+  store.insert('bridge_v2_entries', { participant_id: 'f3-open', giveaway_id: open.toString(), status: 'VERIFIED', wallet_address: waiting.derived, passkey: false, self_custody: false, outcome: null });
+  await setUsdcBalance(rpc, USDC, waiting.derived, 400_000n);
+  await accounts.authorizeMigration(910, waiting.derived, waiting.account.id, 'PARTICIPANT');
+  assert.equal(await migration.openRights('PARTICIPANT', waiting.derived), 1);
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await usdcOf(waiting.account.safe), 400_000n, 'the balance was not moved');
+  assert.equal(await accounts.isIndexSealed(910), false, 'sealed with an entry its campaign still takes');
+});
+
+await test(['AF5', 'AE7'], 'F5 on the real contracts: a draft in FUNDING whose hash was never written is registered with the campaign its creator account created since, found on the chain; with none since, it is released', async () => {
+  const key = await createPasskey();
+  const subject = await accountCreator('f5-lost', key);
+  await setUsdcBalance(rpc, USDC, subject.creator.safe, PRIZE + fee + slotsCost);
+  const draft = draftFor(subject.creatorRow.id);
+  const sent = await relayAs('f5-lost', key, { kind: 'createCampaign' });
+  assert.equal(sent.receipt.status, 'success');
+  // The request died between FUNDING and the hash: the move to FUNDING is all that was written.
+  Object.assign(draft, { status: 'FUNDING', tx_hash: null, giveaway_id: null, updated_at: STALE() });
+  await relay.reconcileRelayedCampaigns(log, tick());
+  assert.deepEqual([draft.status, draft.giveaway_id], ['CONFIRMED', sent.giveawayId.toString()], 'the campaign on the chain was not registered, or the draft was released');
+  // A creator account that created nothing since its draft: the chain shows it, and the draft is released.
+  const idle = await accountCreator('f5-idle', await createPasskey());
+  const waiting = draftFor(idle.creatorRow.id, 'FUNDING', { updated_at: STALE() });
+  await relay.reconcileRelayedCampaigns(log, tick());
+  assert.deepEqual([waiting.status, waiting.tx_hash], ['PENDING_DEPOSIT', null]);
+});
+
+await test(['AF6', 'KM34', 'KM32'], 'F6 on the real contracts: ETH above what a sweep of it costs is a balance; H7’s sweep would leave it, the migration’s last sweep takes it, and what is left is below that cost', async () => {
+  const { sweepQuote, sweepRemainder } = await import('../../../lib/bridge-v2/chain.ts');
+  const subject = await legacyWithAccount('f6-eth', 911, 'PARTICIPANT');
+  const funder = funderAddress(0);
+  const holdingNow = async () => (await migration.seedRetirementReadiness(recordingLogger())).holding;
+  await rpc.setBalance(subject.derived, 0n);
+  const without = await holdingNow();
+  const { cost } = await sweepQuote(subject.derived, funder);
+  assert.ok(cost > 0n);
+  // Between one and two sweeps' cost: a balance for F6, not worth it for H7.
+  const band = cost + cost / 2n;
+  await rpc.setBalance(subject.derived, band);
+  assert.equal(await holdingNow(), without + 1, 'ETH above a sweep’s cost was not counted');
+  assert.equal(await sweepRemainder(911, subject.derived, funder, wallet.signAsDerived), null);
+  assert.equal(await client.getBalance({ address: subject.derived }), band, 'H7’s sweep moved it');
+  // The migration's last sweep.
+  await accounts.authorizeMigration(911, subject.derived, subject.account.id, 'PARTICIPANT');
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await accounts.isIndexSealed(911), true);
+  const left = await client.getBalance({ address: subject.derived });
+  assert.ok(left < band, 'nothing was swept');
+  // What it left is the unspent part of its own reservation, below the cost it had — which the seal keeps.
+  const sealed = store.rows('bridge_v2_migrations').find((m) => m.wallet_index === 911);
+  assert.ok(sealed.sweep_cost_wei !== undefined && sealed.sweep_cost_wei !== null, 'the seal did not keep the sweep’s cost');
+  assert.ok(left <= BigInt(sealed.sweep_cost_wei), `left ${left} wei, above the sweep’s own cost ${sealed.sweep_cost_wei}`);
+  assert.equal(await holdingNow(), without, 'a sealed wallet with ETH below its last sweep’s cost kept the seed');
+});
+
+await test(['AF8', 'KM34', 'KM33'], 'KM34 on the fork, for a creator: a derived creator wallet whose campaign still has prize to reclaim — read on the real contract — and a live draft are two rights: its deposit moves, its key stays, the seed stays', async () => {
+  const subject = await legacyWithAccount('km34-creator', 912, 'CREATOR');
+  const recorded = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [giveawayId]);
+  assert.ok(recorded.prizeDelivered < recorded.prizeAmount, 'the campaign has nothing left to reclaim');
+  const campaign = draftFor(subject.creatorRow.id, 'CONFIRMED', { giveaway_id: giveawayId.toString(), creator: { wallet_address: subject.derived } });
+  const live = draftFor(subject.creatorRow.id, 'PENDING_DEPOSIT', { creator: { wallet_address: subject.derived } });
+  assert.equal(await migration.openRights('CREATOR', subject.derived), 2);
+  await accounts.authorizeMigration(912, subject.derived, subject.account.id, 'CREATOR');
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await accounts.isIndexSealed(912), false, 'sealed with rights still open');
+  assert.equal((await migration.seedRetirementReadiness(recordingLogger())).ready, false);
 });
 
 export { TEST_MNEMONIC };

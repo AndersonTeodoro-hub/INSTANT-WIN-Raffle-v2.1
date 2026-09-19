@@ -84,6 +84,10 @@ export type OpsKind =
   | 'account.recognized'
   // Adenda E7: a relay campaign whose transaction never landed went back to PENDING_DEPOSIT.
   | 'creator_campaign.released'
+  // Adenda F1: a recorded guardian was brought into line with the chain's.
+  | 'account.guardian_reconciled'
+  // Adenda F2: a draft nobody funded closed seven days after it was made.
+  | 'creator_campaign.expired'
   | 'entry.reminded'
   | 'recovery.requested'
   | 'recovery.verified'

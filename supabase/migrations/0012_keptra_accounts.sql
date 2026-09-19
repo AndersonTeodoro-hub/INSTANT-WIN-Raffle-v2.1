@@ -72,15 +72,18 @@ CREATE INDEX IF NOT EXISTS bridge_v2_passkeys_participant_idx ON bridge_v2_passk
 -- the account is deployed, a finalised recovery moves both to the new passkey
 -- (Adenda D4); once deployed, neither changes.
 -- guardian_address is the guardian the account's configuration adds, and after
--- A6 the one it added back. deployed_at: the account was read from the chain
--- configured as 6.1 says — after its first transaction, or later (Adenda E3).
+-- A6 the one it added back. Adenda F1: once the account's module is on, the
+-- maintenance pass keeps it equal to the guardian the account holds on-chain —
+-- NULL when it holds none (revoked, R-3). A record: no decision reads it.
+-- deployed_at: the account was read from the chain configured as 6.1 says —
+-- after its first transaction, or later (Adenda E3).
 CREATE TABLE IF NOT EXISTS bridge_v2_accounts (
   id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   participant_id      uuid        NOT NULL REFERENCES bridge_v2_participants (id),
   role                text        NOT NULL CHECK (role IN ('PARTICIPANT', 'CREATOR')),
   safe_address        text        NOT NULL UNIQUE CHECK (safe_address ~ '^0x[0-9a-fA-F]{40}$'),
   initial_signer      text        NOT NULL CHECK (initial_signer ~ '^0x[0-9a-fA-F]{40}$'),
-  guardian_address    text        NOT NULL CHECK (guardian_address ~ '^0x[0-9a-fA-F]{40}$'),
+  guardian_address    text        CHECK (guardian_address ~ '^0x[0-9a-fA-F]{40}$'),
   deployed_at         timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT bridge_v2_accounts_one_per_role UNIQUE (participant_id, role)
@@ -89,6 +92,8 @@ CREATE TABLE IF NOT EXISTS bridge_v2_accounts (
 -- read. Dropped for a database that ran that text.
 ALTER TABLE bridge_v2_accounts DROP COLUMN IF EXISTS deploy_tx_hash;
 ALTER TABLE bridge_v2_accounts DROP COLUMN IF EXISTS guardian_revoked_at;
+-- Adenda F1: for a database that ran the text in which the guardian was NOT NULL.
+ALTER TABLE bridge_v2_accounts ALTER COLUMN guardian_address DROP NOT NULL;
 
 COMMENT ON TABLE bridge_v2_accounts IS
   'SPEC-BLOCO-03 6.1: one Safe per participant and role. The bridge never holds a key for it.';
@@ -164,8 +169,10 @@ ALTER TABLE bridge_v2_recoveries ADD CONSTRAINT bridge_v2_recoveries_status_chec
 CREATE INDEX IF NOT EXISTS bridge_v2_recoveries_awaiting_idx
   ON bridge_v2_recoveries (link_expires_at) WHERE status = 'AWAITING_PHONE';
 
--- 6.3.2: three notices, each at most once per channel. The primary key is the
--- "once": a notice is claimed by inserting its row, before it is sent.
+-- 6.3.2: three notices, each at most once per channel. The row is written after
+-- the notice is sent, never before it (lib/bridge-v2/accounts.ts
+-- recordRecoveryNotice): a security notice lost to a provider failure is worse
+-- than one sent twice. The primary key makes a second record of it a no-op.
 CREATE TABLE IF NOT EXISTS bridge_v2_recovery_notices (
   recovery_id uuid        NOT NULL REFERENCES bridge_v2_recoveries (id),
   stage       text        NOT NULL CHECK (stage IN ('START', 'MID', 'FINAL')),
@@ -181,6 +188,10 @@ CREATE TABLE IF NOT EXISTS bridge_v2_recovery_notices (
 -- was written (M32). sealed_at: nothing is left in the wallet and no right is
 -- still tied to it, so the derived key is never used for this index again (M2).
 -- wallet_index is unique across participants and creators already (one sequence).
+-- sweep_cost_wei (Adenda F6): what the wallet's last sweep cost, written with the
+-- seal. That sweep takes everything above its own cost, so what it leaves is its
+-- unspent gas reservation, below this number; seed readiness does not count ETH
+-- up to it as a balance, whatever the fee does afterwards.
 CREATE TABLE IF NOT EXISTS bridge_v2_migrations (
   id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   wallet_index    bigint      NOT NULL UNIQUE CHECK (wallet_index >= 0),
@@ -189,8 +200,11 @@ CREATE TABLE IF NOT EXISTS bridge_v2_migrations (
   kind            text        NOT NULL CHECK (kind IN ('PARTICIPANT', 'CREATOR')),
   authorized_at   timestamptz NOT NULL DEFAULT now(),
   sealed_at       timestamptz,
+  sweep_cost_wei  numeric(78,0) CHECK (sweep_cost_wei >= 0),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+-- Adenda F6: for a database that ran the text without it.
+ALTER TABLE bridge_v2_migrations ADD COLUMN IF NOT EXISTS sweep_cost_wei numeric(78,0) CHECK (sweep_cost_wei >= 0);
 CREATE INDEX IF NOT EXISTS bridge_v2_migrations_pending_idx
   ON bridge_v2_migrations (updated_at) WHERE sealed_at IS NULL;
 
@@ -201,7 +215,7 @@ CREATE INDEX IF NOT EXISTS bridge_v2_migrations_pending_idx
 -- transaction is sent. The relay refuses a fourth in 24 hours. A revocation is
 -- never refused and not recorded (Adenda E2: the reaction to a compromise is
 -- always possible); each one needs a guardian added before it, so the gas stays
--- bounded.
+-- bounded. Adenda F10: no row is kept past seven days (purgeRelayRecords).
 CREATE TABLE IF NOT EXISTS bridge_v2_guardian_changes (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id uuid        NOT NULL REFERENCES bridge_v2_accounts (id),
@@ -217,7 +231,8 @@ CREATE INDEX IF NOT EXISTS bridge_v2_guardian_changes_account_idx
 -- sent. The relay refuses a 21st in 24 hours. The cancellation of a recovery
 -- (6.3.3) and the reaction to a compromise (R-3) are never recorded and never
 -- refused. The rows also name the accounts the relay has deployed, which the
--- maintenance pass reads for one whose first receipt was lost (E3).
+-- maintenance pass reads for one whose first receipt was lost (E3). Adenda F10:
+-- no row is kept past seven days (purgeRelayRecords, run by that same hourly pass).
 CREATE TABLE IF NOT EXISTS bridge_v2_relayed_transactions (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id uuid        NOT NULL REFERENCES bridge_v2_accounts (id),
@@ -239,6 +254,18 @@ CREATE TABLE IF NOT EXISTS bridge_v2_guardian_incidents (
   guardian_address text        PRIMARY KEY CHECK (guardian_address ~ '^0x[0-9a-f]{40}$'),
   opened_at        timestamptz NOT NULL DEFAULT now()
 );
+
+-- -----------------------------------------------------------------------------
+-- 10. creator campaign drafts — Adenda F2
+-- -----------------------------------------------------------------------------
+-- EXPIRED: a PENDING_DEPOSIT draft whose deposit address held none of either
+-- token seven days after it was made, closed by the maintenance pass
+-- (creatorCampaigns.ts expireUnfundedDrafts). It leaves the one-active-draft
+-- index of 0007, so it never blocks a new draft or the migration of a derived
+-- wallet. The table and its grants are 0007's; only the CHECK changes.
+ALTER TABLE bridge_v2_creator_campaigns DROP CONSTRAINT IF EXISTS bridge_v2_creator_campaigns_status_check;
+ALTER TABLE bridge_v2_creator_campaigns ADD CONSTRAINT bridge_v2_creator_campaigns_status_check CHECK (status IN (
+  'PENDING_DEPOSIT', 'FUNDING', 'CONFIRMED', 'FAILED', 'EXPIRED'));
 
 -- -----------------------------------------------------------------------------
 -- RLS and grants — the same shape as every bridge_v2_* table (I5)
@@ -265,9 +292,9 @@ REVOKE ALL ON TABLE public.bridge_v2_guardian_changes   FROM service_role;
 REVOKE ALL ON TABLE public.bridge_v2_relayed_transactions FROM service_role;
 REVOKE ALL ON TABLE public.bridge_v2_guardian_incidents FROM service_role;
 
--- Exactly the verbs lib/bridge-v2/accounts.ts uses. No DELETE anywhere: a
--- passkey, an account, a recovery, a migration, a guardian change and an
--- incident are records.
+-- Exactly the verbs lib/bridge-v2/accounts.ts uses. No DELETE but the two
+-- counting tables' (Adenda F10): a passkey, an account, a recovery, a migration
+-- and an incident are records.
 -- passkeys: registerPasskey inserts; every other function reads.
 GRANT SELECT, INSERT         ON TABLE public.bridge_v2_passkeys           TO service_role;
 -- accounts: ensureAccounts inserts; markDeployed (E3), recordGuardian and
@@ -279,10 +306,10 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_recoveries         TO ser
 GRANT SELECT, INSERT         ON TABLE public.bridge_v2_recovery_notices   TO service_role;
 -- migrations: authorizeMigration inserts; sealMigration and touchMigration update.
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_migrations         TO service_role;
--- guardian changes: recorded and counted (C11).
-GRANT SELECT, INSERT         ON TABLE public.bridge_v2_guardian_changes   TO service_role;
--- relayed transactions: recorded and counted (E2), and read for E3.
-GRANT SELECT, INSERT         ON TABLE public.bridge_v2_relayed_transactions TO service_role;
+-- guardian changes: recorded and counted (C11); removed past seven days (F10).
+GRANT SELECT, INSERT, DELETE ON TABLE public.bridge_v2_guardian_changes   TO service_role;
+-- relayed transactions: recorded and counted (E2), read for E3; removed past seven days (F10).
+GRANT SELECT, INSERT, DELETE ON TABLE public.bridge_v2_relayed_transactions TO service_role;
 -- incidents: read by guardianCompromised; only the owner writes them.
 GRANT SELECT                 ON TABLE public.bridge_v2_guardian_incidents TO service_role;
 

@@ -11,26 +11,35 @@
  *
  * Runs in the maintenance pass under the pipeline's lock, for the reason the
  * sweep does: the pipeline also signs for derived wallets, and two signers on one
- * nonce is G6 broken from the outside.
+ * nonce is G6 broken from the outside. A creator's wallet is also signed for by
+ * module 2's submit, so its migration takes the creator's lock as well and waits
+ * while a draft is alive (Adenda F2).
+ *
+ * Adenda F3: which entries are still rights is the chain's answer (openRights).
+ * Adenda F4 and F6: the seed's readiness reads every derived wallet that exists,
+ * or says "not ready", and counts ETH above the cost of a sweep as a balance.
  */
 
 import { encodeFunctionData, type Hex } from 'viem';
 import type { Logger } from './log.js';
 import { alert } from './alert.js';
-import type { RunDeadline } from './runlock.js';
+import { acquireRunLock, releaseRunLock, type RunDeadline } from './runlock.js';
 import { claimSpend } from './spend.js';
-import { ERC20_ABI, GIVEAWAY_MANAGER_V2_ABI, GiveawayStatus } from './abi.js';
-import { DB_TIMEOUT_MS, GIVEAWAY_MANAGER_V2, MIGRATION_ASSET_MS, MIGRATION_SEAL_MS, USDC } from './config.js';
+import { ERC20_ABI, GiveawayStatus } from './abi.js';
+import { DB_TIMEOUT_MS, MIGRATION_ASSET_MS, MIGRATION_SEAL_MS, USDC } from './config.js';
 import {
+  claimableFor,
   claimDeadlineSeconds,
+  creatorRefunded,
   erc20BalanceOf,
   fundDerivedWallet,
+  hasEntered,
   prizeDelivery,
-  publicClient,
   quoteDelivery,
   readGiveaway,
   submitAsDerived,
-  sweepRemainder,
+  sweepAboveCost,
+  sweepQuote,
   waitForReceipt,
   type PrizeDelivery,
 } from './chain.js';
@@ -41,9 +50,12 @@ import {
   pendingMigrations,
   sealMigration,
   touchMigration,
+  type Account,
   type Migration,
 } from './accounts.js';
-import { acquireFunder, disableFunder, randomFunderAddress, releaseFunder, renewLease, signAsFunder } from './funders.js';
+import { findCreatorByParticipant } from './creators.js';
+import { creatorCampaignLock, findActiveCampaign } from './creatorCampaigns.js';
+import { acquireFunder, disableFunder, funderAddress, randomFunderAddress, releaseFunder, renewLease, signAsFunder } from './funders.js';
 import { signAsDerived } from './wallet.js';
 import { readAccount } from './relay.js';
 
@@ -109,15 +121,18 @@ export async function assetTransfers(migration: Migration, account: `0x${string}
   return transfers;
 }
 
-const CREATOR_REFUNDED_ABI = [
-  { type: 'function', name: 'creatorRefunded', stateMutability: 'view', inputs: [{ type: 'uint256' }], outputs: [{ type: 'bool' }] },
-] as const;
-
 /**
  * A8: the rights still tied to the derived address, which only its key can
  * exercise — claimPrize pays msg.sender, and a creator's calls require the
  * creator. While any is open, the key is kept for them and the index is not
  * sealed. Counted, not listed; the count is what readiness needs.
+ *
+ * Adenda F3: an entry is a right only while its campaign still takes entries,
+ * or while it can still win a prize within the core's deadline — and only an
+ * entry the chain holds can. Decided by the chain for every entry, whatever the
+ * row's status says: an entry abandoned in a campaign that no longer takes
+ * entries, with no prize to claim, is not a right. Adenda F2: a creator's draft
+ * in PENDING_DEPOSIT or FUNDING is.
  */
 export async function openRights(kind: 'PARTICIPANT' | 'CREATOR', derived: `0x${string}`): Promise<number> {
   const db = getDb();
@@ -127,30 +142,31 @@ export async function openRights(kind: 'PARTICIPANT' | 'CREATOR', derived: `0x${
       'migration.rights_entries',
       await db
         .from('bridge_v2_entries')
-        .select('id, giveaway_id::text, status, outcome')
+        .select('giveaway_id::text')
         .eq('wallet_address', derived)
         .eq('passkey', false)
         .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-    ) as { id: string; giveaway_id: string; status: string; outcome: string | null }[] | null;
+    ) as { giveaway_id: string }[] | null;
     let deadlineSeconds: bigint | null = null;
     for (const entry of entries ?? []) {
-      // An entry still on its way, or entered in a campaign not settled yet.
-      if (entry.status !== 'CONFIRMED' && entry.status !== 'FAILED') open += 1;
-      else if (entry.status === 'CONFIRMED' && entry.outcome === null) open += 1;
-      else if (entry.outcome === 'WON') {
-        // A prize not claimed yet, while the contract still lets it be claimed.
-        const giveawayId = BigInt(entry.giveaway_id);
-        const claimable = (await publicClient().readContract({
-          address: GIVEAWAY_MANAGER_V2,
-          abi: GIVEAWAY_MANAGER_V2_ABI,
-          functionName: 'claimable',
-          args: [giveawayId, derived],
-        })) as bigint;
-        if (claimable === 0n) continue;
-        deadlineSeconds ??= await claimDeadlineSeconds();
-        const campaign = await readGiveaway(giveawayId);
-        if (BigInt(Math.floor(Date.now() / 1000)) <= campaign.settledAt + deadlineSeconds) open += 1;
+      const giveawayId = BigInt(entry.giveaway_id);
+      const campaign = await readGiveaway(giveawayId);
+      // The entry may still be made.
+      if (campaign.acceptsEntries) {
+        open += 1;
+        continue;
       }
+      // Only an entry on-chain can win anything, and nothing in a cancelled campaign.
+      if (campaign.status === GiveawayStatus.CANCELLED || !(await hasEntered(giveawayId, derived))) continue;
+      // Not drawn yet: it may still win, and claim within the deadline after.
+      if (!campaign.isSettled) {
+        open += 1;
+        continue;
+      }
+      // Drawn: a prize not claimed yet, while the contract still lets it be claimed.
+      if ((await claimableFor(giveawayId, derived)) === 0n) continue;
+      deadlineSeconds ??= await claimDeadlineSeconds();
+      if (BigInt(Math.floor(Date.now() / 1000)) <= campaign.settledAt + deadlineSeconds) open += 1;
     }
   } else {
     const campaigns = checked(
@@ -168,24 +184,12 @@ export async function openRights(kind: 'PARTICIPANT' | 'CREATOR', derived: `0x${
       }
       if (campaign.status !== 'CONFIRMED' || campaign.giveaway_id === null) continue;
       const giveawayId = BigInt(campaign.giveaway_id);
-      const raw = (await publicClient().readContract({
-        address: GIVEAWAY_MANAGER_V2,
-        abi: GIVEAWAY_MANAGER_V2_ABI,
-        functionName: 'getGiveaway',
-        args: [giveawayId],
-      })) as unknown as { status: number; prizeAmount: bigint; prizeDelivered: bigint };
-      const status = Number(raw.status);
-      if (status === GiveawayStatus.SETTLED) {
+      const created = await readGiveaway(giveawayId);
+      if (created.status === GiveawayStatus.SETTLED) {
         // The creator may reclaim what nobody claimed, until it is all handed out.
-        if (raw.prizeDelivered < raw.prizeAmount) open += 1;
-      } else if (status === GiveawayStatus.CANCELLED) {
-        const refunded = (await publicClient().readContract({
-          address: GIVEAWAY_MANAGER_V2,
-          abi: CREATOR_REFUNDED_ABI,
-          functionName: 'creatorRefunded',
-          args: [giveawayId],
-        })) as boolean;
-        if (!refunded) open += 1;
+        if (created.prizeDelivered < created.prizeAmount) open += 1;
+      } else if (created.status === GiveawayStatus.CANCELLED) {
+        if (!(await creatorRefunded(giveawayId))) open += 1;
       } else {
         open += 1;
       }
@@ -239,6 +243,12 @@ async function moveOne(
  * C1: every asset is reserved on its own, and so is the close, against the real
  * run budget; a pass that runs out stops between units and the next one picks
  * up what is left, because assetTransfers reads what is still there.
+ *
+ * Adenda F2: a creator's derived wallet is signed for by module 2's submit as
+ * well, under the creator's own lock (creatorCampaignLock). The migration takes
+ * that same lock for as long as it signs, so the two never sign for one wallet
+ * at once, and moves nothing while the creator has a draft alive: the draft is a
+ * right of the wallet (A8), and its deposit is what the submit signs away.
  */
 export async function migrateOne(
   migration: Migration,
@@ -256,7 +266,33 @@ export async function migrateOne(
     await log.event('migration.waiting', { kind: migration.kind });
     return false;
   }
+  if (migration.kind === 'PARTICIPANT') return moveAndSeal(migration, account, poolSize, log, deadline);
 
+  const creator = await findCreatorByParticipant(account.participantId);
+  if (creator === null) return false;
+  const lock = await acquireRunLock(creatorCampaignLock(creator.id));
+  if (lock === null) {
+    await log.event('migration.waiting', { kind: migration.kind, reason: 'submit' });
+    return false;
+  }
+  try {
+    if ((await findActiveCampaign(creator.id)) !== null) {
+      await log.event('migration.waiting', { kind: migration.kind, reason: 'draft' });
+      return false;
+    }
+    return await moveAndSeal(migration, account, poolSize, log, deadline);
+  } finally {
+    await releaseRunLock(lock);
+  }
+}
+
+async function moveAndSeal(
+  migration: Migration,
+  account: Account,
+  poolSize: number,
+  log: Logger,
+  deadline: RunDeadline,
+): Promise<boolean> {
   for (const transfer of await assetTransfers(migration, account.safe)) {
     if (!deadline.hasTimeFor(MIGRATION_ASSET_MS)) return false;
     const moved = await moveOne(migration, transfer, log);
@@ -265,17 +301,19 @@ export async function migrateOne(
   }
   if (!deadline.hasTimeFor(MIGRATION_SEAL_MS)) return false;
 
-  // A9: the ETH left behind goes back to the pool by the existing mechanism.
-  if (poolSize > 0) {
-    await sweepRemainder(migration.walletIndex, migration.derived, randomFunderAddress(poolSize), signAsDerived);
-  }
+  // A9: the ETH left behind goes back to the pool by the existing mechanism —
+  // all of it above the sweep's own cost (F6, owner's decision of 19/09/2026):
+  // a sealed wallet is never swept again, and readiness counts that ETH. The
+  // cost is kept with the seal: what the sweep leaves is below it.
+  const swept =
+    poolSize > 0 ? await sweepAboveCost(migration.walletIndex, migration.derived, randomFunderAddress(poolSize), signAsDerived) : null;
 
   // A8: sealed only when the wallet is empty of every asset AND nothing is still
   // tied to its address. Otherwise the key stays usable for those rights, and
   // the next pass looks again.
   if ((await assetTransfers(migration, account.safe)).length > 0) return false;
   if ((await openRights(migration.kind, migration.derived)) > 0) return false;
-  await sealMigration(migration.id);
+  await sealMigration(migration.id, swept?.cost ?? null);
   await log.event('migration.sealed', { kind: migration.kind });
   return true;
 }
@@ -298,26 +336,33 @@ export async function migrateAuthorizedWallets(log: Logger, poolSize: number, de
 
 /**
  * M34, 6.6.4 as A8 rewrites it: the seed can be retired when no derived wallet
- * has a balance (USDC, a prize token, a prize NFT) or a right still open. ETH
- * dust below what a sweep costs is not a balance here: A9 hands the ETH to the
- * existing sweep, which by design leaves what is not worth recovering.
+ * has a balance or a right still open.
  *
- * Adenda E1: every derived wallet is read, sealed or not, and any balance in
- * any of them makes the answer "not ready" and raises an alert. A sealed
- * wallet's rights were closed when it was sealed, and its key signs nothing
- * since; only what it holds is asked.
+ * Adenda E1 as F6 rewrites it: any token or NFT in a derived wallet (USDC, a
+ * prize token, a prize NFT), or ETH above what a sweep of it costs now, is a
+ * balance. ETH below that cost follows A9. Every derived wallet is read, sealed
+ * or not, and any balance in any of them makes the answer "not ready" and raises
+ * an alert. A sealed wallet's rights were closed when it was sealed, and its key
+ * signs nothing since; only what it holds is asked.
+ *
+ * Adenda F4: every derived wallet that exists is evaluated, or the answer is
+ * "not ready" — a list that could not be confirmed whole (derivedWallets), or a
+ * pass that ran out of time before the last wallet (`complete`).
  */
 export async function seedRetirementReadiness(
   log: Logger,
   // G4: the maintenance pass bounds this like everything else it runs. A pass
   // that could not look at every wallet does not say "ready".
   hasTime: () => boolean = () => true,
-): Promise<{ ready: boolean; blocking: number; holding: number; wallets: number }> {
-  const wallets = await derivedWallets();
+): Promise<{ ready: boolean; complete: boolean; blocking: number; holding: number; wallets: number }> {
+  const listed = await derivedWallets(hasTime);
+  const wallets = listed.wallets;
   let blocking = 0;
   let holding = 0;
   let sealedHolding = 0;
-  let complete = true;
+  let complete = listed.complete;
+  // F6: the sweep this ETH would take, priced to where a sweep sends it (H2).
+  const sweepTo = wallets.length > 0 ? funderAddress(0) : null;
   for (const wallet of wallets) {
     if (!hasTime()) {
       complete = false;
@@ -330,7 +375,13 @@ export async function seedRetirementReadiness(
       accountId: '',
       kind: wallet.kind,
     };
-    const held = (await assetTransfers(migration, wallet.address)).length > 0;
+    const tokens = (await assetTransfers(migration, wallet.address)).length > 0;
+    // F6, and the owner's decision of 19/09/2026 on what a sealed wallet keeps:
+    // above the cost of a sweep now, and — sealed — above the cost of the last
+    // sweep too, whose unspent reservation is what it left behind.
+    const eth = await sweepQuote(wallet.address, sweepTo as `0x${string}`);
+    const floor = wallet.sweepCostWei !== null && wallet.sweepCostWei > eth.cost ? wallet.sweepCostWei : eth.cost;
+    const held = tokens || eth.balance > floor;
     if (held) {
       holding += 1;
       if (wallet.sealed) sealedHolding += 1;
@@ -340,6 +391,6 @@ export async function seedRetirementReadiness(
   if (holding > 0) {
     await alert(log, 'derived wallet holds a balance', { wallets: holding, sealed: sealedHolding });
   }
-  return { ready: complete && blocking === 0, blocking, holding, wallets: wallets.length };
+  return { ready: complete && blocking === 0, complete, blocking, holding, wallets: wallets.length };
 }
 

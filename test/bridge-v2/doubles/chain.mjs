@@ -40,6 +40,7 @@ const DEFAULTS = () => ({
     prizeModule: '0x0000000000000000000000000000000000000000',
     prizeKind: 0,
     prizeAmount: 0n,
+    prizeDelivered: 0n,
     declaredValue: 0n,
     winnersCount: 1,
     feeToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
@@ -57,6 +58,14 @@ const DEFAULTS = () => ({
   publishEligibilityRoot: '0x'.padEnd(66, '2'),
   fundDerivedWallet: '0x'.padEnd(66, '3'),
   sweepRemainder: '0x'.padEnd(66, '4'),
+  // SPEC-BLOCO-03 Adenda F6: what a derived wallet holds in ETH and what sweeping it costs.
+  sweepQuote: { balance: 0n, cost: 1_000_000_000_000n },
+  // Adenda F6: the migration's last sweep, and what it cost.
+  sweepAboveCost: { hash: '0x'.padEnd(66, '6'), cost: 1_000_000_000_000n },
+  // SPEC-BLOCO-03 Adenda F5: the campaigns a creator account created since an instant.
+  campaignsCreatedBy: [],
+  // SPEC-BLOCO-03 A8: whether a cancelled campaign's creator took the refund.
+  creatorRefunded: false,
   quoteEntryCost: { plan: plan(100_000n), data: '0xdeadbeef' },
   quoteClaim: { plan: plan(100_000n), data: '0xfeedface' },
   quoteDelivery: plan(80_000n),
@@ -141,6 +150,10 @@ export const waitForReceipt = (...args) => answer('waitForReceipt', args);
 export const transactionKnown = (...args) => answer('transactionKnown', args);
 export const publishEligibilityRoot = (...args) => answer('publishEligibilityRoot', args);
 export const sweepRemainder = (...args) => answer('sweepRemainder', args);
+export const sweepQuote = (...args) => answer('sweepQuote', args);
+export const sweepAboveCost = (...args) => answer('sweepAboveCost', args);
+export const campaignsCreatedBy = (...args) => answer('campaignsCreatedBy', args);
+export const creatorRefunded = (...args) => answer('creatorRefunded', args);
 export const quoteEntryCost = (...args) => answer('quoteEntryCost', args);
 export const quoteClaim = (...args) => answer('quoteClaim', args);
 export const quoteDelivery = (...args) => answer('quoteDelivery', args);

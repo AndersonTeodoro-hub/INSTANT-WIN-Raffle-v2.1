@@ -66,6 +66,7 @@ import {
   VRF_COORDINATOR_V2_PLUS_ABI,
 } from './abi.js';
 import {
+  CAMPAIGN_SCAN_PAGES,
   CHAIN_ID,
   DEFAULT_RPC_URL,
   GAS_BANDS,
@@ -73,6 +74,7 @@ import {
   GAS_MARGIN_NUMERATOR,
   GIVEAWAY_MANAGER_V2,
   LIFECYCLE_MAX_GAS_COST_WEI,
+  LIFECYCLE_SCAN_PAGE,
   MAX_GAS_COST_WEI,
   RECEIPT_TIMEOUT_MS,
   RPC_TIMEOUT_MS,
@@ -130,6 +132,8 @@ export interface GiveawayView {
   readonly prizeModule: `0x${string}`;
   readonly prizeKind: number;
   readonly prizeAmount: bigint;
+  /** What the module has handed out, in the prize unit — claims, surplus and reclaims (SPEC-BLOCO-03 A8). */
+  readonly prizeDelivered: bigint;
   readonly declaredValue: bigint;
   readonly winnersCount: number;
   /** For a TOKEN campaign this is the prize token; for an NFT one it is USDC. */
@@ -172,6 +176,7 @@ export async function readGiveaway(giveawayId: bigint): Promise<GiveawayView> {
     prizeModule: `0x${string}`;
     prizeKind: number;
     prizeAmount: bigint;
+    prizeDelivered: bigint;
     declaredValue: bigint;
     winnersCount: number;
     feeToken: `0x${string}`;
@@ -195,6 +200,7 @@ export async function readGiveaway(giveawayId: bigint): Promise<GiveawayView> {
     prizeModule: g.prizeModule,
     prizeKind: Number(g.prizeKind),
     prizeAmount: g.prizeAmount,
+    prizeDelivered: g.prizeDelivered,
     declaredValue: g.declaredValue,
     winnersCount: Number(g.winnersCount),
     feeToken: g.feeToken,
@@ -913,6 +919,34 @@ export async function sweepRemainder(
   destination: `0x${string}`,
   signAsDerived: (index: number, tx: TransactionSerializable) => Promise<Hex>,
 ): Promise<Hex | null> {
+  return (await sweep(walletIndex, wallet, destination, signAsDerived, 'WORTH_IT')).hash;
+}
+
+/**
+ * SPEC-BLOCO-03 Adenda F6, as the owner decided on 19/09/2026: the LAST sweep of
+ * a migrated derived wallet (migration.ts) takes whatever is above its own cost,
+ * because seed readiness counts ETH above the cost of a sweep as a balance and a
+ * sealed wallet is never swept again. What it leaves is the unspent part of its
+ * own reservation, below `cost` — which the migration records as the wallet is
+ * sealed, so a fee that falls afterwards does not turn that remainder into a
+ * balance. Every other sweep keeps H7's threshold (sweepRemainder).
+ */
+export async function sweepAboveCost(
+  walletIndex: number,
+  wallet: `0x${string}`,
+  destination: `0x${string}`,
+  signAsDerived: (index: number, tx: TransactionSerializable) => Promise<Hex>,
+): Promise<{ hash: Hex | null; cost: bigint }> {
+  return sweep(walletIndex, wallet, destination, signAsDerived, 'ABOVE_COST');
+}
+
+async function sweep(
+  walletIndex: number,
+  wallet: `0x${string}`,
+  destination: `0x${string}`,
+  signAsDerived: (index: number, tx: TransactionSerializable) => Promise<Hex>,
+  rule: 'WORTH_IT' | 'ABOVE_COST',
+): Promise<{ hash: Hex | null; cost: bigint }> {
   const client = publicClient();
   const [balance, fees, nonce, estimate] = await Promise.all([
     client.getBalance({ address: wallet }),
@@ -927,12 +961,12 @@ export async function sweepRemainder(
 
   const plan = planGas(estimate, fees.maxFeePerGas, fees.maxPriorityFeePerGas, GAS_BANDS.TRANSFER);
   const cost = plan.worstCaseWei;
-  if (balance <= cost) return null;
+  if (balance <= cost) return { hash: null, cost };
 
   const value = balance - cost;
   // The threshold, in runtime terms: a sweep that recovers less than it costs
   // loses money for the pool it exists to refill.
-  if (value < cost) return null;
+  if (rule === 'WORTH_IT' && value < cost) return { hash: null, cost };
 
   const transaction: TransactionSerializable = {
     chainId: CHAIN_ID,
@@ -945,7 +979,26 @@ export async function sweepRemainder(
     maxPriorityFeePerGas: plan.maxPriorityFeePerGas,
   };
 
-  return broadcast(await signAsDerived(walletIndex, transaction));
+  return { hash: await broadcast(await signAsDerived(walletIndex, transaction)), cost };
+}
+
+/**
+ * SPEC-BLOCO-03 Adenda F6: the ETH a derived wallet holds, and what sweeping it
+ * would cost now — the estimate, band and ceiling sweepRemainder prices it with.
+ * Seed readiness counts that ETH as a balance only above this cost.
+ */
+export async function sweepQuote(
+  wallet: `0x${string}`,
+  destination: `0x${string}`,
+): Promise<{ balance: bigint; cost: bigint }> {
+  const client = publicClient();
+  const [balance, fees, estimate] = await Promise.all([
+    client.getBalance({ address: wallet }),
+    currentFees(),
+    client.estimateGas({ account: wallet, to: destination }),
+  ]);
+  const plan = planGas(estimate, fees.maxFeePerGas, fees.maxPriorityFeePerGas, GAS_BANDS.TRANSFER);
+  return { balance, cost: plan.worstCaseWei };
 }
 
 // -----------------------------------------------------------------------------
@@ -1490,6 +1543,89 @@ export async function giveawayCreator(giveawayId: bigint): Promise<`0x${string}`
   const g = raw as unknown as { creator: `0x${string}`; status: number };
   if (Number(g.status) === GiveawayStatus.NONE || /^0x0{40}$/i.test(g.creator)) return null;
   return g.creator.toLowerCase() as `0x${string}`;
+}
+
+const CREATOR_REFUNDED_ABI = [
+  { type: 'function', name: 'creatorRefunded', stateMutability: 'view', inputs: [{ type: 'uint256' }], outputs: [{ type: 'bool' }] },
+] as const;
+
+/** SPEC-BLOCO-03 A8: whether the creator of a cancelled campaign has taken its refund. */
+export async function creatorRefunded(giveawayId: bigint): Promise<boolean> {
+  return (await publicClient().readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: CREATOR_REFUNDED_ABI,
+    functionName: 'creatorRefunded',
+    args: [giveawayId],
+  })) as boolean;
+}
+
+/** A campaign as SPEC-BLOCO-03 Adenda F5 compares it with a draft. */
+export interface CreatedCampaign {
+  readonly giveawayId: bigint;
+  readonly prizeModule: `0x${string}`;
+  readonly prizeAmount: bigint;
+  readonly winnersCount: number;
+  readonly slotCap: number;
+  readonly durationSeconds: bigint;
+}
+
+/**
+ * SPEC-BLOCO-03 Adenda F5: the campaigns `creator` created at or after
+ * `sinceSeconds` (the chain's clock), newest first — or null when the search did
+ * not reach that instant, so nothing can be concluded from it.
+ *
+ * Ids are handed out in creation order and each campaign's startTime is the
+ * block it was created in (GiveawayManagerV2.createGiveaway), so reading back
+ * from lastGiveawayId stops at the first campaign older than the instant. One
+ * multicall per page, as the lifecycle scan reads them.
+ */
+export async function campaignsCreatedBy(
+  creator: `0x${string}`,
+  sinceSeconds: bigint,
+): Promise<CreatedCampaign[] | null> {
+  const client = publicClient();
+  let to = (await client.readContract({
+    address: GIVEAWAY_MANAGER_V2,
+    abi: GIVEAWAY_LIFECYCLE_ABI,
+    functionName: 'lastGiveawayId',
+    args: [],
+  })) as bigint;
+  const found: CreatedCampaign[] = [];
+  for (let page = 0; page < CAMPAIGN_SCAN_PAGES; page += 1) {
+    if (to < 1n) return found;
+    const from = to > BigInt(LIFECYCLE_SCAN_PAGE) ? to - BigInt(LIFECYCLE_SCAN_PAGE) + 1n : 1n;
+    const ids: bigint[] = [];
+    for (let id = to; id >= from; id -= 1n) ids.push(id);
+    const results = await client.multicall({
+      allowFailure: false,
+      contracts: ids.map(
+        (id) => ({ address: GIVEAWAY_MANAGER_V2, abi: GIVEAWAY_MANAGER_V2_ABI, functionName: 'getGiveaway', args: [id] }) as const,
+      ),
+    });
+    for (const [index, giveawayId] of ids.entries()) {
+      const g = results[index] as unknown as {
+        creator: `0x${string}`;
+        startTime: bigint;
+        endTime: bigint;
+        prizeModule: `0x${string}`;
+        prizeAmount: bigint;
+        winnersCount: number;
+        slotCap: number;
+      };
+      if (BigInt(g.startTime) < sinceSeconds) return found;
+      if (g.creator.toLowerCase() !== creator.toLowerCase()) continue;
+      found.push({
+        giveawayId,
+        prizeModule: g.prizeModule,
+        prizeAmount: g.prizeAmount,
+        winnersCount: Number(g.winnersCount),
+        slotCap: Number(g.slotCap),
+        durationSeconds: BigInt(g.endTime) - BigInt(g.startTime),
+      });
+    }
+    to = from - 1n;
+  }
+  return to < 1n ? found : null;
 }
 
 /** ERC-1271: the four bytes a contract account returns for a signature it accepts. */

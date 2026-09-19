@@ -11,7 +11,29 @@ import {
   SPEND_CAPS,
   VRF_LOW_LINK_JUELS,
   DB_TIMEOUT_MS,
+  ACCOUNT_RECOGNITION_MS,
+  ALERT_MS,
+  CAMPAIGN_RECONCILE_MS,
+  CHAIN_CHECK_MS,
+  CLEANUP_MS,
+  DRAFT_EXPIRY_MS,
+  FUNDER_CHECK_MS,
+  GUARDIAN_SCAN_MS,
+  MAINTENANCE_BUDGET_MS,
+  MIGRATION_ASSET_MS,
+  READINESS_WALLET_MS,
+  RECOVERY_ADVANCE_MS,
+  RECOVERY_CONFIRM_MS,
+  RECOVERY_EXPIRY_MS,
+  RECOVERY_RELEASE_MS,
+  RECOVERY_SCAN_MS,
+  RELAY_RECORD_RETENTION_DAYS,
+  RELAY_RETENTION_MS,
+  ROLE_KEYS_CHECK_MS,
+  ROUTE_ERRORS_CHECK_MS,
+  SPEND_CHECK_MS,
   SWEEP_WORST_CASE_MS,
+  VRF_CHECK_MS,
 } from '../../../../lib/bridge-v2/config.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { sweepConfirmed } from '../../../../lib/bridge-v2/processor.js';
@@ -33,8 +55,9 @@ import {
   confirmVerifiedRecoveries,
 } from '../../../../lib/bridge-v2/recovery.js';
 import { migrateAuthorizedWallets, seedRetirementReadiness } from '../../../../lib/bridge-v2/migration.js';
-import { expireAbandonedRecoveries, releaseRecoveryReservations } from '../../../../lib/bridge-v2/accounts.js';
-import { reconcileRelayedCampaigns, recognizeDeployedAccounts } from '../../../../lib/bridge-v2/relay.js';
+import { expireAbandonedRecoveries, purgeRelayRecords, releaseRecoveryReservations } from '../../../../lib/bridge-v2/accounts.js';
+import { reconcileGuardians, reconcileRelayedCampaigns, recognizeDeployedAccounts } from '../../../../lib/bridge-v2/relay.js';
+import { expireUnfundedDrafts } from '../../../../lib/bridge-v2/creatorCampaigns.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/maintenance
@@ -67,6 +90,12 @@ import { reconcileRelayedCampaigns, recognizeDeployedAccounts } from '../../../.
  * could not, the run continues either way, and a check that could not run is
  * reported as unknown rather than as healthy — the response distinguishes the
  * two, because for an operator "no answer" and "fine" are opposite things.
+ *
+ * SPEC-BLOCO-03 Adenda F7, as the owner decided on 19/09/2026: every step, the
+ * H8 checks included, starts only with its reservation (config.ts) left in the
+ * pass's budget, which runs from the moment the request arrived. A step that
+ * does not start is reported as null, like one that could not run. Past the
+ * budget nothing runs but the last event and the lock's release.
  */
 
 /**
@@ -89,6 +118,8 @@ async function safely<T>(
 }
 
 const route = handle('cron/maintenance', async ({ request, log }) => {
+  // Adenda F7: the budget runs from here, so the lock below is inside it.
+  const deadline = runDeadline(MAINTENANCE_BUDGET_MS);
   // K8: the same check the pipeline route now makes, in the same place and for
   // the same reason. It used to sit inside `safely` below, which was right while
   // this was the only place it happened — a missing variable must not stop the
@@ -122,11 +153,10 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     await log.event('route.rejected', { reason: 'run_in_progress' });
     return ok({ skipped: 'run_in_progress' });
   }
-  const deadline = runDeadline();
 
   try {
     const db = getDb();
-    const removed = await safely(log, 'cleanup', async () => {
+    const removed = !deadline.hasTimeFor(CLEANUP_MS) ? null : await safely(log, 'cleanup', async () => {
       const cleaned = checked(
         'cleanup.run',
         await db.rpc('bridge_v2_cleanup', {
@@ -142,6 +172,12 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       await log.event('cleanup.done', { removed: total });
       return total;
     });
+    // SPEC-BLOCO-03 Adenda F10: the relay's two counting tables keep seven days.
+    const relayRecordsRemoved = !deadline.hasTimeFor(RELAY_RETENTION_MS) ? null : await safely(log, 'relay_retention', async () => {
+      const purged = await purgeRelayRecords(RELAY_RECORD_RETENTION_DAYS);
+      await log.event('cleanup.done', { relay_records: purged });
+      return purged;
+    });
 
     // SPEC-BLOCO-03 Adenda E5: the change-of-access steps run before the sweep
     // and the migration, so no pass fails to try to confirm, notify or finalise
@@ -149,24 +185,29 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // everything here: one that cannot run is reported as null.
     //
     // Adenda C3: a request whose Telegram link expired unused closes by itself.
-    const recoveriesExpired = await safely(log, 'recovery_expire', async () => {
+    const recoveriesExpired = !deadline.hasTimeFor(RECOVERY_EXPIRY_MS) ? null : await safely(log, 'recovery_expire', async () => {
       const expired = await expireAbandonedRecoveries();
       if (expired > 0) await log.event('recovery.expired', { requests: expired });
       return expired;
     });
     // Adenda E4: only this pass reserves a request, under this lock, so a
     // reservation found now was left by a pass that died mid-confirmation.
-    await safely(log, 'recovery_reservations', () => releaseRecoveryReservations());
+    if (deadline.hasTimeFor(RECOVERY_RELEASE_MS)) await safely(log, 'recovery_reservations', () => releaseRecoveryReservations());
     // Adenda D3: a request not CONFIRMED 24 hours after it was opened, with an
     // alert. Before the confirmations, so none is signed for past its 24 hours.
-    const recoveriesOverdue = await safely(log, 'recovery_overdue', () => closeOverdueRecoveries(log, deadline));
+    const recoveriesOverdue = !deadline.hasTimeFor(RECOVERY_ADVANCE_MS) ? null : await safely(log, 'recovery_overdue', () => closeOverdueRecoveries(log, deadline));
     // 6.3 and R-6: confirm what passed A14 and R-1, notify, finalise what is due.
-    const recoveriesConfirmed = await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
-    const recoveriesClosed = await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
+    const recoveriesConfirmed = !deadline.hasTimeFor(RECOVERY_CONFIRM_MS) ? null : await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
+    const recoveriesClosed = !deadline.hasTimeFor(RECOVERY_ADVANCE_MS) ? null : await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
     // Adenda E3: an account the chain holds configured, whose first receipt was lost.
-    const accountsRecognized = await safely(log, 'account_recognition', () => recognizeDeployedAccounts(log, deadline));
+    const accountsRecognized = !deadline.hasTimeFor(ACCOUNT_RECOGNITION_MS) ? null : await safely(log, 'account_recognition', () => recognizeDeployedAccounts(log, deadline));
     // Adenda E7: a relay campaign left in FUNDING by a receipt that never came.
-    const campaignsReconciled = await safely(log, 'campaign_reconcile', () => reconcileRelayedCampaigns(log, deadline));
+    const campaignsReconciled = !deadline.hasTimeFor(CAMPAIGN_RECONCILE_MS) ? null : await safely(log, 'campaign_reconcile', () => reconcileRelayedCampaigns(log, deadline));
+    // Adenda F1: the recorded guardian follows the chain's.
+    const guardiansReconciled = !deadline.hasTimeFor(GUARDIAN_SCAN_MS) ? null : await safely(log, 'guardian_reconcile', () => reconcileGuardians(log, deadline));
+    // Adenda F2: a draft nobody funded closes seven days after it was made —
+    // before the migration, which moves nothing while a draft is alive.
+    const draftsExpired = !deadline.hasTimeFor(DRAFT_EXPIRY_MS) ? null : await safely(log, 'draft_expiry', () => expireUnfundedDrafts(log, deadline));
 
     // H7: the remainder goes back to a funder, never to an address a request
     // could name (H2). WHICH funder is drawn per wallet rather than fixed —
@@ -185,7 +226,13 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     let swept: number | null = 0;
     let sweepSkipped = false;
     let migrationsSealed: number | null = 0;
-    if (size !== null && size > 0) {
+    if (size !== null && size > 0 && !deadline.hasTimeFor(SWEEP_WORST_CASE_MS)) {
+      // Adenda F7: the lock, the sweep's queue and the migration's are read only
+      // with one sweep's time left; each loop then reserves its own units.
+      swept = null;
+      sweepSkipped = true;
+      migrationsSealed = null;
+    } else if (size !== null && size > 0) {
       const pipeline = await acquireRunLock('cron/process');
       if (pipeline === null) {
         sweepSkipped = true;
@@ -194,27 +241,34 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
           swept = await safely(log, 'sweep', () => sweepConfirmed(log, size, deadline));
           // SPEC-BLOCO-03 6.6: the migration of derived wallets signs as a
           // derived wallet too, so it runs under the same borrowed lock.
-          migrationsSealed = await safely(log, 'migration', () => migrateAuthorizedWallets(log, size, deadline));
+          migrationsSealed = !deadline.hasTimeFor(MIGRATION_ASSET_MS)
+            ? null
+            : await safely(log, 'migration', () => migrateAuthorizedWallets(log, size, deadline));
         } finally {
+          // Reserved: MAINTENANCE_BUDGET_MS is RUN_BUDGET_MS less this one stage.
           await releaseRunLock(pipeline);
         }
       }
     }
 
     // H8: the checks that have no other alarm.
-    if (size === 0) await alert(log, 'funder pool is empty');
+    if (size === 0 && deadline.hasTimeFor(ALERT_MS)) await alert(log, 'funder pool is empty');
 
-    const lowFunders = await safely(log, 'funder_balances', async () => {
+    const lowFunders = !deadline.hasTimeFor(FUNDER_CHECK_MS) ? null : await safely(log, 'funder_balances', async () => {
       const client = publicClient();
       let low = 0;
+      let read = 0;
       for (let index = 0; index < (size ?? 0); index += 1) {
+        if (!deadline.hasTimeFor(FUNDER_CHECK_MS)) break;
         const balance = await client.getBalance({ address: funderAddress(index) });
+        read += 1;
         // A funder that cannot pay for one entry is already out of service; the
         // threshold is deliberately generous so the alert arrives before that.
         if (balance < FUNDER_LOW_BALANCE_WEI) low += 1;
       }
       if (low > 0) await alert(log, 'funder balance low', { funders: low });
-      return low;
+      // Not every funder read: the answer is unknown, not "this many low".
+      return read === (size ?? 0) ? low : null;
     });
 
     // H8: the LINK in the VRF subscription. A subscription that runs dry is the
@@ -223,7 +277,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // able to read it is itself worth knowing: the coordinator address comes
     // from the contract, so a failure means the contract or the RPC is not
     // answering, not that the subscription is fine.
-    const vrfLink = await safely(log, 'vrf_link', async () => {
+    const vrfLink = !deadline.hasTimeFor(VRF_CHECK_MS) ? null : await safely(log, 'vrf_link', async () => {
       const juels = await vrfSubscriptionLink();
       if (juels < VRF_LOW_LINK_JUELS) {
         await alert(log, 'vrf subscription link low', { juels: juels.toString() });
@@ -234,7 +288,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // H8: consumption per external provider, against the ceilings B8 enforces.
     // The ceiling stopping the spend is already an alert (spend.ts); this is the
     // one that arrives while there is still budget to act on.
-    await safely(log, 'external_spend', async () => {
+    if (deadline.hasTimeFor(SPEND_CHECK_MS)) await safely(log, 'external_spend', async () => {
       const dayStart = new Date();
       dayStart.setUTCHours(0, 0, 0, 0);
       const spend = checked(
@@ -264,7 +318,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // H8 and K8: the error rate per route. An attack or a broken dependency
     // shows up here while it is happening, rather than in a bill or a support
     // message.
-    const perRoute = (await safely(log, 'route_error_rate', async () => {
+    const perRoute = (!deadline.hasTimeFor(ROUTE_ERRORS_CHECK_MS) ? null : await safely(log, 'route_error_rate', async () => {
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const errors = checked(
         'ops.error_rate',
@@ -283,6 +337,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       }
       for (const [name, count] of counts) {
         if (count >= ROUTE_ERROR_ALERT_COUNT) {
+          if (!deadline.hasTimeFor(ALERT_MS)) break;
           await alert(log, 'route error rate high', { route: name, errors: count });
         }
       }
@@ -294,7 +349,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // is not visible anywhere else. This and the pause check used to be last and
     // unguarded, which meant the two things the bridge cannot work without were
     // the two most likely to be skipped.
-    const bridgeRegistered = await safely(log, 'bridge_role', async () => {
+    const bridgeRegistered = !deadline.hasTimeFor(CHAIN_CHECK_MS) ? null : await safely(log, 'bridge_role', async () => {
       const registered = (await registeredBridge()).toLowerCase();
       const ours = roleAddress().toLowerCase();
       if (registered !== ours) {
@@ -306,7 +361,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       return { registered, matches: registered === ours };
     });
 
-    const paused = await safely(log, 'paused', async () => {
+    const paused = !deadline.hasTimeFor(CHAIN_CHECK_MS) ? null : await safely(log, 'paused', async () => {
       const value = await isPaused();
       if (value) await alert(log, 'contract is paused');
       return value;
@@ -316,18 +371,25 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // `safely`, like everything above: one that cannot run is reported as null.
     //
     // M39, section 5: every role its own key.
-    const roleKeysDistinct = await safely(log, 'role_keys', async () => {
+    const roleKeysDistinct = !deadline.hasTimeFor(ROLE_KEYS_CHECK_MS) ? null : await safely(log, 'role_keys', async () => {
       const collisions = roleCollisions();
       if (collisions.length > 0) await alert(log, 'two server roles share a key', { pairs: collisions.length });
       return collisions.length === 0;
     });
     // M22: a pending recovery with no request of ours behind it.
-    const recoveriesUnregistered = await safely(log, 'recovery_unregistered', () => alertUnregisteredRecoveries(log, deadline));
+    // Adenda D5 kept: a scan the time cuts short says so — here, when it cannot start at all.
+    let recoveriesUnregistered: number | null = null;
+    if (deadline.hasTimeFor(RECOVERY_SCAN_MS)) {
+      recoveriesUnregistered = await safely(log, 'recovery_unregistered', () => alertUnregisteredRecoveries(log, deadline));
+    } else if (deadline.hasTimeFor(ALERT_MS)) {
+      await alert(log, 'recovery scan did not reach every account');
+    }
     // M34, 6.6.4 as A8 and E1 rewrite it: whether the derivation seed can be retired.
-    const seedRetirable = await safely(log, 'seed_readiness', async () => {
-      const readiness = await seedRetirementReadiness(log, () => deadline.hasTimeFor(SWEEP_WORST_CASE_MS));
+    const seedRetirable = !deadline.hasTimeFor(READINESS_WALLET_MS) ? null : await safely(log, 'seed_readiness', async () => {
+      const readiness = await seedRetirementReadiness(log, () => deadline.hasTimeFor(READINESS_WALLET_MS));
       await log.event('migration.readiness', {
         ready: readiness.ready,
+        complete: readiness.complete,
         blocking: readiness.blocking,
         holding: readiness.holding,
         wallets: readiness.wallets,
@@ -345,6 +407,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       // a fully configured deployment.
       configOk: true,
       removed,
+      relayRecordsRemoved,
       swept,
       sweepSkipped,
       lowFunders,
@@ -362,6 +425,8 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
         recoveriesUnregistered,
         accountsRecognized,
         campaignsReconciled,
+        guardiansReconciled,
+        draftsExpired,
         migrationsSealed,
         seedRetirable,
       },

@@ -69,8 +69,10 @@ function makeBuilder(op) {
   };
 
   const builder = {
-    select: chain((columns) => {
+    select: chain((columns, options) => {
       op.columns = columns;
+      // SPEC-BLOCO-03 Adenda F4: { count: 'exact', head: true }, as PostgREST takes it.
+      if (options !== undefined) op.selectOptions = options;
       op.verb ??= 'select';
     }),
     insert: chain((payload) => {

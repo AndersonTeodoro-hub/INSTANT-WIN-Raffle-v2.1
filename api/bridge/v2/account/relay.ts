@@ -10,6 +10,7 @@ import {
   parseUint256,
 } from '../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
+import { runDeadline } from '../../../../lib/bridge-v2/runlock.js';
 import { ChainError } from '../../../../lib/bridge-v2/chain.js';
 import { prepareAction, RelayRefusal, submitAction, type Action } from '../../../../lib/bridge-v2/relay.js';
 import type { AccountRole } from '../../../../lib/bridge-v2/keptra.js';
@@ -31,6 +32,10 @@ import type { AccountRole } from '../../../../lib/bridge-v2/keptra.js';
  * over anything else is refused before the relayer is touched (M10).
  */
 const route = handle('account/relay', async ({ request, log }) => {
+  // SPEC-BLOCO-03 Adenda F7: the route's own budget, from the moment the request
+  // arrived. Its stages add up past the platform's ceiling, so the part that
+  // cannot be taken back starts only when it fits (relay.ts, RELAY_SEND_MS).
+  const deadline = runDeadline();
   const guard = methodGuard(request, 'POST');
   if (guard !== null) return guard;
 
@@ -83,6 +88,7 @@ const route = handle('account/relay', async ({ request, log }) => {
       nonce,
       { credentialId, authenticatorData, clientDataJSON, signature },
       log,
+      deadline,
     );
     return ok({
       txHash: submitted.txHash,

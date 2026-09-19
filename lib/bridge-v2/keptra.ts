@@ -12,9 +12,9 @@
  * here would be a configurable owner of somebody's money.
  *
  * WHAT THE BRIDGE CAN ASK AN ACCOUNT TO DO is the closed list in refusalFor
- * below (R-4, R-5, M21). Every Safe transaction the relay builds passes through
- * it before anything is signed or sent, so a new kind of call is a change to
- * this file and never a parameter.
+ * below (R-4, R-5, M21). Every list of calls the relay turns into a Safe
+ * transaction passes through it before anything is encoded, signed or sent, so
+ * a new kind of call is a change to this file and never a parameter.
  */
 
 import {
@@ -360,43 +360,15 @@ export function encodeMultiSend(calls: readonly SafeCall[]): Hex {
   return encodeFunctionData({ abi: MULTI_SEND_ABI, functionName: 'multiSend', args: [packed] });
 }
 
-/** The inverse of encodeMultiSend, so the allow-list can see inside a batch. */
-export function decodeMultiSend(data: Hex): SafeCall[] | null {
-  const selector = data.slice(0, 10).toLowerCase();
-  if (selector !== encodeFunctionData({ abi: MULTI_SEND_ABI, functionName: 'multiSend', args: ['0x'] }).slice(0, 10)) {
-    return null;
-  }
-  const bytes = data.slice(10);
-  // The argument is one dynamic `bytes`: offset, length, then the payload.
-  const length = Number(BigInt(`0x${bytes.slice(64, 128)}`));
-  const payload = bytes.slice(128, 128 + length * 2);
-  const calls: SafeCall[] = [];
-  let i = 0;
-  while (i < payload.length) {
-    const operation = Number.parseInt(payload.slice(i, i + 2), 16);
-    const to = `0x${payload.slice(i + 2, i + 42)}` as `0x${string}`;
-    const value = BigInt(`0x${payload.slice(i + 42, i + 106)}`);
-    const dataLength = Number(BigInt(`0x${payload.slice(i + 106, i + 170)}`));
-    const callData = `0x${payload.slice(i + 170, i + 170 + dataLength * 2)}` as Hex;
-    if (operation !== 0 || value !== 0n) return null;
-    calls.push({ to, data: callData });
-    i += 170 + dataLength * 2;
-  }
-  return calls;
-}
-
-/** One call goes out as itself; several go out as one delegatecall to MultiSendCallOnly. */
+/**
+ * One call goes out as itself; several go out as one delegatecall to
+ * MultiSendCallOnly. The only builder of a SafeTx, so delegatecall only ever
+ * targets MultiSendCallOnly — which itself refuses delegatecall.
+ */
 export function safeTxFor(calls: readonly SafeCall[], nonce: bigint): SafeTx {
   if (calls.length === 0) throw new Error('[bridge-v2] a Safe transaction needs at least one call');
   if (calls.length === 1) return { to: calls[0].to, data: calls[0].data, operation: 0, nonce };
   return { to: MULTI_SEND_CALL_ONLY, data: encodeMultiSend(calls), operation: 1, nonce };
-}
-
-/** The calls a SafeTx makes, in order. */
-export function callsOf(tx: SafeTx): SafeCall[] | null {
-  if (tx.operation === 0) return [{ to: tx.to, data: tx.data }];
-  if (tx.to.toLowerCase() !== MULTI_SEND_CALL_ONLY.toLowerCase()) return null;
-  return decodeMultiSend(tx.data);
 }
 
 /** EIP-712 SafeTx hash — what the passkey signs (the WebAuthn challenge). */
@@ -729,30 +701,31 @@ const MODULE_CALLS = new Set([
 ]);
 
 /**
- * Whether the relay may put this transaction in front of a passkey. Returns
- * the reason for refusing, or null.
+ * Whether the relay may put the transaction made of these calls, at this nonce,
+ * in front of a passkey. Returns the reason for refusing, or null.
  *
- * - delegatecall only to MultiSendCallOnly, which itself refuses delegatecall;
+ * Adenda F10: the calls are the list the relay is about to encode (safeTxFor),
+ * checked before the encoding rather than decoded back out of it.
+ *
  * - on the account itself, only addOwnerWithThreshold — so never enableModule,
  *   disableModule (R-5), setFallbackHandler (R-4), setGuard, removeOwner,
  *   swapOwner or changeThreshold;
- * - on the module, only the four recovery calls of 6.3/6.4;
+ * - on the module, only the four recovery calls of 6.3/6.4, naming no guardian
+ *   but `guardian` (null: none may be named);
+ * - no nested MultiSendCallOnly batch;
  * - the configuration prefix (configurationCalls) is accepted only as the exact
  *   first two calls of the account's first transaction.
  */
 export function refusalFor(
   safe: `0x${string}`,
-  tx: SafeTx,
+  calls: readonly SafeCall[],
+  nonce: bigint,
   configuration: readonly SafeCall[] | null,
-  guardian: `0x${string}`,
+  guardian: `0x${string}` | null,
 ): string | null {
-  if (tx.operation === 1 && tx.to.toLowerCase() !== MULTI_SEND_CALL_ONLY.toLowerCase()) return 'delegatecall_target';
-  const calls = callsOf(tx);
-  if (calls === null) return 'undecodable';
-
   let rest = calls;
   if (configuration !== null) {
-    if (tx.nonce !== 0n) return 'configuration_not_first';
+    if (nonce !== 0n) return 'configuration_not_first';
     const prefix = calls.slice(0, configuration.length);
     const matches =
       prefix.length === configuration.length &&
@@ -773,9 +746,10 @@ export function refusalFor(
     }
     if (to === RECOVERY_MODULE.toLowerCase()) {
       if (!MODULE_CALLS.has(selectorOf(call.data))) return 'module_call';
-      // A guardian named by the relay is only ever the platform's own: the one
-      // being revoked (R-3) or the rotated one being added (A6). Never an address
-      // somebody else chose.
+      // A guardian named by the relay is only ever the one the caller allows:
+      // the account's own on-chain guardian being revoked (R-3, Adenda F1) or
+      // the platform's current one being added (A6). Never an address somebody
+      // else chose.
       const { functionName, args } = decodeFunctionData({ abi: RECOVERY_MODULE_ABI, data: call.data });
       const named =
         functionName === 'addGuardianWithThreshold'
@@ -783,7 +757,7 @@ export function refusalFor(
           : functionName === 'revokeGuardianWithThreshold'
             ? (args[1] as string)
             : null;
-      if (named !== null && named.toLowerCase() !== guardian.toLowerCase()) return 'guardian_mismatch';
+      if (named !== null && named.toLowerCase() !== guardian?.toLowerCase()) return 'guardian_mismatch';
       continue;
     }
     if (to === MULTI_SEND_CALL_ONLY.toLowerCase()) return 'nested_batch';

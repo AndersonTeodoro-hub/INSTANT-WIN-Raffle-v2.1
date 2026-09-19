@@ -7,6 +7,9 @@
  * CONFIRMED         createGiveaway is mined; giveaway_id is the on-chain id
  * FAILED            not reached by this pass — reserved for a hard, unretriable
  *                    stop (an admin action), which nothing here writes yet
+ * EXPIRED           SPEC-BLOCO-03 Adenda F2: a PENDING_DEPOSIT draft whose
+ *                    deposit address still holds none of either token seven
+ *                    days after the draft was made (expireUnfundedDrafts)
  *
  * A creator holds at most one PENDING_DEPOSIT or FUNDING row at a time
  * (bridge_v2_creator_campaigns_active_unique, 0007), enforced by the database
@@ -14,9 +17,22 @@
  */
 
 import { checked, checkedMaybe, getDb } from './db.js';
-import { DB_TIMEOUT_MS } from './config.js';
+import { DB_TIMEOUT_MS, DRAFT_DEPOSIT_TTL_MS, DRAFT_EXPIRY_MS, USDC } from './config.js';
+import { erc20BalanceOf } from './chain.js';
+import { findCreatorById } from './creators.js';
+import type { Logger } from './log.js';
+import type { RunDeadline } from './runlock.js';
 
-export type CreatorCampaignStatus = 'PENDING_DEPOSIT' | 'FUNDING' | 'CONFIRMED' | 'FAILED';
+export type CreatorCampaignStatus = 'PENDING_DEPOSIT' | 'FUNDING' | 'CONFIRMED' | 'FAILED' | 'EXPIRED';
+
+/**
+ * The lock under which a creator's derived wallet is signed for: module 2's
+ * submit (creator/campaign/submit.ts) and, SPEC-BLOCO-03 Adenda F2, the
+ * migration of that wallet — so the two never sign for it at the same time.
+ */
+export function creatorCampaignLock(creatorId: string): string {
+  return `creator-campaign:${creatorId}`;
+}
 
 export interface CreatorCampaign {
   readonly id: string;
@@ -32,6 +48,8 @@ export interface CreatorCampaign {
   readonly slotsCost: bigint;
   readonly giveawayId: bigint | null;
   readonly txHash: string | null;
+  /** SPEC-BLOCO-03 Adenda F5: when the draft was made, the instant the chain is searched back to. */
+  readonly createdAt: string;
   readonly updatedAt: string;
 }
 
@@ -49,6 +67,7 @@ interface Row {
   slots_cost: string;
   giveaway_id: string | null;
   tx_hash: string | null;
+  created_at: string;
   updated_at: string;
 }
 
@@ -61,7 +80,7 @@ interface Row {
 // widens to plain `string` at the type level, which is indistinguishable from
 // an arbitrary runtime string and falls back to an error type instead of the
 // row shape below. Kept on one line for exactly that reason.
-const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, updated_at';
+const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, created_at, updated_at';
 
 function toCampaign(row: Row): CreatorCampaign {
   return {
@@ -78,6 +97,7 @@ function toCampaign(row: Row): CreatorCampaign {
     slotsCost: BigInt(row.slots_cost),
     giveawayId: row.giveaway_id === null ? null : BigInt(row.giveaway_id),
     txHash: row.tx_hash ?? null,
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
@@ -208,4 +228,67 @@ export async function advanceCampaign(
       .maybeSingle(),
   );
   return updated !== null;
+}
+
+/**
+ * SPEC-BLOCO-03 Adenda F5: the on-chain ids this creator's drafts already name.
+ * A campaign found on-chain that one of them registered is not another draft's.
+ */
+export async function registeredGiveawayIds(creatorId: string): Promise<Set<bigint>> {
+  const rows = checked(
+    'creator_campaign.registered',
+    await getDb()
+      .from('bridge_v2_creator_campaigns')
+      .select('giveaway_id::text')
+      .eq('creator_id', creatorId)
+      .not('giveaway_id', 'is', null)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { giveaway_id: string }[] | null;
+  return new Set((rows ?? []).map((row) => BigInt(row.giveaway_id)));
+}
+
+/**
+ * SPEC-BLOCO-03 Adenda F2, as the owner decided on 19/09/2026: a draft in
+ * PENDING_DEPOSIT closes by itself — EXPIRED — seven days after it was made, if
+ * its deposit address holds none of the prize token and none of USDC. Every
+ * draft, a derived creator's and an account creator's alike. A draft is a right
+ * of a derived wallet (A8, F2) and holds the creator's one active slot (0007), so
+ * one nobody funds must not hold either for ever.
+ *
+ * One conditional transition (G1): a draft a submit moved on in between is left
+ * alone. A deposit that arrives after the check stays where it is: in the
+ * creator account, or in the derived wallet, where the migration moves it.
+ */
+export async function expireUnfundedDrafts(log: Logger, deadline: RunDeadline): Promise<number> {
+  const rows = checked(
+    'creator_campaign.list_unfunded',
+    await getDb()
+      .from('bridge_v2_creator_campaigns')
+      .select(COLUMNS)
+      .eq('status', 'PENDING_DEPOSIT')
+      .lte('created_at', new Date(Date.now() - DRAFT_DEPOSIT_TTL_MS).toISOString())
+      .order('created_at', { ascending: true })
+      .limit(50)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as Row[] | null;
+  let expired = 0;
+  for (const campaign of (rows ?? []).map(toCampaign)) {
+    if (!deadline.hasTimeFor(DRAFT_EXPIRY_MS)) break;
+    try {
+      const creator = await findCreatorById(campaign.creatorId);
+      if (creator === null) continue;
+      const tokens = new Set([campaign.prizeToken.toLowerCase(), (USDC as string).toLowerCase()]);
+      let held = false;
+      for (const token of tokens) {
+        if ((await erc20BalanceOf(token as `0x${string}`, creator.walletAddress)) > 0n) held = true;
+      }
+      if (held) continue;
+      if (!(await advanceCampaign(campaign.id, 'PENDING_DEPOSIT', 'EXPIRED'))) continue;
+      expired += 1;
+      await log.event('creator_campaign.expired');
+    } catch (error) {
+      await log.failure('creator_campaign.failed', error);
+    }
+  }
+  return expired;
 }
