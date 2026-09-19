@@ -726,6 +726,22 @@ await test(['KM22', 'KM14'], 'R-6: once the seven days pass, the bridge finalise
   assert.equal(store.rows('bridge_v2_recoveries').at(-1).status, 'FINALIZED');
 });
 
+await test(['AD4', 'KM8'], 'D4: after the recovery, the creator account not yet deployed is built at the new passkey’s address, for it alone', async () => {
+  const row = store.rows('bridge_v2_accounts').find((a) => a.id === lost.creator.id);
+  const readdressed = keptra.predictSafeAddress(newSigner, 'CREATOR');
+  assert.notEqual(readdressed.toLowerCase(), lost.creator.safe.toLowerCase());
+  assert.equal(row.safe_address, readdressed);
+  assert.equal(row.initial_signer.toLowerCase(), newSigner.toLowerCase());
+  // The lost passkey no longer reaches it.
+  await assert.rejects(relayAs('lost-1', lostKey, { kind: 'configure' }, 'CREATOR'), (error) => error.reason === 'not_owner');
+  // The new one builds it, configured, at the address computed from it.
+  assert.equal((await relayAs('lost-1', newKey, { kind: 'configure' }, 'CREATOR')).receipt.status, 'success');
+  assert.equal(await kchain.hasCode(readdressed), true);
+  assert.equal(await kchain.hasCode(lost.creator.safe), false, 'the old address was deployed');
+  assert.equal(kchain.configurationRefusal(await kchain.accountState(readdressed), guardianAddress(), [newSigner]), null);
+  assert.notEqual(store.rows('bridge_v2_accounts').find((a) => a.id === lost.creator.id).deployed_at ?? null, null);
+});
+
 await test(['KM22'], 'a pending recovery nobody registered raises an alert and is never finalised', async () => {
   // The guardian key used outside the bridge: a confirmation with no request behind it.
   const rogue = privateKeyToAccount(`0x${'c3'.repeat(32)}`).address;
@@ -796,9 +812,8 @@ await test(['KM19', 'AC2'], 'R-3 as A6 corrects it: with a recovery pending, one
   await rpc.stopImpersonating(guardian);
   assert.match(reason ?? '', /SM: sender not a guardian/);
 
-  // A6 and C2: without a guardian, completing the account is the only action the
-  // relay takes; the account adds the (rotated) guardian back with the passkey.
-  await assert.rejects(relay.prepareAction('revoke-1', { kind: 'addPasskey', credentialId: key.credentialId }, 'PARTICIPANT'), (error) => error.reason === 'configuration_incomplete');
+  // A6 and D1: the account adds the current guardian back with the passkey. (That
+  // it keeps every other action meanwhile is the AD1 test below.)
   const added = await relayAs('revoke-1', key, { kind: 'configure' }, 'PARTICIPANT');
   assert.equal(added.receipt.status, 'success');
   assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [subject.participant.safe, guardian]), true);
@@ -813,6 +828,45 @@ await test(['KM19'], 'R-3 with no recovery pending does not revert: invalidate a
   const submitted = await relayAs('revoke-2', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
   assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'guardiansCount', [subject.participant.safe]), 0n);
+});
+
+await test(['AD1', 'KM12', 'KM19'], 'D1: after R-3 the account keeps working with no guardian; during an incident configure waits for the rotation, then adds the new key', async () => {
+  const key = await createPasskey();
+  const subject = await registerParticipant('incident-1', key);
+  const safe = subject.participant.safe;
+  await deployOnly(subject.participant, key, subject.signer);
+  assert.equal((await relayAs('incident-1', key, { kind: 'revokeGuardian' }, 'PARTICIPANT')).receipt.status, 'success');
+  const guardians = () => read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'getGuardians', [safe]);
+  assert.deepEqual(await guardians(), []);
+
+  // Usable: a second passkey is added, signed by the first, on an account with no guardian.
+  const second = await createPasskey();
+  const secondSigner = await kchain.signerAddressOf(second.x, second.y);
+  await accounts.registerPasskey('incident-1', second.credentialId, second.x, second.y, secondSigner);
+  const addedOwner = await relayAs('incident-1', key, { kind: 'addPasskey', credentialId: second.credentialId }, 'PARTICIPANT');
+  assert.equal(addedOwner.receipt.status, 'success');
+  const owners = (await read(safe, keptra.SAFE_ABI, 'getOwners')).map((o) => o.toLowerCase());
+  assert.ok(owners.includes(secondSigner.toLowerCase()), 'the second passkey was not added');
+
+  // The incident: the platform's key is listed. configure is refused, and nothing is sent.
+  const compromised = guardianAddress();
+  store.insert('bridge_v2_guardian_incidents', { guardian_address: compromised.toLowerCase() });
+  const previous = process.env.BRIDGE_V2_GUARDIAN_KEY;
+  try {
+    const sentBefore = await client.getTransactionCount({ address: funderAddress(0) });
+    await assert.rejects(relayAs('incident-1', second, { kind: 'configure' }, 'PARTICIPANT'), (error) => error.reason === 'guardian_incident');
+    assert.equal(await client.getTransactionCount({ address: funderAddress(0) }), sentBefore, 'the relayer sent something');
+    // The rotation: configure adds the new key, signed by the second passkey alone.
+    process.env.BRIDGE_V2_GUARDIAN_KEY = generatePrivateKey();
+    const rotated = guardianAddress();
+    assert.equal((await relayAs('incident-1', second, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
+    assert.deepEqual((await guardians()).map((g) => g.toLowerCase()), [rotated.toLowerCase()]);
+    assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [safe, compromised]), false);
+  } finally {
+    process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
+    // The incident was this test's; the tests after it use the suite's guardian key.
+    store.rows('bridge_v2_guardian_incidents').length = 0;
+  }
 });
 
 // ===========================================================================
@@ -1074,6 +1128,50 @@ await test(['AC10', 'KM22'], 'the unregistered-recovery alert fires if and only 
   // The owner cancels, and there is nothing left to report.
   assert.equal((await relayAs('alert-1', key, { kind: 'cancelRecovery' }, 'PARTICIPANT')).receipt.status, 'success');
   assert.equal(await count(), 0);
+});
+
+await test(['AD3', 'KM6'], 'D3: at 24 hours a request the guardian confirmed on-chain becomes CONFIRMED with the module’s own dates; one with nothing confirmed expires', async () => {
+  const key = await createPasskey();
+  const subject = await registerParticipant('overdue-1', key);
+  const safe = subject.participant.safe;
+  assert.equal((await relayAs('overdue-1', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
+  const replacement = await createPasskey();
+  const replacementSigner = await kchain.signerAddressOf(replacement.x, replacement.y);
+  const passkey = await accounts.registerPasskey('overdue-1', replacement.credentialId, replacement.x, replacement.y, replacementSigner);
+  const overdue = (hash) =>
+    store.insert('bridge_v2_recoveries', {
+      participant_id: 'overdue-1',
+      passkey_id: passkey.id,
+      status: 'PHONE_VERIFIED',
+      link_code_hash: hash,
+      link_expires_at: new Date(Date.now() - 24 * 3_600_000).toISOString(),
+      created_at: new Date(Date.now() - 25 * 3_600_000).toISOString(),
+    });
+
+  // Nothing confirmed on-chain: it expires.
+  const idle = overdue('overdue-idle');
+  assert.equal(await recovery.closeOverdueRecoveries(log, tick()), 1);
+  assert.equal(idle.status, 'EXPIRED');
+
+  // Confirmed on-chain by a pass that stopped before the row moved on.
+  const partial = overdue('overdue-partial');
+  assert.equal((await relay.sendAsRelayer([keptra.createSignerCall(replacement.x, replacement.y)], log)).receipt.status, 'success');
+  const hash = await kchain.recoveryHash(safe, [replacementSigner]);
+  const signature = await privateKeyToAccount(TEST_GUARDIAN_KEY).sign({ hash });
+  const confirmed = await relay.sendAsRelayer([kchain.confirmRecoveryCall(safe, [replacementSigner], guardianAddress(), signature)], log);
+  assert.equal(confirmed.receipt.status, 'success');
+  assert.equal(await recovery.closeOverdueRecoveries(log, tick()), 1);
+  assert.equal(partial.status, 'CONFIRMED');
+  const pending = await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'getRecoveryRequest', [safe]);
+  assert.equal(partial.execute_after, new Date(Number(pending.executeAfter) * 1000).toISOString());
+  const { blockNumber } = await client.getTransactionReceipt({ hash: confirmed.hash });
+  const block = await client.getBlock({ blockNumber });
+  assert.equal(partial.started_at, new Date(Number(block.timestamp) * 1000).toISOString(), 'the start is not the confirmation');
+  // No longer unregistered (C10), and the owner can still cancel it (6.3.3).
+  assert.equal(await recovery.alertUnregisteredRecoveries(log, tick()), 0);
+  assert.equal((await relayAs('overdue-1', key, { kind: 'cancelRecovery' }, 'PARTICIPANT')).receipt.status, 'success');
+  await recovery.advanceConfirmedRecoveries(log, tick());
+  assert.equal(partial.status, 'CANCELED');
 });
 
 await test(['AC11'], 'three guardian changes in 24 hours are paid by the relayer; the fourth is refused before anything is signed or sent', async () => {

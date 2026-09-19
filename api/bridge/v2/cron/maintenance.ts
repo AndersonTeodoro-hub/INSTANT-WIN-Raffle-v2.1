@@ -29,6 +29,7 @@ import { roleCollisions } from '../../../../lib/bridge-v2/guardian.js';
 import {
   advanceConfirmedRecoveries,
   alertUnregisteredRecoveries,
+  closeOverdueRecoveries,
   confirmVerifiedRecoveries,
 } from '../../../../lib/bridge-v2/recovery.js';
 import { migrateAuthorizedWallets, seedRetirementReadiness } from '../../../../lib/bridge-v2/migration.js';
@@ -300,6 +301,9 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       if (expired > 0) await log.event('recovery.expired', { requests: expired });
       return expired;
     });
+    // Adenda D3: a request not CONFIRMED 24 hours after it was opened, with an
+    // alert. Before the confirmations, so none is signed for past its 24 hours.
+    const recoveriesOverdue = await safely(log, 'recovery_overdue', () => closeOverdueRecoveries(log, deadline));
     // 6.3 and R-6: confirm what passed A14 and R-1, notify, finalise what is due.
     const recoveriesConfirmed = await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
     const recoveriesClosed = await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
@@ -333,6 +337,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       accounts: {
         roleKeysDistinct,
         recoveriesExpired,
+        recoveriesOverdue,
         recoveriesConfirmed,
         recoveriesClosed,
         recoveriesUnregistered,

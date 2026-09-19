@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { encodeFunctionData, parseAbi, zeroAddress } from 'viem';
+import { generatePrivateKey } from 'viem/accounts';
 import {
   assert,
   deadline,
@@ -809,9 +810,10 @@ await test(['AC2', 'KM6'], 'an account deployed without its module accepts only 
   assert.equal(sent[0].args[1].to.toLowerCase(), safe.toLowerCase(), 'the account was deployed again, or something else was sent');
 });
 
-await test(['AC2'], 'an account without a guardian (after A6) accepts only the guardian added back', async () => {
+await test(['AC2', 'AD1'], 'an account never configured that holds no guardian accepts only the guardian added back', async () => {
   fresh();
   await registered();
+  // deployed_at is not set: the platform never saw this account configured (D1).
   kchain.set({ accountState: readyState([SIGNER], []) });
   const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'cancelRecovery' } }));
   assert.equal(refused.status, 409);
@@ -878,7 +880,7 @@ await test(['AC4'], 'the migration authorisation is refused, with no address sho
   assert.equal(ready.status, 200);
 });
 
-await test(['AC4'], 'the creator deposit address is shown only once the creator account is deployed and configured', async () => {
+await test(['AC4', 'AD1'], 'the creator deposit address is shown only once the creator account is deployed and configured', async () => {
   fresh();
   await registered();
   store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
@@ -898,13 +900,21 @@ await test(['AC4'], 'the creator deposit address is shown only once the creator 
   const creatorSafe = keptra.predictSafeAddress(SIGNER, 'CREATOR');
   assert.equal((await started.json()).depositAddress, creatorSafe);
 
-  // A revocation takes the guardian away: the address is no longer shown.
+  // D1: never configured, no guardian — the address is not shown.
   kchain.set({ accountState: readyState([SIGNER], []) });
-  const status = await statusRoute.POST(request(url('creator/campaign/status'), { cookie: SESSION_COOKIE }));
-  assert.equal((await status.json()).depositAddress, null);
+  const status = () => statusRoute.POST(request(url('creator/campaign/status'), { cookie: SESSION_COOKIE }));
+  assert.equal((await (await status()).json()).depositAddress, null);
+  // D1: configured, and its guardian revoked by its user — still usable, still shown.
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = new Date().toISOString();
+  });
+  assert.equal((await (await status()).json()).depositAddress, creatorSafe);
+  // D1: the module missing blocks it whatever the record says.
+  kchain.set({ accountState: readyState([SIGNER], [], { modules: [] }) });
+  assert.equal((await (await status()).json()).depositAddress, null);
 });
 
-await test(['AC4', 'AC6'], 'register shows an address only for a configured account, and recovery as active only with the current guardian on-chain', async () => {
+await test(['AC4', 'AC6', 'AD1'], 'register shows an address only for a configured account, and recovery as active only with the current guardian on-chain', async () => {
   fresh();
   const first = await registered();
   // Not deployed yet: no address, no recovery.
@@ -921,9 +931,15 @@ await test(['AC4', 'AC6'], 'register shows an address only for a configured acco
   // After a rotation the account still holds the old key: configured, but no working recovery (C6).
   const rotated = await view(readyState([SIGNER], ['0x3333333333333333333333333333333333333333']), '0x7676767676767676767676767676767676767676');
   assert.ok(rotated.every((a) => a.configured && !a.recoveryEnabled), 'a rotated-away guardian was shown as recovery');
-  // Revoked (A6): neither.
-  const revoked = await view(readyState([SIGNER], []), '0x7575757575757575757575757575757575757575');
-  assert.ok(revoked.every((a) => a.address === null && !a.configured && !a.recoveryEnabled));
+  // Never configured, and no guardian (D1): neither.
+  const bare = await view(readyState([SIGNER], []), '0x7575757575757575757575757575757575757575');
+  assert.ok(bare.every((a) => a.address === null && !a.configured && !a.recoveryEnabled));
+  // Configured, then its guardian revoked by its user (D1): usable, shown, no recovery (C6).
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = new Date().toISOString();
+  });
+  const revoked = await view(readyState([SIGNER], []), '0x7373737373737373737373737373737373737373');
+  assert.ok(revoked.every((a) => a.address !== null && a.configured && !a.recoveryEnabled), 'a revoked, configured account was hidden');
 });
 
 await test(['AC4', 'AC7'], 'a transfer never goes into a platform account that is not set up', async () => {
@@ -1042,16 +1058,327 @@ await test(['AC11'], 'a fourth guardian change in 24 hours is refused before any
 
 // --- C13: nothing in production only the tests use -------------------------------
 
-await test(['AC13'], 'production code carries nothing only the tests use, and RP_ID is used (C9)', () => {
+await test(['AC13', 'AD3'], 'production code carries nothing only the tests use, and RP_ID is used (C9)', () => {
   const sources = productionSources();
-  for (const name of ['SHARED_SIGNER', 'singletonOf', 'createdSigners', 'RECOVERY_PERIOD_SECONDS']) {
+  for (const name of ['SHARED_SIGNER', 'singletonOf', 'createdSigners']) {
     const users = sources.filter(([, text]) => new RegExp(`\\b${name}\\b`).test(text)).map(([path]) => path);
     assert.deepEqual(users, [], `${name} is still in production code`);
   }
+  // Removed by C13 when only the tests read it; back since Adenda D3 with a
+  // production reader (the start of a request confirmed before it went overdue).
+  const period = sources.filter(([, text]) => /\bRECOVERY_PERIOD_SECONDS\b/.test(text)).map(([path]) => path);
+  assert.deepEqual(period, ['lib/bridge-v2/keptra.ts', 'lib/bridge-v2/recovery.ts'], 'RECOVERY_PERIOD_SECONDS is declared for the tests alone');
   const chainHalf = sources.find(([path]) => path === 'lib/bridge-v2/keptraChain.ts')[1];
   assert.ok(!/export \{/.test(chainHalf), 'a re-export is left in keptraChain.ts');
   const pure = sources.find(([path]) => path === 'lib/bridge-v2/keptra.ts')[1];
   assert.ok((pure.match(/\bRP_ID\b/g) ?? []).length >= 2, 'RP_ID is declared and never used');
+});
+
+// ===========================================================================
+// Adenda D — the decisions after the correction of piece 1 (ADn)
+// ===========================================================================
+
+const lowerCalls = (list) => list.map((c) => ({ to: c.to.toLowerCase(), data: c.data.toLowerCase() }));
+const markConfigured = () =>
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = new Date().toISOString();
+  });
+
+// --- D1: what a missing configuration is, and a guardian compromise --------------
+
+await test(['AD1', 'AC2', 'AC4'], 'D1: a configured account whose guardian its user revoked keeps every action, and configure adds the current guardian back', async () => {
+  fresh();
+  await registered();
+  markConfigured();
+  const second = await createPasskey();
+  const secondSigner = '0x7272727272727272727272727272727272727272';
+  await accounts.registerPasskey('participant-1', second.credentialId, second.x, second.y, secondSigner);
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const ours = keptra.predictSafeAddress(SIGNER, 'PARTICIPANT');
+  const revoked = readyState([SIGNER], []);
+  const prepare = (action, state) => {
+    kchain.set({ accountState: state });
+    return relayLib.prepareAction('participant-1', action, null);
+  };
+  const refusal = (action, state) => prepare(action, state).then(() => null, (error) => error.reason);
+
+  // Usable: a second passkey is prepared exactly as on any configured account.
+  const added = await prepare({ kind: 'addPasskey', credentialId: second.credentialId }, revoked);
+  assert.deepEqual(lowerCalls(keptra.callsOf(added.tx)), lowerCalls(keptra.addOwnerCalls(ours, secondSigner)));
+  // Nothing to revoke or cancel, said as such — never "finish your setup".
+  assert.equal(await refusal({ kind: 'revokeGuardian' }, revoked), 'no_guardian');
+  assert.equal(await refusal({ kind: 'cancelRecovery' }, revoked), 'no_recovery');
+  // configure adds the platform's current guardian, and nothing else.
+  const configured = await prepare({ kind: 'configure' }, revoked);
+  assert.deepEqual(lowerCalls(keptra.callsOf(configured.tx)), lowerCalls(keptra.addGuardianCalls(guardianAddress())));
+  // C4 as D1 reads it: such an account can receive a transfer.
+  const other = keptra.predictSafeAddress('0x7474747474747474747474747474747474747474', 'PARTICIPANT');
+  store.insert('bridge_v2_accounts', { participant_id: 'participant-2', role: 'PARTICIPANT', safe_address: other, initial_signer: SIGNER, guardian_address: guardianAddress(), deployed_at: new Date().toISOString() });
+  chain.set({ erc20BalanceOf: 5n });
+  const transfer = await prepare(
+    { kind: 'transfer', giveawayId: 1n, to: other.toLowerCase(), amount: 1n },
+    (safe) => (safe.toLowerCase() === other.toLowerCase() ? revoked : readyState()),
+  );
+  assert.equal(keptra.callsOf(transfer.tx).length, 1);
+
+  // What D1 still blocks: the module not enabled, whatever the record says ...
+  assert.equal(
+    await refusal({ kind: 'addPasskey', credentialId: second.credentialId }, readyState([SIGNER], [], { modules: [] })),
+    'configuration_incomplete',
+  );
+  // ... and an account the platform never saw configured.
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = null;
+  });
+  assert.equal(await refusal({ kind: 'addPasskey', credentialId: second.credentialId }, revoked), 'configuration_incomplete');
+});
+
+await test(['AD1'], 'D1: during a guardian compromise configure is refused until the rotation, and no transaction adds a listed key', async () => {
+  fresh();
+  await registered();
+  store.rows('bridge_v2_accounts').find((row) => row.role === 'PARTICIPANT').deployed_at = new Date().toISOString();
+  const creatorSafe = keptra.predictSafeAddress(SIGNER, 'CREATOR');
+  // The participant account revoked the compromised key (R-3); the creator account does not exist yet.
+  kchain.set({
+    accountState: (safe) => (safe.toLowerCase() === creatorSafe.toLowerCase() ? { ...readyState(), deployed: false, nonce: 0n } : readyState([SIGNER], [])),
+  });
+  const compromised = guardianAddress();
+  store.insert('bridge_v2_guardian_incidents', { guardian_address: compromised.toLowerCase() });
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const refusal = (action, role = null) => relayLib.prepareAction('participant-1', action, role).then(() => null, (error) => error.reason);
+
+  assert.equal(await refusal({ kind: 'configure' }), 'guardian_incident');
+  const response = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'configure' } }));
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, 'Recovery cannot be set up while its key is being replaced. Try again later.');
+  // The account itself stays usable meanwhile.
+  assert.equal(await refusal({ kind: 'cancelRecovery' }), 'no_recovery');
+  // A first transaction would add the key the creator account was registered with.
+  assert.equal(await refusal({ kind: 'configure' }, 'CREATOR'), 'guardian_incident');
+  assert.equal(await refusal({ kind: 'createCampaign' }), 'guardian_incident');
+
+  const previous = process.env.BRIDGE_V2_GUARDIAN_KEY;
+  process.env.BRIDGE_V2_GUARDIAN_KEY = generatePrivateKey();
+  try {
+    // Rotated: configure adds the new key.
+    const rotated = guardianAddress();
+    assert.notEqual(rotated.toLowerCase(), compromised.toLowerCase());
+    const readded = await relayLib.prepareAction('participant-1', { kind: 'configure' }, null);
+    assert.deepEqual(lowerCalls(keptra.callsOf(readded.tx)), lowerCalls(keptra.addGuardianCalls(rotated)));
+    // The creator account still names the compromised key until B6 updates its row.
+    assert.equal(await refusal({ kind: 'configure' }, 'CREATOR'), 'guardian_incident');
+    store.rows('bridge_v2_accounts').find((row) => row.role === 'CREATOR').guardian_address = rotated;
+    const created = await relayLib.prepareAction('participant-1', { kind: 'configure' }, 'CREATOR');
+    assert.deepEqual(lowerCalls(keptra.callsOf(created.tx)), lowerCalls(keptra.configurationCalls(creatorSafe, rotated)));
+    // The compromised key put back as the configured one is refused again: never re-added.
+    process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
+    assert.equal(await refusal({ kind: 'configure' }), 'guardian_incident');
+  } finally {
+    process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
+  }
+});
+
+// --- D3: a change of access that does not reach CONFIRMED in 24 hours --------------
+
+const HOUR_MS = 3_600_000;
+const alertsLogged = () =>
+  db.callsTo('bridge_v2_ops_events:insert').filter((c) => c.payload.kind === 'alert').map((c) => c.payload.detail.summary);
+
+async function maintenancePass() {
+  const { TEST_CRON_SECRET } = await import('../harness.mjs');
+  const maintenance = await import('../../../api/bridge/v2/cron/maintenance.ts');
+  db.on('rpc:bridge_v2_try_lock', () => ({ data: 'holder-abc', error: null }));
+  db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
+  db.on('rpc:bridge_v2_cleanup', () => ({ data: [], error: null }));
+  db.on('bridge_v2_external_spend:select', () => ({ data: [], error: null }));
+  const response = await maintenance.GET(request(url('cron/maintenance'), { method: 'GET', headers: { authorization: `Bearer ${TEST_CRON_SECRET}` } }));
+  return response.json();
+}
+
+await test(['AD3', 'AC3'], 'D3: a request not CONFIRMED 24 hours after it was opened expires with an alert, and never blocks a new one past that', async () => {
+  fresh();
+  const { passkey } = await registered();
+  markConfigured();
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  kchain.set({ accountState: readyState() });
+  const open = () => recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: passkey.credentialId } }));
+  const verified = (row, hoursAgo) =>
+    Object.assign(row, { status: 'PHONE_VERIFIED', created_at: new Date(Date.now() - hoursAgo * HOUR_MS).toISOString() });
+
+  assert.equal((await open()).status, 200);
+  const first = verified(store.rows('bridge_v2_recoveries')[0], 23.9);
+  assert.equal((await open()).status, 409, 'a request inside its 24 hours was closed');
+  verified(first, 24.01);
+  // Asked again past the 24 hours: closed on the spot, not at the next pass.
+  assert.equal((await open()).status, 200, 'a request past its 24 hours blocked a new one');
+  assert.deepEqual(store.rows('bridge_v2_recoveries').map((row) => row.status), ['EXPIRED', 'AWAITING_PHONE']);
+  assert.ok(alertsLogged().includes('change of access not confirmed within 24 hours of being opened'), `alerts were ${alertsLogged()}`);
+
+  // With nobody asking, the maintenance pass closes it, and never signs for it first.
+  const second = verified(store.rows('bridge_v2_recoveries')[1], 25);
+  assert.equal(await recovery.confirmVerifiedRecoveries(recordingLogger(), deadline()), 0);
+  assert.equal(kchain.calls.filter((c) => ['recoveryHash', 'sendRelayed'].includes(c.name)).length, 0, 'signed for a request past its 24 hours');
+  assert.equal(second.status, 'PHONE_VERIFIED');
+  assert.equal((await maintenancePass()).accounts.recoveriesOverdue, 1);
+  assert.equal(second.status, 'EXPIRED');
+
+  // CONFIRMED is never closed, however old: the module is running its seven days.
+  store.insert('bridge_v2_recoveries', {
+    participant_id: 'participant-1',
+    passkey_id: store.rows('bridge_v2_passkeys')[0].id,
+    status: 'CONFIRMED',
+    link_code_hash: 'confirmed',
+    link_expires_at: new Date(Date.now() - 72 * HOUR_MS).toISOString(),
+    created_at: new Date(Date.now() - 72 * HOUR_MS).toISOString(),
+    started_at: new Date(Date.now() - 71 * HOUR_MS).toISOString(),
+    execute_after: new Date(Date.now() + 97 * HOUR_MS).toISOString(),
+  });
+  assert.equal(await recovery.closeOverdueRecoveries(recordingLogger(), deadline()), 0);
+  assert.equal((await open()).status, 409);
+  assert.equal(store.rows('bridge_v2_recoveries').at(-1).status, 'CONFIRMED');
+});
+
+await test(['AD3'], 'D3: a request the guardian already confirmed on an account becomes CONFIRMED at 24 hours, with an alert, and gets its notices', async () => {
+  fresh();
+  await registered();
+  markConfigured();
+  const replacement = await createPasskey();
+  const NEW = '0x7171717171717171717171717171717171717171';
+  const passkey = await accounts.registerPasskey('participant-1', replacement.credentialId, replacement.x, replacement.y, NEW);
+  const request_ = store.insert('bridge_v2_recoveries', {
+    participant_id: 'participant-1',
+    passkey_id: passkey.id,
+    status: 'PHONE_VERIFIED',
+    link_code_hash: 'partial',
+    link_expires_at: new Date(Date.now() - 24 * HOUR_MS).toISOString(),
+    created_at: new Date(Date.now() - 25 * HOUR_MS).toISOString(),
+  });
+  // Confirmed on the participant account; the pass then failed on the creator one.
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const executeAfter = now + 6n * 86_400n;
+  const participantSafe = keptra.predictSafeAddress(SIGNER, 'PARTICIPANT');
+  kchain.set({
+    chainNow: now,
+    accountState: (safe) =>
+      safe.toLowerCase() === participantSafe.toLowerCase()
+        ? readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: executeAfter, recoveryNewOwners: [NEW] })
+        : readyState(),
+  });
+  const log = recordingLogger();
+  assert.equal(await recovery.closeOverdueRecoveries(log, deadline()), 1);
+  assert.equal(request_.status, 'CONFIRMED');
+  assert.equal(request_.execute_after, new Date(Number(executeAfter) * 1000).toISOString());
+  assert.equal(request_.started_at, new Date(Number(executeAfter - keptra.RECOVERY_PERIOD_SECONDS) * 1000).toISOString());
+  assert.ok(
+    log.events.some((e) => e.kind === 'alert' && e.detail.summary === 'change of access confirmed on some accounts only, 24 hours after it was opened'),
+  );
+  // From here it is an ordinary confirmed request: the owner is told (6.3.2).
+  await recovery.advanceConfirmedRecoveries(recordingLogger(), deadline());
+  assert.deepEqual(store.rows('bridge_v2_recovery_notices').map((n) => `${n.stage}:${n.channel}`), ['START:EMAIL']);
+  assert.equal(mails().length, 1);
+});
+
+// --- D4: an account not deployed follows the new passkey ----------------------------
+
+await test(['AD4'], 'D4: a finalised recovery gives an account not deployed the new passkey’s address; a deployed one, or a cancelled recovery, changes nothing', async () => {
+  fresh();
+  const OLD = SIGNER;
+  const NEW = '0x7070707070707070707070707070707070707070';
+  const passkey = await accounts.registerPasskey('participant-1', 'd'.repeat(22), 1n, 2n, NEW);
+  const deployedSafe = keptra.predictSafeAddress(OLD, 'CREATOR');
+  const oldPending = keptra.predictSafeAddress(OLD, 'PARTICIPANT');
+  const newPending = keptra.predictSafeAddress(NEW, 'PARTICIPANT');
+  const deployedRow = store.insert('bridge_v2_accounts', { participant_id: 'participant-1', role: 'CREATOR', safe_address: deployedSafe, initial_signer: OLD, guardian_address: guardianAddress(), deployed_at: new Date().toISOString() });
+  const pendingRow = store.insert('bridge_v2_accounts', { participant_id: 'participant-1', role: 'PARTICIPANT', safe_address: oldPending, initial_signer: OLD, guardian_address: guardianAddress(), deployed_at: null });
+  // An entry made with the old address, before the recovery (the boundary D4 accepts).
+  store.insert('bridge_v2_entries', { participant_id: 'participant-1', giveaway_id: '7', status: 'ELIGIBLE', wallet_address: oldPending, root_index: '0', passkey: true, self_custody: true, phone_hmac: null, tx_hash: null, outcome: null });
+  const confirmed = (hash) =>
+    store.insert('bridge_v2_recoveries', {
+      participant_id: 'participant-1',
+      passkey_id: passkey.id,
+      status: 'CONFIRMED',
+      link_code_hash: hash,
+      link_expires_at: new Date().toISOString(),
+      started_at: new Date(Date.now() - 8 * 86_400_000).toISOString(),
+      execute_after: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+  const chainShows = (owners, pendingHasCode) =>
+    kchain.set({
+      accountState: (safe) => (safe.toLowerCase() === deployedSafe.toLowerCase() ? readyState(owners) : { ...readyState(), deployed: false, nonce: 0n }),
+      hasCode: (address) => pendingHasCode && address.toLowerCase() === oldPending.toLowerCase(),
+    });
+
+  // Cancelled with the old passkey: nothing moves.
+  const cancelled = confirmed('d4-cancelled');
+  chainShows([OLD], false);
+  await recovery.advanceConfirmedRecoveries(recordingLogger(), deadline());
+  assert.equal(cancelled.status, 'CANCELED');
+  assert.equal(pendingRow.safe_address, oldPending);
+
+  // Finalised, but somebody deployed the old address bare meanwhile: it exists, so it is not moved.
+  const bare = confirmed('d4-bare');
+  chainShows([NEW], true);
+  await recovery.advanceConfirmedRecoveries(recordingLogger(), deadline());
+  assert.equal(bare.status, 'FINALIZED');
+  assert.equal(pendingRow.safe_address, oldPending);
+
+  // Finalised, not deployed: the account takes the new passkey's address, once.
+  const finalised = confirmed('d4-finalised');
+  chainShows([NEW], false);
+  const log = recordingLogger();
+  await recovery.advanceConfirmedRecoveries(log, deadline());
+  assert.equal(finalised.status, 'FINALIZED');
+  assert.equal(pendingRow.safe_address, newPending);
+  assert.equal(pendingRow.initial_signer, NEW);
+  assert.deepEqual(log.events.filter((e) => e.kind === 'account.readdressed').map((e) => e.detail.role), ['PARTICIPANT']);
+  assert.equal(deployedRow.safe_address, deployedSafe, 'a deployed account was given another address');
+  assert.equal(deployedRow.initial_signer, OLD);
+  // Conditional on the signer it replaces: a stale second write changes nothing (G1).
+  await accounts.readdressAccount({ ...(await accounts.accountById(pendingRow.id)), initialSigner: OLD }, '0x6969696969696969696969696969696969696969');
+  assert.equal(pendingRow.safe_address, newPending);
+
+  // The relay now builds that account at its new address, for the new passkey.
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'configure' }, 'PARTICIPANT');
+  assert.equal(prepared.account.safe, newPending);
+  assert.deepEqual(lowerCalls(keptra.callsOf(prepared.tx)), lowerCalls(keptra.configurationCalls(newPending, guardianAddress())));
+  // The accepted boundary: the entry made with the old address cannot be completed.
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'enter', giveawayId: 7n }, null), (error) => error.reason === 'no_entry');
+});
+
+// --- D6: least privilege on every table of 0012 -------------------------------------
+
+await test(['AD6'], 'D6: each 0012 table is granted exactly the verbs the code uses on it, after the defaults are revoked from service_role', () => {
+  const migration = read('supabase/migrations/0012_keptra_accounts.sql');
+  const created = [...migration.matchAll(/CREATE TABLE IF NOT EXISTS (bridge_v2_\w+)/g)].map((m) => m[1]);
+  assert.equal(created.length, 7);
+  const used = Object.fromEntries(created.map((table) => [table, new Set()]));
+  const walk = (dir) => {
+    for (const name of readdirSync(`${root}${dir}`)) {
+      const path = `${dir}/${name}`;
+      if (statSync(`${root}${path}`).isDirectory()) walk(path);
+      else if (path.endsWith('.ts')) {
+        for (const [, table, call] of read(path).matchAll(/\.from\('(bridge_v2_\w+)'\)\s*\.(select|insert|update|delete|upsert)\(/g)) {
+          if (table in used) used[table].add(call === 'upsert' ? 'INSERT, UPDATE' : call.toUpperCase());
+        }
+      }
+    }
+  };
+  walk('lib');
+  walk('api');
+  const revoke = migration.search(/REVOKE ALL ON TABLE public\.bridge_v2_passkeys\s+FROM service_role/);
+  assert.ok(revoke !== -1, 'nothing revokes the default privileges from service_role');
+  for (const table of created) {
+    assert.match(migration, new RegExp(`REVOKE ALL ON TABLE public\\.${table}\\s+FROM service_role;`), `${table} keeps the default privileges`);
+    const grant = migration.match(new RegExp(`GRANT ([A-Z, ]+?)\\s+ON TABLE public\\.${table}\\s+TO service_role`));
+    assert.ok(grant, `${table} has no grant`);
+    assert.ok(migration.indexOf(grant[0]) > revoke, `${table} is granted before the defaults are revoked`);
+    // Every write here filters or reads back, so SELECT comes with any verb.
+    const needed = new Set([...used[table]].flatMap((v) => v.split(', ')));
+    assert.ok(needed.size > 0, `${table} is used by nothing`);
+    needed.add('SELECT');
+    assert.deepEqual(grant[1].split(',').map((v) => v.trim()).sort(), [...needed].sort(), `${table}: granted more or less than the code uses`);
+  }
 });
 
 // ===========================================================================
@@ -1157,6 +1484,42 @@ if (engine !== null) {
     assert.equal(counted.rowCount, 3);
     const orphan = await attempt(engine.pool, `INSERT INTO bridge_v2_guardian_changes (account_id) VALUES (gen_random_uuid())`);
     assert.equal(orphan.code, '23503');
+  });
+
+  await test(['AD6', 'AD1'], '0012 on an engine with Supabase’s default privileges: every new table holds exactly its listed verbs, for every role', async () => {
+    const expected = {
+      bridge_v2_accounts: 'SELECT,INSERT,UPDATE',
+      bridge_v2_guardian_changes: 'SELECT,INSERT',
+      bridge_v2_guardian_incidents: 'SELECT',
+      bridge_v2_migrations: 'SELECT,INSERT,UPDATE',
+      bridge_v2_passkeys: 'SELECT,INSERT',
+      bridge_v2_recoveries: 'SELECT,INSERT,UPDATE',
+      bridge_v2_recovery_notices: 'SELECT,INSERT',
+    };
+    const held = await q(
+      `SELECT c.relname AS name, r.rolname AS role,
+              array_to_string(ARRAY(SELECT p FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p
+                                     WHERE has_table_privilege(r.rolname, c.oid, p)), ',') AS verbs
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN pg_roles r
+        WHERE n.nspname = 'public' AND c.relname = ANY($1) AND r.rolname IN ('service_role', 'anon', 'authenticated')
+        ORDER BY c.relname, r.rolname`,
+      [Object.keys(expected)],
+    );
+    const shape = (role) => Object.fromEntries(held.rows.filter((row) => row.role === role).map((row) => [row.name, row.verbs]));
+    assert.deepEqual(shape('service_role'), expected, 'a verb came from the default privileges, or one the code uses is missing');
+    for (const role of ['anon', 'authenticated']) {
+      assert.deepEqual(Object.values(shape(role)), Object.keys(expected).map(() => ''), `${role} holds a privilege`);
+    }
+    // D1: the bridge reads incidents and never writes one; the owner writes them, in lower case.
+    const write = await asRole(engine, 'service_role', (client) =>
+      attempt(client, `INSERT INTO bridge_v2_guardian_incidents (guardian_address) VALUES ('0x${'a'.repeat(40)}')`));
+    assert.equal(write.code, '42501');
+    assert.equal((await attempt(engine.pool, `INSERT INTO bridge_v2_guardian_incidents (guardian_address) VALUES ('0x${'A'.repeat(40)}')`)).code, '23514');
+    assert.equal((await attempt(engine.pool, `INSERT INTO bridge_v2_guardian_incidents (guardian_address) VALUES ('0x${'a'.repeat(40)}')`)).ok, true);
+    const read = await asRole(engine, 'service_role', (client) =>
+      attempt(client, `SELECT guardian_address FROM bridge_v2_guardian_incidents WHERE guardian_address = '0x${'a'.repeat(40)}'`));
+    assert.equal(read.rows.length, 1);
   });
 
   await test(['KM1', 'AC11'], '0012: the new tables are closed to the browser roles', async () => {

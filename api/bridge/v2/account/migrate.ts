@@ -7,7 +7,7 @@ import { getParticipant } from '../../../../lib/bridge-v2/participants.js';
 import { findCreatorByParticipant } from '../../../../lib/bridge-v2/creators.js';
 import { authorizeMigration, findAccount, findPasskey } from '../../../../lib/bridge-v2/accounts.js';
 import { accountState, isValidPasskeySignature } from '../../../../lib/bridge-v2/keptraChain.js';
-import { assertionToSignature, configurationGap, migrationChallenge } from '../../../../lib/bridge-v2/keptra.js';
+import { accountUsable, assertionToSignature, migrationChallenge } from '../../../../lib/bridge-v2/keptra.js';
 
 /**
  * POST /api/bridge/v2/account/migrate
@@ -66,7 +66,7 @@ const route = handle('account/migrate', async ({ request, log }) => {
   // its module and guardian, its address is not shown and nothing is authorised;
   // the page has the account set up first (account/relay, kind "configure").
   const state = await accountState(account.safe);
-  if (configurationGap(state) !== null) return refuse(409, 'Set up your account first.');
+  if (!accountUsable(state, account.deployedAt !== null)) return refuse(409, 'Set up your account first.');
 
   const challenge = migrationChallenge(derived, account.safe);
   if (body.signature === undefined) return ok({ challenge });

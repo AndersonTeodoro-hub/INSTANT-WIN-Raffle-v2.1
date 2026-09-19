@@ -78,6 +78,8 @@ export type OpsKind =
   | 'account.registered'
   | 'account.relayed'
   | 'account.refused'
+  // Adenda D4: an account not deployed yet took the new passkey's address.
+  | 'account.readdressed'
   | 'entry.reminded'
   | 'recovery.requested'
   | 'recovery.verified'

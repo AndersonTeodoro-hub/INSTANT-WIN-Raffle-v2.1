@@ -7,6 +7,7 @@ import { hasVerifiedPhone } from '../../../../lib/bridge-v2/phone.js';
 import { hashRecoveryCode, newRecoveryCode } from '../../../../lib/bridge-v2/linkcodes.js';
 import { accountsOf, findPasskey, openRecovery } from '../../../../lib/bridge-v2/accounts.js';
 import { LINK_CODE_TTL_MS } from '../../../../lib/bridge-v2/config.js';
+import { closeOverdueRecoveries } from '../../../../lib/bridge-v2/recovery.js';
 import { requireEnv } from '../../../../lib/bridge-v2/env.js';
 
 /**
@@ -57,6 +58,10 @@ const route = handle('account/recovery', async ({ request, log }) => {
 
   const deployed = (await accountsOf(session.participantId)).filter((account) => account.deployedAt !== null);
   if (deployed.length === 0) return refuse(409, 'There is no account to recover yet.');
+
+  // Adenda D3: a request of this participant past its 24 hours is closed now,
+  // not at the next maintenance pass, so it never blocks this one for longer.
+  await closeOverdueRecoveries(log, undefined, session.participantId);
 
   const code = newRecoveryCode();
   const opened = await openRecovery(

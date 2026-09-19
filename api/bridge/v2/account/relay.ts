@@ -125,6 +125,7 @@ const REFUSALS: Record<string, string> = {
   destination_not_ready: 'That account is not set up yet and cannot receive anything.',
   amount: 'That amount cannot be sent.',
   guardian_change_limit: 'Recovery settings were changed too often today. Try again tomorrow.',
+  guardian_incident: 'Recovery cannot be set up while its key is being replaced. Try again later.',
 };
 
 /** The Action a body names, or null. A closed list, like the union it builds. */

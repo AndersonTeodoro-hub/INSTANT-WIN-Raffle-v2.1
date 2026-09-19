@@ -68,6 +68,8 @@ const REQUIREMENTS = [
   // SPEC-BLOCO-03 Adenda C, as ACn (C1-C9 are SPEC-BRIDGE-V2's). C8 is accepted
   // as a limit and C12 belongs to piece 6, so neither is listed.
   'AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC9', 'AC10', 'AC11', 'AC13', 'AC14',
+  // SPEC-BLOCO-03 Adenda D, as ADn. D2, D5, D7 and D8 ask for no code.
+  'AD1', 'AD3', 'AD4', 'AD6',
 ];
 
 for (const path of SUITES) {

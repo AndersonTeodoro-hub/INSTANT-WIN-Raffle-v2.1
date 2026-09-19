@@ -19,15 +19,18 @@
  * one atomic batch, and that first transaction starts with the configuration
  * that enables the recovery module and adds the guardian (6.1.4).
  *
- * Adenda C2, option (b): the configuration is read from the chain on every
- * action. An account that exists without its module or its guardian — deployed
- * at its address by somebody else through the permissionless factory, or left
- * without a guardian by a revocation (A6) — can do exactly one thing through
- * the relay: `configure`, which completes it, signed by its passkey. Every other
- * action is refused until then. `configure` on an account that does not exist
- * yet creates it with nothing but its configuration, which is how the bridge
- * deploys and configures an account before showing its address as a
- * destination of value (C4).
+ * Adenda C2, option (b), as D1 reads it: the configuration is read from the
+ * chain on every action. An account that exists without its module — deployed
+ * at its address by somebody else through the permissionless factory — or that
+ * was never configured and holds no guardian can do exactly one thing through
+ * the relay: `configure`, which completes it, signed by its passkey. An account
+ * that was configured and whose guardian its user revoked (R-3) keeps every
+ * action, and `configure` adds the current guardian back — except during a
+ * guardian compromise (bridge_v2_guardian_incidents), when it waits for the
+ * rotation, and no transaction adds a listed key to any account. `configure`
+ * on an account that does not exist yet creates it with nothing but its
+ * configuration, which is how the bridge deploys and configures an account
+ * before showing its address as a destination of value (C4).
  */
 
 import { encodeFunctionData, type Hex } from 'viem';
@@ -56,6 +59,7 @@ import {
   type AccountState,
 } from './keptraChain.js';
 import {
+  accountUsable,
   addGuardianCalls,
   addOwnerCalls,
   assertionToSignature,
@@ -79,6 +83,7 @@ import {
   findAccount,
   findPasskey,
   guardianChangesSince,
+  guardianCompromised,
   markDeployed,
   recordGuardian,
   recordGuardianChange,
@@ -189,7 +194,7 @@ async function actionCalls(
       // owner says. The token or collection comes from the chain; the amount is
       // the owner's, exactly (C7), and never more than the account holds.
       const target = await accountBySafe(action.to);
-      if (target !== null && configurationGap(await accountState(target.safe)) !== null) {
+      if (target !== null && !accountUsable(await accountState(target.safe), target.deployedAt !== null)) {
         // C4: never into a platform account that is not deployed and configured.
         throw new RelayRefusal('destination_not_ready');
       }
@@ -320,12 +325,25 @@ export async function prepareAction(
   const gap = configurationGap(state);
   if (action.kind === 'configure') {
     if (gap === null) throw new RelayRefusal('already_configured');
-  } else if (gap === 'module' || gap === 'guardian') {
-    // C2 (b): an account on-chain without its module or its guardian is
-    // completed with its passkey before the relay does anything else with it.
+  } else if (state.deployed && !accountUsable(state, account.deployedAt !== null)) {
+    // C2 (b) and D1: an account on-chain without its module, or never
+    // configured, is completed with its passkey before anything else.
     throw new RelayRefusal('configuration_incomplete');
   } else if (gap === 'account' && ['cancelRecovery', 'revokeGuardian', 'addPasskey'].includes(action.kind)) {
     throw new RelayRefusal('not_deployed');
+  }
+
+  // 6.1.4 and B4: an account's first transaction — a new account's, or one
+  // somebody else deployed bare — starts with its configuration, at nonce 0.
+  const configuration = gap === 'account' || gap === 'module' ? configurationCalls(account.safe, account.guardian) : null;
+  // D1: during a guardian compromise configure waits for the rotation, and no
+  // transaction adds a key the incident listed — the one configured now, or the
+  // one an account was registered with.
+  const named = new Set<`0x${string}`>();
+  if (action.kind === 'configure') named.add(guardianAddress());
+  if (configuration !== null) named.add(account.guardian);
+  for (const guardian of named) {
+    if (await guardianCompromised(guardian)) throw new RelayRefusal('guardian_incident');
   }
 
   // C11: the relayer pays for a bounded number of guardian changes per account.
@@ -335,9 +353,6 @@ export async function prepareAction(
   }
 
   const { calls, extraSigner } = await actionCalls(participantId, account, state, action);
-  // 6.1.4 and B4: an account's first transaction — a new account's, or one
-  // somebody else deployed bare — starts with its configuration, at nonce 0.
-  const configuration = gap === 'account' || gap === 'module' ? configurationCalls(account.safe, account.guardian) : null;
   const tx = safeTxFor([...(configuration ?? []), ...calls], state.nonce);
 
   const refusal = refusalFor(account.safe, tx, configuration, guardianFor(account, action));

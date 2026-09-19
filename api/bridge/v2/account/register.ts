@@ -6,7 +6,7 @@ import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { accountState, signerAddressOf } from '../../../../lib/bridge-v2/keptraChain.js';
 import { ensureAccounts, liveRecovery, registerPasskey } from '../../../../lib/bridge-v2/accounts.js';
 import { guardianAddress } from '../../../../lib/bridge-v2/guardian.js';
-import { configurationGap, recoveryActive } from '../../../../lib/bridge-v2/keptra.js';
+import { accountUsable, recoveryActive } from '../../../../lib/bridge-v2/keptra.js';
 
 /** The P-256 field prime: a public key coordinate is below it. */
 const P256_P = BigInt('0xffffffff00000001000000000000000000000000' + 'ffffffffffffffffffffffff');
@@ -65,16 +65,19 @@ const route = handle('account/register', async ({ request, log }) => {
   const recovery = await liveRecovery(session.participantId);
   await log.event('account.registered');
 
+  const usable = accounts.map((account, i) => accountUsable(states[i], account.deployedAt !== null));
+
   return ok({
     signer,
     accounts: accounts.map((account, i) => ({
       role: account.role,
-      // C4: an account's address is shown only once it exists on-chain with its
-      // module and guardian; before that it is not a place to send anything. The
-      // page asks for `configure` (account/relay) and reads it again.
-      address: configurationGap(states[i]) === null ? account.safe : null,
+      // C4 as D1 reads it: an account's address is shown only once it exists
+      // on-chain with its configuration; before that it is not a place to send
+      // anything. The page asks for `configure` (account/relay) and reads it
+      // again. A configured account whose guardian was revoked stays usable.
+      address: usable[i] ? account.safe : null,
       deployed: states[i].deployed,
-      configured: configurationGap(states[i]) === null,
+      configured: usable[i],
       // A6 and C6: read from the chain against the CURRENT guardian, so an account
       // that revoked its guardian, or still holds one rotated away, shows no
       // recovery until it adds the new one.

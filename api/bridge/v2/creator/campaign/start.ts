@@ -4,7 +4,8 @@ import { extractSignals } from '../../../../../lib/bridge-v2/signals.js';
 import { parseAddress, parseIntInRange, parseUint256 } from '../../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../../lib/bridge-v2/session.js';
 import { hasVerifiedPhone } from '../../../../../lib/bridge-v2/phone.js';
-import { getOrCreateCreator } from '../../../../../lib/bridge-v2/creators.js';
+import { findCreatorByParticipant, getOrCreateCreator } from '../../../../../lib/bridge-v2/creators.js';
+import { findAccount } from '../../../../../lib/bridge-v2/accounts.js';
 import { createDraft, findActiveCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
 import {
   currentCreationFee,
@@ -14,7 +15,7 @@ import {
 } from '../../../../../lib/bridge-v2/chain.js';
 import { PrizeKind } from '../../../../../lib/bridge-v2/abi.js';
 import { accountState } from '../../../../../lib/bridge-v2/keptraChain.js';
-import { configurationGap } from '../../../../../lib/bridge-v2/keptra.js';
+import { accountUsable } from '../../../../../lib/bridge-v2/keptra.js';
 import {
   CONTRACT_MAX_DURATION_SECONDS,
   CONTRACT_MAX_PARTICIPANTS,
@@ -101,16 +102,23 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
     return refuse(400, 'Creator-without-wallet campaigns support token prizes only, for now.');
   }
 
-  const creator = await getOrCreateCreator(session.participantId);
   // SPEC-BLOCO-03 6.6.1/6.6.3: a new creator's deposit address is their creator
-  // account, which exists once they have a passkey.
-  if (creator === null) return refuse(409, 'Create your passkey first.');
-  // SPEC-BLOCO-03 Adenda C4: that account is the deposit address, so it has to
-  // exist on-chain with its module and guardian before it is shown; the page has
-  // it set up first (account/relay, kind "configure", role CREATOR).
-  if (creator.walletIndex === null && configurationGap(await accountState(creator.walletAddress)) !== null) {
-    return refuse(409, 'Set up your creator account first.');
+  // account, which exists once they have a passkey. Adenda C4 and D1: that
+  // account is the deposit address, so it has to exist on-chain with its
+  // configuration before it is shown; the page has it set up first
+  // (account/relay, kind "configure", role CREATOR). Checked before the creator
+  // row is written, so no row ever names an account that is not deployed — the
+  // one kind of account a recovery gives a new address (D4).
+  const known = await findCreatorByParticipant(session.participantId);
+  if (known === null || known.walletIndex === null) {
+    const account = await findAccount(session.participantId, 'CREATOR');
+    if (account === null) return refuse(409, 'Create your passkey first.');
+    if (!accountUsable(await accountState(account.safe), account.deployedAt !== null)) {
+      return refuse(409, 'Set up your creator account first.');
+    }
   }
+  const creator = known ?? (await getOrCreateCreator(session.participantId));
+  if (creator === null) return refuse(409, 'Create your passkey first.');
 
   const existing = await findActiveCampaign(creator.id);
   if (existing !== null) {

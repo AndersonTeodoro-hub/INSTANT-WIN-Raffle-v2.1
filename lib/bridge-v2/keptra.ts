@@ -52,6 +52,8 @@ export const FALLBACK_HANDLER = '0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99' as 
 export const SIGNER_FACTORY = '0x1d31F259eE307358a26dFb23EB365939E8641195' as const;
 /** 6.1.4: the Candide SocialRecoveryModule with the immutable 7-day period (F14). */
 export const RECOVERY_MODULE = '0x088f6cfD8BB1dDb1BB069CCb3fc1A98927D233f2' as const;
+/** That period, immutable in the module's bytecode: executeAfter is the confirmation plus this. */
+export const RECOVERY_PERIOD_SECONDS = 604_800n;
 
 /**
  * 6.1.3: P-256 verification through the 0x0100 precompile only, with no
@@ -620,17 +622,29 @@ export interface ConfigurationView {
  * What an account lacks of 6.1.4, read from the chain: not deployed at all, no
  * recovery module, or no guardian — or null when it has both.
  *
- * Adenda C2 (option b) and C4 turn on this. Anybody can deploy an account at its
- * address through the permissionless factory, and that account has neither; a
- * revocation (A6) leaves one without a guardian. The relay accepts nothing for
- * such an account but its completion, and no account address is shown as a
- * destination of value until this is null.
+ * Anybody can deploy an account at its address through the permissionless
+ * factory, and that account has neither; a revocation (A6) leaves one without a
+ * guardian. Which of those blocks the account is accountUsable's to say (D1).
  */
 export function configurationGap(state: ConfigurationView): 'account' | 'module' | 'guardian' | null {
   if (!state.deployed) return 'account';
   if (!state.modules.some((module) => module.toLowerCase() === RECOVERY_MODULE.toLowerCase())) return 'module';
   if (state.guardians.length === 0) return 'guardian';
   return null;
+}
+
+/**
+ * Adenda D1, which C2 (option b) and C4 turn on. "Configuração em falta" is the
+ * recovery module not enabled on an account that exists, or an account the
+ * platform never saw configured that holds no guardian — `configuredOnce` is
+ * whether the R-4 check after its first transaction passed (markDeployed). Only
+ * that refuses every action but `configure`, and only that keeps its address
+ * from being shown as a destination of value. An account that was configured
+ * and whose guardian its user revoked (R-3) is usable, with no recovery (C6).
+ */
+export function accountUsable(state: ConfigurationView, configuredOnce: boolean): boolean {
+  const gap = configurationGap(state);
+  return gap === null || (gap === 'guardian' && configuredOnce);
 }
 
 /**

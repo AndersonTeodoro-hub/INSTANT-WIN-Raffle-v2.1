@@ -14,7 +14,7 @@
 
 import { getAddress } from 'viem';
 import { checked, checkedMaybe, DatabaseError, getDb } from './db.js';
-import { DB_TIMEOUT_MS } from './config.js';
+import { DB_TIMEOUT_MS, RECOVERY_REQUEST_TTL_MS } from './config.js';
 import { predictSafeAddress, type AccountRole, type NoticeStage } from './keptra.js';
 
 
@@ -240,6 +240,25 @@ export async function markDeployed(accountId: string, txHash: string): Promise<v
   );
 }
 
+/**
+ * Adenda D4: after a recovery, an account not deployed yet takes the address the
+ * new passkey gives it — its old one is bound to the lost key, and holds nothing
+ * (C4). Conditional on the signer it had and on still not being deployed, so a
+ * pass that repeats it changes nothing (G1).
+ */
+export async function readdressAccount(account: Account, signer: `0x${string}`): Promise<void> {
+  checked(
+    'account.readdress',
+    await getDb()
+      .from('bridge_v2_accounts')
+      .update({ safe_address: predictSafeAddress(signer, account.role), initial_signer: signer })
+      .eq('id', account.id)
+      .eq('initial_signer', account.initialSigner)
+      .is('deployed_at', null)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
+}
+
 /** A6: the guardian an account now holds, or none after a revocation. */
 export async function recordGuardian(accountId: string, guardian: `0x${string}`, revoked: boolean): Promise<void> {
   checked(
@@ -303,6 +322,24 @@ export async function guardianChangesSince(accountId: string, since: Date): Prom
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+/**
+ * Adenda D1: whether an incident declared this guardian key compromised. The
+ * owner writes bridge_v2_guardian_incidents by hand; the bridge only reads it.
+ * While the configured key is listed the rotation is not complete.
+ */
+export async function guardianCompromised(guardian: `0x${string}`): Promise<boolean> {
+  const row = checkedMaybe(
+    'account.guardian_incident',
+    await getDb()
+      .from('bridge_v2_guardian_incidents')
+      .select('guardian_address')
+      .eq('guardian_address', guardian.toLowerCase())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return row !== null;
+}
+
 export async function recordGuardianChange(accountId: string): Promise<void> {
   checked(
     'account.guardian_change',
@@ -334,6 +371,7 @@ export interface Recovery {
   readonly participantId: string;
   readonly passkeyId: string;
   readonly status: RecoveryStatus;
+  readonly createdAt: string;
   readonly startedAt: string | null;
   readonly executeAfter: string | null;
 }
@@ -343,11 +381,12 @@ interface RecoveryRow {
   participant_id: string;
   passkey_id: string;
   status: RecoveryStatus;
+  created_at: string;
   started_at: string | null;
   execute_after: string | null;
 }
 
-const RECOVERY_COLUMNS = 'id, participant_id, passkey_id, status, started_at, execute_after';
+const RECOVERY_COLUMNS = 'id, participant_id, passkey_id, status, created_at, started_at, execute_after';
 
 function toRecovery(row: RecoveryRow): Recovery {
   return {
@@ -355,6 +394,7 @@ function toRecovery(row: RecoveryRow): Recovery {
     participantId: row.participant_id,
     passkeyId: row.passkey_id,
     status: row.status,
+    createdAt: row.created_at,
     startedAt: row.started_at ?? null,
     executeAfter: row.execute_after ?? null,
   };
@@ -380,6 +420,30 @@ export async function expireAbandonedRecoveries(participantId?: string): Promise
     await query.select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as { id: string }[] | null;
   return Array.isArray(rows) ? rows.length : 0;
+}
+
+/** Adenda D3: whether a request has outlived the 24 hours it has to reach CONFIRMED. */
+export function recoveryOverdue(request: Recovery, now: number = Date.now()): boolean {
+  return Date.parse(request.createdAt) + RECOVERY_REQUEST_TTL_MS <= now;
+}
+
+/**
+ * Adenda D3: PHONE_VERIFIED requests opened 24 hours ago or more — everybody's,
+ * or one participant's. What becomes of each is recovery.ts's to decide, because
+ * it depends on the chain.
+ */
+export async function overdueVerifiedRecoveries(participantId?: string): Promise<Recovery[]> {
+  let query = getDb()
+    .from('bridge_v2_recoveries')
+    .select(RECOVERY_COLUMNS)
+    .eq('status', 'PHONE_VERIFIED')
+    .lte('created_at', new Date(Date.now() - RECOVERY_REQUEST_TTL_MS).toISOString());
+  if (participantId !== undefined) query = query.eq('participant_id', participantId);
+  const rows = checked(
+    'recovery.overdue',
+    await query.abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as RecoveryRow[] | null;
+  return Array.isArray(rows) ? rows.map(toRecovery) : [];
 }
 
 /**

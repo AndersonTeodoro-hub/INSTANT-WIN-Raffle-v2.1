@@ -46,7 +46,7 @@ import {
 import { acquireFunder, disableFunder, randomFunderAddress, releaseFunder, renewLease, signAsFunder } from './funders.js';
 import { signAsDerived } from './wallet.js';
 import { accountState } from './keptraChain.js';
-import { configurationGap } from './keptra.js';
+import { accountUsable } from './keptra.js';
 
 // -----------------------------------------------------------------------------
 // what a derived wallet holds, and what is still tied to it
@@ -250,9 +250,9 @@ export async function migrateOne(
   const account = await accountById(migration.accountId);
   if (account === null) return false;
 
-  // C4: value only ever goes to an account that exists with its module and
-  // guardian. Until then nothing moves, and the wallet keeps its balance.
-  if (configurationGap(await accountState(account.safe)) !== null) {
+  // C4 as D1 reads it: value only ever goes to an account that exists with its
+  // configuration. Until then nothing moves, and the wallet keeps its balance.
+  if (!accountUsable(await accountState(account.safe), account.deployedAt !== null)) {
     await log.event('migration.waiting', { kind: migration.kind });
     return false;
   }

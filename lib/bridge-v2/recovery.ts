@@ -19,12 +19,18 @@
  * R-6's "legitimate" is the proposal the matrix makes (M22): a recovery the
  * bridge registered after R-1. A pending recovery on an account with no request
  * behind it raises an alert and is never finalised by the bridge.
+ *
+ * Adenda D3: a request that has not reached CONFIRMED 24 hours after it was
+ * opened is closed, with an alert (closeOverdueRecoveries). Adenda D4: once a
+ * recovery is finalised, an account of the participant not deployed yet takes
+ * the new passkey's address.
  */
 
 import type { Logger } from './log.js';
 import { alert } from './alert.js';
 import type { RunDeadline } from './runlock.js';
 import { RECOVERY_ADVANCE_MS, RECOVERY_CONFIRM_MS, RECOVERY_SCAN_MS } from './config.js';
+import { RECOVERY_PERIOD_SECONDS } from './keptra.js';
 import {
   accountState,
   chainNow,
@@ -39,7 +45,10 @@ import {
   accountsPage,
   advanceRecovery,
   liveRecoveries,
+  overdueVerifiedRecoveries,
   passkeyById,
+  readdressAccount,
+  recoveryOverdue,
   recordRecoveryNotice,
   recoveriesIn,
   sentRecoveryNotices,
@@ -66,6 +75,8 @@ export async function confirmVerifiedRecoveries(log: Logger, deadline: RunDeadli
   let confirmed = 0;
   for (const request of await recoveriesIn('PHONE_VERIFIED', BATCH)) {
     if (!deadline.hasTimeFor(RECOVERY_CONFIRM_MS)) break;
+    // D3: past its 24 hours a request is closeOverdueRecoveries's, never signed for.
+    if (recoveryOverdue(request)) continue;
     try {
       if (await confirmOne(request, log)) confirmed += 1;
     } catch (error) {
@@ -146,6 +157,55 @@ async function confirmOne(request: Recovery, log: Logger): Promise<boolean> {
   return true;
 }
 
+/**
+ * Adenda D3: a PHONE_VERIFIED request opened 24 hours ago or more stops holding
+ * the one-live-request index, and an alert says so. What it becomes depends on
+ * the chain: if the guardian already confirmed it on some account — a pass that
+ * then failed on the next one — the seven days are running there, so it becomes
+ * CONFIRMED and gets its notices (6.3.2) and its finalisation (R-6); with
+ * nothing confirmed, it is EXPIRED. The maintenance pass runs it for everybody,
+ * and the recovery route for the participant asking, so none blocks a new
+ * request for longer than the 24 hours. CONFIRMED is not touched: the module
+ * cannot replace a pending recovery with a single guardian.
+ */
+export async function closeOverdueRecoveries(log: Logger, deadline?: RunDeadline, participantId?: string): Promise<number> {
+  let closed = 0;
+  for (const request of await overdueVerifiedRecoveries(participantId)) {
+    if (deadline !== undefined && !deadline.hasTimeFor(RECOVERY_ADVANCE_MS)) break;
+    try {
+      const passkey = await passkeyById(request.passkeyId);
+      const accounts = (await accountsOf(request.participantId)).filter((account) => account.deployedAt !== null);
+      let executeAfter = 0n;
+      if (passkey !== null) {
+        for (const state of await Promise.all(accounts.map((account) => accountState(account.safe)))) {
+          if (state.recoveryExecuteAfter > executeAfter && sameOwners(state.recoveryNewOwners, [passkey.signer])) {
+            executeAfter = state.recoveryExecuteAfter;
+          }
+        }
+      }
+      const moved =
+        executeAfter > 0n
+          ? await advanceRecovery(request.id, 'PHONE_VERIFIED', 'CONFIRMED', {
+              started_at: new Date(Number(executeAfter - RECOVERY_PERIOD_SECONDS) * 1000).toISOString(),
+              execute_after: new Date(Number(executeAfter) * 1000).toISOString(),
+            })
+          : await advanceRecovery(request.id, 'PHONE_VERIFIED', 'EXPIRED');
+      if (!moved) continue;
+      closed += 1;
+      await log.event(executeAfter > 0n ? 'recovery.confirmed' : 'recovery.expired', { overdue: true });
+      await alert(
+        log,
+        executeAfter > 0n
+          ? 'change of access confirmed on some accounts only, 24 hours after it was opened'
+          : 'change of access not confirmed within 24 hours of being opened',
+      );
+    } catch (error) {
+      await log.failure('recovery.failed', error);
+    }
+  }
+  return closed;
+}
+
 const TELEGRAM_NOTICE: Record<NoticeStage, string> = {
   START: BOT_MESSAGES.accessChangeStarted,
   MID: BOT_MESSAGES.accessChangeHalfway,
@@ -206,6 +266,17 @@ export async function advanceConfirmedRecoveries(
         const replaced = states.some((state) =>
           state.owners.some((owner) => owner.toLowerCase() === passkey.signer.toLowerCase()),
         );
+        if (replaced) {
+          // D4: an account not deployed yet was bound to the lost passkey by its
+          // address; it takes the new one's. Before the request is closed, so a
+          // pass that dies here repeats it (readdressAccount is conditional).
+          for (const account of await accountsOf(request.participantId)) {
+            if (account.deployedAt !== null || account.initialSigner.toLowerCase() === passkey.signer.toLowerCase()) continue;
+            if (await hasCode(account.safe)) continue;
+            await readdressAccount(account, passkey.signer);
+            await log.event('account.readdressed', { role: account.role });
+          }
+        }
         await advanceRecovery(request.id, 'CONFIRMED', replaced ? 'FINALIZED' : 'CANCELED', {
           finalized_at: replaced ? new Date().toISOString() : null,
         });

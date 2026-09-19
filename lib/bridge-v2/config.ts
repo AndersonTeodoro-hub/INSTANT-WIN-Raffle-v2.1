@@ -468,6 +468,12 @@ export const RECOVERY_SCAN_MS = 2 * RPC_TIMEOUT_MS;
 export const GUARDIAN_CHANGES_PER_DAY = 3;
 
 /**
+ * SPEC-BLOCO-03 Adenda D3: a change of access that has not reached CONFIRMED
+ * this long after it was opened stops blocking a new one, with an alert.
+ */
+export const RECOVERY_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
  * G4 and §7/G4, checked rather than declared.
  *
  * A reservation larger than the whole budget is a unit of work that can never

@@ -147,6 +147,7 @@ export const KEPTRA_TABLES = [
   'bridge_v2_recovery_notices',
   'bridge_v2_migrations',
   'bridge_v2_guardian_changes',
+  'bridge_v2_guardian_incidents',
   'bridge_v2_phones',
   'bridge_v2_ops_events',
 ];
@@ -155,6 +156,7 @@ export const KEPTRA_UNIQUE = {
   bridge_v2_passkeys: [['credential_id'], ['signer_address']],
   bridge_v2_accounts: [['safe_address'], ['participant_id', 'role']],
   bridge_v2_migrations: [['wallet_index']],
+  bridge_v2_guardian_incidents: [['guardian_address']],
   bridge_v2_recovery_notices: [['recovery_id', 'stage', 'channel']],
   bridge_v2_entries: [['participant_id', 'giveaway_id']],
   // 0012's partial unique index: one LIVE request per participant.

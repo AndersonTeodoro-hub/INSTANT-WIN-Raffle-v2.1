@@ -15,7 +15,9 @@
 -- key held outside the database.
 --
 -- Idempotent, like 0004, 0007, 0010 and 0011. Re-apply after 0006 for the same
--- reason 0011 gives: 0006's sweep does not name these tables.
+-- reason 0011 gives: 0006's sweep does not name these tables. Adenda D6: every
+-- privilege on the tables this file creates is the explicit list at its end;
+-- none is left from Supabase's default privileges.
 -- =============================================================================
 SET search_path = public, extensions;
 
@@ -66,7 +68,9 @@ CREATE INDEX IF NOT EXISTS bridge_v2_passkeys_participant_idx ON bridge_v2_passk
 -- 3. accounts — one Safe per participant and role (6.1.1, A10, M3)
 -- -----------------------------------------------------------------------------
 -- The address is written before the account exists (6.1.6): it is a function of
--- initial_signer and role alone, so the row is complete from the start.
+-- initial_signer and role alone, so the row is complete from the start. Until
+-- the account is deployed, a finalised recovery moves both to the new passkey
+-- (Adenda D4); once deployed, neither changes.
 -- guardian_address is the guardian the account's configuration adds, and after
 -- A6 the one it holds; guardian_revoked_at marks an account left without
 -- recovery until it adds the new one.
@@ -196,6 +200,20 @@ CREATE INDEX IF NOT EXISTS bridge_v2_guardian_changes_account_idx
   ON bridge_v2_guardian_changes (account_id, created_at);
 
 -- -----------------------------------------------------------------------------
+-- 8. guardian incidents — Adenda D1
+-- -----------------------------------------------------------------------------
+-- A guardian key declared compromised, written by the owner by hand when the
+-- incident opens. While the key the bridge is configured with
+-- (BRIDGE_V2_GUARDIAN_KEY) is listed here the rotation is not complete, and the
+-- relay refuses `configure`; no transaction it builds ever adds a listed key to
+-- an account. A row is never removed: a key once compromised is never a
+-- guardian again. Lower-case, so the lookup is one equality.
+CREATE TABLE IF NOT EXISTS bridge_v2_guardian_incidents (
+  guardian_address text        PRIMARY KEY CHECK (guardian_address ~ '^0x[0-9a-f]{40}$'),
+  opened_at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- -----------------------------------------------------------------------------
 -- RLS and grants — the same shape as every bridge_v2_* table (I5)
 -- -----------------------------------------------------------------------------
 ALTER TABLE bridge_v2_passkeys         ENABLE ROW LEVEL SECURITY;
@@ -204,15 +222,38 @@ ALTER TABLE bridge_v2_recoveries       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_recovery_notices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_migrations       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_guardian_changes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bridge_v2_guardian_incidents ENABLE ROW LEVEL SECURITY;
+
+-- Adenda D6, and 0006 Achado 6 as 0011 applies it: Supabase's default
+-- privileges have already given service_role ALL on every table above by the
+-- time this line runs. Revoked first, so the per-verb list below is the whole of
+-- what it holds and no privilege comes from a default rule.
+REVOKE ALL ON TABLE public.bridge_v2_passkeys           FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_accounts           FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_recoveries         FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_recovery_notices   FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_migrations         FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_guardian_changes   FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_guardian_incidents FROM service_role;
 
 -- Exactly the verbs lib/bridge-v2/accounts.ts uses. No DELETE anywhere: a
--- passkey, an account, a recovery, a migration and a guardian change are records.
-GRANT SELECT, INSERT         ON TABLE public.bridge_v2_passkeys         TO service_role;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_accounts         TO service_role;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_recoveries       TO service_role;
-GRANT SELECT, INSERT         ON TABLE public.bridge_v2_recovery_notices TO service_role;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_migrations       TO service_role;
-GRANT SELECT, INSERT         ON TABLE public.bridge_v2_guardian_changes TO service_role;
+-- passkey, an account, a recovery, a migration, a guardian change and an
+-- incident are records.
+-- passkeys: registerPasskey inserts; every other function reads.
+GRANT SELECT, INSERT         ON TABLE public.bridge_v2_passkeys           TO service_role;
+-- accounts: ensureAccounts inserts; markDeployed, recordGuardian and
+-- readdressAccount (D4) update.
+GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_accounts           TO service_role;
+-- recoveries: openRecovery inserts; every transition is an update.
+GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_recoveries         TO service_role;
+-- notices: recorded once each, never changed.
+GRANT SELECT, INSERT         ON TABLE public.bridge_v2_recovery_notices   TO service_role;
+-- migrations: authorizeMigration inserts; sealMigration and touchMigration update.
+GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_migrations         TO service_role;
+-- guardian changes: recorded and counted (C11).
+GRANT SELECT, INSERT         ON TABLE public.bridge_v2_guardian_changes   TO service_role;
+-- incidents: read by guardianCompromised; only the owner writes them.
+GRANT SELECT                 ON TABLE public.bridge_v2_guardian_incidents TO service_role;
 
 REVOKE ALL ON TABLE public.bridge_v2_passkeys         FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_accounts         FROM anon, authenticated;
@@ -220,3 +261,4 @@ REVOKE ALL ON TABLE public.bridge_v2_recoveries       FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_recovery_notices FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_migrations       FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_guardian_changes FROM anon, authenticated;
+REVOKE ALL ON TABLE public.bridge_v2_guardian_incidents FROM anon, authenticated;
