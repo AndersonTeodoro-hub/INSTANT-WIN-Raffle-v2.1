@@ -14,8 +14,7 @@ import {
   slotPrice,
 } from '../../../../../lib/bridge-v2/chain.js';
 import { PrizeKind } from '../../../../../lib/bridge-v2/abi.js';
-import { accountState } from '../../../../../lib/bridge-v2/keptraChain.js';
-import { accountUsable } from '../../../../../lib/bridge-v2/keptra.js';
+import { readAccount } from '../../../../../lib/bridge-v2/relay.js';
 import {
   CONTRACT_MAX_DURATION_SECONDS,
   CONTRACT_MAX_PARTICIPANTS,
@@ -108,12 +107,14 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
   // configuration before it is shown; the page has it set up first
   // (account/relay, kind "configure", role CREATOR). Checked before the creator
   // row is written, so no row ever names an account that is not deployed — the
-  // one kind of account a recovery gives a new address (D4).
+  // one kind of account a recovery gives a new address (D4). Adenda E1: a
+  // creator whose derived index is sealed comes back with no index and the
+  // creator account as its address (creators.ts), so it takes this path too.
   const known = await findCreatorByParticipant(session.participantId);
   if (known === null || known.walletIndex === null) {
     const account = await findAccount(session.participantId, 'CREATOR');
     if (account === null) return refuse(409, 'Create your passkey first.');
-    if (!accountUsable(await accountState(account.safe), account.deployedAt !== null)) {
+    if (!(await readAccount(account)).usable) {
       return refuse(409, 'Set up your creator account first.');
     }
   }

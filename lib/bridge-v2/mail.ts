@@ -17,7 +17,7 @@
 import type { CampaignLabel } from '../campaign-identity.js';
 import { GIVEAWAY_MANAGER_V2, HTTP_TIMEOUT_MS } from './config.js';
 import { requireEnv } from './env.js';
-import { KEPTRA_BASE } from './keptra.js';
+import { KEPTRA_BASE, type NoticeStage } from './keptra.js';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
@@ -321,10 +321,8 @@ export function sendEnterReminderEmail(to: string, reminder: EnterReminder): Pro
   );
 }
 
-/** 6.3.2: which of the three notices, and how long is left when it goes. */
-export type RecoveryNoticeStage = 'START' | 'MID' | 'FINAL';
-
-const RECOVERY_LEAD: Record<RecoveryNoticeStage, string> = {
+/** 6.3.2: what each of the three notices says first (keptra.ts decides when each is due). */
+const RECOVERY_LEAD: Record<NoticeStage, string> = {
   START: 'A change of access to your Keptra account was requested just now.',
   MID: 'Reminder: a change of access to your Keptra account is half-way through its waiting period.',
   FINAL: 'Last reminder: a change of access to your Keptra account takes effect in less than 24 hours.',
@@ -336,7 +334,7 @@ const RECOVERY_LEAD: Record<RecoveryNoticeStage, string> = {
  */
 export function sendRecoveryNoticeEmail(
   to: string,
-  stage: RecoveryNoticeStage,
+  stage: NoticeStage,
   executeAfter: Date,
 ): Promise<MailResult> {
   return post(

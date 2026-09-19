@@ -18,7 +18,7 @@
 
 import { checkedMaybe, getDb } from './db.js';
 import { DB_TIMEOUT_MS } from './config.js';
-import { findAccount } from './accounts.js';
+import { findAccount, isIndexSealed } from './accounts.js';
 
 export interface Creator {
   readonly id: string;
@@ -26,7 +26,8 @@ export interface Creator {
   /**
    * The derived wallet's index for a creator row made before SPEC-BLOCO-03, or
    * null for a creator whose deposit address is their creator account (A10,
-   * 6.6.3) — for whom the bridge signs nothing.
+   * 6.6.3) — for whom the bridge signs nothing. Null too once the derived index
+   * is sealed (Adenda E1): walletAddress is then the creator account.
    */
   readonly walletIndex: number | null;
   readonly walletAddress: `0x${string}`;
@@ -39,28 +40,48 @@ interface CreatorRow {
   wallet_address: string;
 }
 
-function toCreator(row: CreatorRow): Creator {
+/**
+ * Adenda E1: once the derived index of a creator is sealed, the platform never
+ * names that derived address again — not as a deposit address, not as anything.
+ * Every read of a creator comes through here, so from the seal on each creator
+ * flow (start, status, submit, the relay's createCampaign) sees only the creator
+ * account. The row keeps the derived address: it is what the migration and the
+ * seed readiness (migration.ts) know that wallet by.
+ */
+async function toCreator(row: CreatorRow): Promise<Creator> {
+  const walletIndex = row.wallet_index == null ? null : Number(row.wallet_index);
+  if (walletIndex !== null && (await isIndexSealed(walletIndex))) {
+    // Sealed means migrated, and a migration always has the creator account.
+    const account = await findAccount(row.participant_id, 'CREATOR');
+    if (account === null) throw new Error('[bridge-v2] a sealed creator has no creator account');
+    return { id: row.id, participantId: row.participant_id, walletIndex: null, walletAddress: account.safe };
+  }
   return {
     id: row.id,
     participantId: row.participant_id,
-    walletIndex: row.wallet_index == null ? null : Number(row.wallet_index),
+    walletIndex,
     walletAddress: row.wallet_address as `0x${string}`,
   };
 }
 
 /** Read-only lookup, for a route that must not create a wallet just to check one. */
 export async function findCreatorByParticipant(participantId: string): Promise<Creator | null> {
-  return findByParticipant(participantId);
+  return findBy('participant_id', participantId);
 }
 
-async function findByParticipant(participantId: string): Promise<Creator | null> {
+/** Adenda E7: the creator behind a campaign row. */
+export async function findCreatorById(id: string): Promise<Creator | null> {
+  return findBy('id', id);
+}
+
+async function findBy(column: 'participant_id' | 'id', value: string): Promise<Creator | null> {
   const db = getDb();
   const row = checkedMaybe(
     'creator.select',
     await db
       .from('bridge_v2_creators')
       .select('id, participant_id, wallet_index, wallet_address')
-      .eq('participant_id', participantId)
+      .eq(column, value)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   ) as CreatorRow | null;
@@ -81,7 +102,7 @@ async function findByParticipant(participantId: string): Promise<Creator | null>
  * row.
  */
 export async function getOrCreateCreator(participantId: string): Promise<Creator | null> {
-  const existing = await findByParticipant(participantId);
+  const existing = await findCreatorByParticipant(participantId);
   if (existing !== null) return existing;
 
   const account = await findAccount(participantId, 'CREATOR');
@@ -96,7 +117,7 @@ export async function getOrCreateCreator(participantId: string): Promise<Creator
     .maybeSingle();
 
   if (inserted.error) {
-    const winner = await findByParticipant(participantId);
+    const winner = await findCreatorByParticipant(participantId);
     if (winner !== null) return winner;
     throw new Error('[bridge-v2] creator could not be created');
   }

@@ -32,6 +32,7 @@ export interface CreatorCampaign {
   readonly slotsCost: bigint;
   readonly giveawayId: bigint | null;
   readonly txHash: string | null;
+  readonly updatedAt: string;
 }
 
 interface Row {
@@ -48,6 +49,7 @@ interface Row {
   slots_cost: string;
   giveaway_id: string | null;
   tx_hash: string | null;
+  updated_at: string;
 }
 
 // numeric(78,0) columns are cast to text: PostgREST renders numeric as a JSON
@@ -59,7 +61,7 @@ interface Row {
 // widens to plain `string` at the type level, which is indistinguishable from
 // an arbitrary runtime string and falls back to an error type instead of the
 // row shape below. Kept on one line for exactly that reason.
-const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash';
+const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, updated_at';
 
 function toCampaign(row: Row): CreatorCampaign {
   return {
@@ -75,7 +77,8 @@ function toCampaign(row: Row): CreatorCampaign {
     feeAmount: BigInt(row.fee_amount),
     slotsCost: BigInt(row.slots_cost),
     giveawayId: row.giveaway_id === null ? null : BigInt(row.giveaway_id),
-    txHash: row.tx_hash,
+    txHash: row.tx_hash ?? null,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -141,6 +144,24 @@ export async function findActiveCampaign(creatorId: string): Promise<CreatorCamp
       .maybeSingle(),
   ) as Row | null;
   return row === null ? null : toCampaign(row);
+}
+
+/**
+ * SPEC-BLOCO-03 Adenda E7: every campaign in FUNDING, oldest touched first. At
+ * most one per creator (0007's index), so the list is as long as the number of
+ * creators with a campaign in flight.
+ */
+export async function fundingCampaigns(): Promise<CreatorCampaign[]> {
+  const rows = checked(
+    'creator_campaign.list_funding',
+    await getDb()
+      .from('bridge_v2_creator_campaigns')
+      .select(COLUMNS)
+      .eq('status', 'FUNDING')
+      .order('updated_at', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as Row[] | null;
+  return Array.isArray(rows) ? rows.map(toCampaign) : [];
 }
 
 /** The most recently created campaign for a creator, whatever its status. */

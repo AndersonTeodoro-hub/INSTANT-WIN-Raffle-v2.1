@@ -129,7 +129,6 @@ export interface Account {
   readonly initialSigner: `0x${string}`;
   readonly guardian: `0x${string}`;
   readonly deployedAt: string | null;
-  readonly guardianRevokedAt: string | null;
 }
 
 interface AccountRow {
@@ -140,11 +139,9 @@ interface AccountRow {
   initial_signer: string;
   guardian_address: string;
   deployed_at: string | null;
-  guardian_revoked_at: string | null;
 }
 
-const ACCOUNT_COLUMNS =
-  'id, participant_id, role, safe_address, initial_signer, guardian_address, deployed_at, guardian_revoked_at';
+const ACCOUNT_COLUMNS = 'id, participant_id, role, safe_address, initial_signer, guardian_address, deployed_at';
 
 function toAccount(row: AccountRow): Account {
   return {
@@ -157,7 +154,6 @@ function toAccount(row: AccountRow): Account {
     // ?? null: a column never written reads as undefined from a row built by
     // hand, and means the same as NULL to every reader here.
     deployedAt: row.deployed_at ?? null,
-    guardianRevokedAt: row.guardian_revoked_at ?? null,
   };
 }
 
@@ -227,13 +223,17 @@ export async function ensureAccounts(
   return accountsOf(participantId);
 }
 
-/** Written once, after the account's configuration was read back and found right (R-4). */
-export async function markDeployed(accountId: string, txHash: string): Promise<void> {
+/**
+ * Written once, after the account's configuration was read back from the chain
+ * and found right (R-4) — after its first transaction, or whenever the chain is
+ * found to hold it configured (Adenda E3).
+ */
+export async function markDeployed(accountId: string): Promise<void> {
   checked(
     'account.mark_deployed',
     await getDb()
       .from('bridge_v2_accounts')
-      .update({ deployed_at: new Date().toISOString(), deploy_tx_hash: txHash })
+      .update({ deployed_at: new Date().toISOString() })
       .eq('id', accountId)
       .is('deployed_at', null)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
@@ -259,13 +259,13 @@ export async function readdressAccount(account: Account, signer: `0x${string}`):
   );
 }
 
-/** A6: the guardian an account now holds, or none after a revocation. */
-export async function recordGuardian(accountId: string, guardian: `0x${string}`, revoked: boolean): Promise<void> {
+/** A6: the guardian an account added back after a rotation, which the closed list then names (refusalFor). */
+export async function recordGuardian(accountId: string, guardian: `0x${string}`): Promise<void> {
   checked(
     'account.guardian',
     await getDb()
       .from('bridge_v2_accounts')
-      .update({ guardian_address: guardian, guardian_revoked_at: revoked ? new Date().toISOString() : null })
+      .update({ guardian_address: guardian })
       .eq('id', accountId)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
@@ -290,6 +290,40 @@ export async function accountsPage(afterId: string, limit: number): Promise<Acco
   return Array.isArray(rows) ? rows.map(toAccount) : [];
 }
 
+/**
+ * Adenda E3: accounts not marked deployed that the relay has sent a transaction
+ * for — the only way the platform deploys one — a page at a time. Among them is
+ * every account whose first receipt was lost.
+ */
+export async function accountsAwaitingRecognition(afterId: string, limit: number): Promise<Account[]> {
+  const rows = checked(
+    'account.list_unrecognised',
+    await getDb()
+      .from('bridge_v2_accounts')
+      // One literal, as ACCOUNT_COLUMNS is, so the client keeps the row's shape (creatorCampaigns.ts COLUMNS).
+      .select('id, participant_id, role, safe_address, initial_signer, guardian_address, deployed_at, relayed:bridge_v2_relayed_transactions!inner(id)')
+      .is('deployed_at', null)
+      .gt('id', afterId)
+      .order('id', { ascending: true })
+      .limit(limit)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as AccountRow[] | null;
+  return Array.isArray(rows) ? rows.map(toAccount) : [];
+}
+
+/** Adenda E3 and A3: every passkey signer of this participant, lower-case — the only owners an account may have. */
+export async function passkeySigners(participantId: string): Promise<Set<string>> {
+  const rows = checked(
+    'passkey.list_mine',
+    await getDb()
+      .from('bridge_v2_passkeys')
+      .select('signer_address')
+      .eq('participant_id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { signer_address: string }[] | null;
+  return new Set((rows ?? []).map((row) => row.signer_address.toLowerCase()));
+}
+
 /** C4: the platform account at this address, if the address is one. */
 export async function accountBySafe(safe: `0x${string}`): Promise<Account | null> {
   const row = checkedMaybe(
@@ -305,9 +339,11 @@ export async function accountBySafe(safe: `0x${string}`): Promise<Account | null
 }
 
 /**
- * C11: the guardian changes the relayer paid for on this account since `since`.
- * Each is recorded BEFORE it is sent (recordGuardianChange), so a change that
- * then fails still counts: the count can be high, never low.
+ * C11: the guardians the relayer paid to add back to this account since `since`.
+ * A revocation is not counted (Adenda E2: the reaction to a compromise is always
+ * possible); the gas stays bounded, because every revocation needs a guardian
+ * added before it. Each is recorded BEFORE it is sent (recordGuardianChange), so
+ * one that then fails still counts: the count can be high, never low.
  */
 export async function guardianChangesSince(accountId: string, since: Date): Promise<number> {
   const rows = checked(
@@ -345,6 +381,33 @@ export async function recordGuardianChange(accountId: string): Promise<void> {
     'account.guardian_change',
     await getDb()
       .from('bridge_v2_guardian_changes')
+      .insert({ account_id: accountId })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
+}
+
+/**
+ * Adenda E2: the transactions the relayer paid for on this account since
+ * `since`, recorded BEFORE each is sent (recordRelayed), like C11's.
+ */
+export async function relayedSince(accountId: string, since: Date): Promise<number> {
+  const rows = checked(
+    'account.relayed',
+    await getDb()
+      .from('bridge_v2_relayed_transactions')
+      .select('id')
+      .eq('account_id', accountId)
+      .gte('created_at', since.toISOString())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { id: string }[] | null;
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+export async function recordRelayed(accountId: string): Promise<void> {
+  checked(
+    'account.relayed_record',
+    await getDb()
+      .from('bridge_v2_relayed_transactions')
       .insert({ account_id: accountId })
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
@@ -429,14 +492,15 @@ export function recoveryOverdue(request: Recovery, now: number = Date.now()): bo
 
 /**
  * Adenda D3: PHONE_VERIFIED requests opened 24 hours ago or more — everybody's,
- * or one participant's. What becomes of each is recovery.ts's to decide, because
- * it depends on the chain.
+ * or one participant's — and not reserved for a confirmation in progress (E4).
+ * What becomes of each is recovery.ts's to decide, because it depends on the chain.
  */
 export async function overdueVerifiedRecoveries(participantId?: string): Promise<Recovery[]> {
   let query = getDb()
     .from('bridge_v2_recoveries')
     .select(RECOVERY_COLUMNS)
     .eq('status', 'PHONE_VERIFIED')
+    .is('confirming_at', null)
     .lte('created_at', new Date(Date.now() - RECOVERY_REQUEST_TTL_MS).toISOString());
   if (participantId !== undefined) query = query.eq('participant_id', participantId);
   const rows = checked(
@@ -540,25 +604,71 @@ export async function recoveryAwaitingChat(chatHmac: string): Promise<Recovery |
 /**
  * Moves a request, refusing when it is no longer where the caller thinks it is.
  * False is "somebody else moved it" and only that; a database error throws (G2).
+ * `unreserved`: only while no confirmation holds it (Adenda E4) — D3's closure.
  */
 export async function advanceRecovery(
   id: string,
   from: RecoveryStatus,
   to: RecoveryStatus,
   extra: Record<string, string | null> = {},
+  unreserved = false,
 ): Promise<boolean> {
+  let query = getDb()
+    .from('bridge_v2_recoveries')
+    .update({ status: to, updated_at: new Date().toISOString(), ...extra })
+    .eq('id', id)
+    .eq('status', from);
+  if (unreserved) query = query.is('confirming_at', null);
   const row = checkedMaybe(
     'recovery.advance',
+    await query.select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)).maybeSingle(),
+  );
+  return row !== null;
+}
+
+/**
+ * Adenda E4: reserves a PHONE_VERIFIED request for the confirmation about to be
+ * signed, in one conditional statement (G1). It succeeds only while the request
+ * is still PHONE_VERIFIED, unreserved and inside its 24 hours (D3), and from then
+ * on D3's closure leaves it alone (advanceRecovery, `unreserved`), so the
+ * guardian never signs for a request that expired and the move to CONFIRMED is
+ * nobody else's to take. The request stays PHONE_VERIFIED while it is signed.
+ */
+export async function reserveRecovery(id: string): Promise<boolean> {
+  const row = checkedMaybe(
+    'recovery.reserve',
     await getDb()
       .from('bridge_v2_recoveries')
-      .update({ status: to, updated_at: new Date().toISOString(), ...extra })
+      .update({ confirming_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('status', from)
+      .eq('status', 'PHONE_VERIFIED')
+      .is('confirming_at', null)
+      .gt('created_at', new Date(Date.now() - RECOVERY_REQUEST_TTL_MS).toISOString())
       .select('id')
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
       .maybeSingle(),
   );
   return row !== null;
+}
+
+/**
+ * Adenda E4: gives reservations back — one request's, after a confirmation that
+ * did not finish, or every request's at the start of a maintenance pass. Only
+ * the pass reserves, under its own lock, so a reservation it finds is one a dead
+ * pass left behind.
+ */
+export async function releaseRecoveryReservations(id?: string): Promise<number> {
+  let query = getDb()
+    .from('bridge_v2_recoveries')
+    .update({ confirming_at: null })
+    .eq('status', 'PHONE_VERIFIED')
+    .not('confirming_at', 'is', null);
+  if (id !== undefined) query = query.eq('id', id);
+  const rows = checked(
+    'recovery.release',
+    await query.select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { id: string }[] | null;
+  return Array.isArray(rows) ? rows.length : 0;
 }
 
 /** Requests in one state, oldest touched first. */
@@ -724,9 +834,12 @@ export async function isIndexSealed(walletIndex: number): Promise<boolean> {
   return row !== null;
 }
 
-/** Every derived wallet not sealed yet, participants and creators (M34). */
-export async function unsealedDerivedWallets(): Promise<
-  { kind: 'PARTICIPANT' | 'CREATOR'; ownerId: string; walletIndex: number; address: `0x${string}` }[]
+/**
+ * Every derived wallet, participants and creators, sealed or not (M34 as Adenda
+ * E1 reads it): a sealed wallet is still read for what it holds.
+ */
+export async function derivedWallets(): Promise<
+  { kind: 'PARTICIPANT' | 'CREATOR'; ownerId: string; walletIndex: number; address: `0x${string}`; sealed: boolean }[]
 > {
   const db = getDb();
   const [participants, creators, sealed] = await Promise.all([
@@ -738,11 +851,11 @@ export async function unsealedDerivedWallets(): Promise<
   const sealedSet = new Set(
     ((checked('migration.sealed_list', sealed) as { wallet_index: number }[] | null) ?? []).map((row) => Number(row.wallet_index)),
   );
-  const out: { kind: 'PARTICIPANT' | 'CREATOR'; ownerId: string; walletIndex: number; address: `0x${string}` }[] = [];
+  const out: { kind: 'PARTICIPANT' | 'CREATOR'; ownerId: string; walletIndex: number; address: `0x${string}`; sealed: boolean }[] = [];
   for (const [kind, result] of [['PARTICIPANT', participants], ['CREATOR', creators]] as const) {
     for (const row of (checked(`migration.${kind.toLowerCase()}_wallets`, result) as Row[] | null) ?? []) {
-      if (sealedSet.has(Number(row.wallet_index))) continue;
-      out.push({ kind, ownerId: row.id, walletIndex: Number(row.wallet_index), address: row.wallet_address as `0x${string}` });
+      const walletIndex = Number(row.wallet_index);
+      out.push({ kind, ownerId: row.id, walletIndex, address: row.wallet_address as `0x${string}`, sealed: sealedSet.has(walletIndex) });
     }
   }
   return out;

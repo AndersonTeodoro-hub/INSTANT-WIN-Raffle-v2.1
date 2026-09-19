@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { encodeFunctionData, parseAbi, zeroAddress } from 'viem';
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseAbi, zeroAddress } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import {
   assert,
@@ -41,6 +41,7 @@ import { storeTelegramChat, telegramChatOf, hashPhone } from '../../../lib/bridg
 import { hashRecoveryCode } from '../../../lib/bridge-v2/linkcodes.ts';
 import { buildTree, proofFor, verifyProof } from '../../../lib/bridge-v2/merkle.ts';
 import * as config from '../../../lib/bridge-v2/config.ts';
+import { CREATOR_CAMPAIGN_MANAGER_ABI } from '../../../lib/bridge-v2/abi.ts';
 
 import * as register from '../../../api/bridge/v2/account/register.ts';
 import * as relayRoute from '../../../api/bridge/v2/account/relay.ts';
@@ -88,7 +89,8 @@ function fresh({ participantId = 'participant-1' } = {}) {
   }));
   http.on('api.resend.com', () => jsonResponse({ id: 'mail-1' }));
   http.on('api.telegram.org', () => jsonResponse({ ok: true }));
-  store.insert('bridge_v2_participants', { id: participantId, email_canonical: 'someone@example.test', wallet_index: null, wallet_address: null });
+  // telegram_chat_enc written as the NULL Postgres would return for it.
+  store.insert('bridge_v2_participants', { id: participantId, email_canonical: 'someone@example.test', wallet_index: null, wallet_address: null, telegram_chat_enc: null });
 }
 
 /** An account as the chain shows it once it exists with its configuration (6.1). */
@@ -173,7 +175,9 @@ await test(['KM19'], 'R-3 as A6 corrects it: cancel only when pending, then inva
 });
 
 const guardian = () => guardianAddress();
-const selfCall = (functionName, args) => ({ to: SAFE, data: encodeFunctionData({ abi: keptra.SAFE_ABI, functionName, args }) });
+/** Adenda E9: calls production never builds, so their ABI lives here and not in keptra.ts. */
+const REFUSED_SELF_ABI = parseAbi(['function setFallbackHandler(address)', 'function enableModule(address)', 'function disableModule(address,address)']);
+const selfCall = (functionName, args) => ({ to: SAFE, data: encodeFunctionData({ abi: REFUSED_SELF_ABI, functionName, args }) });
 
 await test(['KM20', 'KM21'], 'the closed list refuses setFallbackHandler, enableModule and disableModule on the account, alone or in a batch', () => {
   const refused = [
@@ -476,9 +480,8 @@ await test(['KM36'], 'the account is always the session’s own, and another par
 await test(['KM14', 'KM9'], 'a change of access needs the session and a confirmed number, and returns a Telegram start link', async () => {
   fresh();
   const { passkey } = await registered();
-  store.rows('bridge_v2_accounts').forEach((row) => {
-    row.deployed_at = new Date().toISOString();
-  });
+  // E3: the account exists on-chain, which is what the route asks.
+  kchain.set({ hasCode: true });
   const noPhone = await recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: passkey.credentialId } }));
   assert.equal(noPhone.status, 403);
   store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
@@ -830,9 +833,7 @@ await test(['AC2', 'AD1'], 'an account never configured that holds no guardian a
 await test(['AC3', 'KM14'], 'a request whose Telegram link expired closes by itself and never blocks a new one', async () => {
   fresh();
   const { passkey } = await registered();
-  store.rows('bridge_v2_accounts').forEach((row) => {
-    row.deployed_at = new Date().toISOString();
-  });
+  kchain.set({ hasCode: true });
   store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
   const open = () => recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: passkey.credentialId } }));
   assert.equal((await open()).status, 200);
@@ -900,7 +901,13 @@ await test(['AC4', 'AD1'], 'the creator deposit address is shown only once the c
   const creatorSafe = keptra.predictSafeAddress(SIGNER, 'CREATOR');
   assert.equal((await started.json()).depositAddress, creatorSafe);
 
-  // D1: never configured, no guardian — the address is not shown.
+  // E3: start() read it configured on-chain, and marked it.
+  assert.equal(typeof store.rows('bridge_v2_accounts').find((row) => row.role === 'CREATOR').deployed_at, 'string');
+  // D1: never configured, no guardian — the address is not shown. E10: an
+  // account never seen configured, so its mark is taken back for this.
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = null;
+  });
   kchain.set({ accountState: readyState([SIGNER], []) });
   const status = () => statusRoute.POST(request(url('creator/campaign/status'), { cookie: SESSION_COOKIE }));
   assert.equal((await (await status()).json()).depositAddress, null);
@@ -931,7 +938,13 @@ await test(['AC4', 'AC6', 'AD1'], 'register shows an address only for a configur
   // After a rotation the account still holds the old key: configured, but no working recovery (C6).
   const rotated = await view(readyState([SIGNER], ['0x3333333333333333333333333333333333333333']), '0x7676767676767676767676767676767676767676');
   assert.ok(rotated.every((a) => a.configured && !a.recoveryEnabled), 'a rotated-away guardian was shown as recovery');
-  // Never configured, and no guardian (D1): neither.
+  // Never configured, and no guardian (D1): neither. E10: the reads above found
+  // the accounts configured on-chain and marked them; an account never seen so
+  // is one with no mark.
+  assert.ok(store.rows('bridge_v2_accounts').every((row) => typeof row.deployed_at === 'string'), 'E3: not marked when read configured');
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = null;
+  });
   const bare = await view(readyState([SIGNER], []), '0x7575757575757575757575757575757575757575');
   assert.ok(bare.every((a) => a.address === null && !a.configured && !a.recoveryEnabled));
   // Configured, then its guardian revoked by its user (D1): usable, shown, no recovery (C6).
@@ -1033,27 +1046,33 @@ await test(['AC9', 'KM10'], 'an assertion made for another site or another origi
 
 // --- C11: guardian changes the relayer pays for -----------------------------------
 
-await test(['AC11'], 'a fourth guardian change in 24 hours is refused before anything is signed or sent; older ones do not count', async () => {
+await test(['AC11', 'AE2'], 'a fourth guardian added back in 24 hours is refused before anything is signed or sent; older ones do not count; a revocation is never refused', async () => {
   fresh();
   await registered();
-  kchain.set({ accountState: readyState() });
+  store.rows('bridge_v2_accounts').forEach((row) => {
+    row.deployed_at = new Date().toISOString();
+  });
+  kchain.set({ accountState: readyState([SIGNER], []) });
   const relayLib = await import('../../../lib/bridge-v2/relay.ts');
   const account = store.rows('bridge_v2_accounts').find((row) => row.role === 'PARTICIPANT');
   const change = (hoursAgo) => store.insert('bridge_v2_guardian_changes', { account_id: account.id, created_at: new Date(Date.now() - hoursAgo * 3_600_000).toISOString() });
   change(30);
   change(23);
   change(2);
-  assert.equal((await relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null)).guardianChange, true);
+  assert.equal((await relayLib.prepareAction('participant-1', { kind: 'configure' }, null)).guardianChange, true);
   change(1);
-  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null), (error) => error.reason === 'guardian_change_limit');
-  kchain.set({ accountState: readyState([SIGNER], []) });
   await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'configure' }, null), (error) => error.reason === 'guardian_change_limit');
+  const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'configure' } }));
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, 'Recovery settings were changed too often today. Try again tomorrow.');
+  // E2, as the owner decided on 19/09: the reaction to a compromise is always
+  // possible — a revocation is not a C11 change, not counted, never refused.
+  kchain.set({ accountState: readyState() });
+  const revoke = await relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null);
+  assert.equal(revoke.guardianChange, false);
   // Any other action is not a guardian change and is not limited by it.
   kchain.set({ accountState: readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: 10n }) });
   assert.equal((await relayLib.prepareAction('participant-1', { kind: 'cancelRecovery' }, null)).guardianChange, false);
-  const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'revokeGuardian' } }));
-  assert.equal(refused.status, 409);
-  assert.equal((await refused.json()).error, 'Recovery settings were changed too often today. Try again tomorrow.');
 });
 
 // --- C13: nothing in production only the tests use -------------------------------
@@ -1199,6 +1218,7 @@ await test(['AD3', 'AC3'], 'D3: a request not CONFIRMED 24 hours after it was op
   fresh();
   const { passkey } = await registered();
   markConfigured();
+  kchain.set({ hasCode: true });
   store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
   kchain.set({ accountState: readyState() });
   const open = () => recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: passkey.credentialId } }));
@@ -1351,7 +1371,7 @@ await test(['AD4'], 'D4: a finalised recovery gives an account not deployed the 
 await test(['AD6'], 'D6: each 0012 table is granted exactly the verbs the code uses on it, after the defaults are revoked from service_role', () => {
   const migration = read('supabase/migrations/0012_keptra_accounts.sql');
   const created = [...migration.matchAll(/CREATE TABLE IF NOT EXISTS (bridge_v2_\w+)/g)].map((m) => m[1]);
-  assert.equal(created.length, 7);
+  assert.equal(created.length, 8);
   const used = Object.fromEntries(created.map((table) => [table, new Set()]));
   const walk = (dir) => {
     for (const name of readdirSync(`${root}${dir}`)) {
@@ -1379,6 +1399,520 @@ await test(['AD6'], 'D6: each 0012 table is granted exactly the verbs the code u
     needed.add('SELECT');
     assert.deepEqual(grant[1].split(',').map((v) => v.trim()).sort(), [...needed].sort(), `${table}: granted more or less than the code uses`);
   }
+});
+
+// ===========================================================================
+// Adenda E — the decisions after the final audit of piece 1 (AEn)
+// ===========================================================================
+
+const relayLibrary = () => import('../../../lib/bridge-v2/relay.ts');
+const DESTINATION = '0x7373737373737373737373737373737373737373';
+
+// --- E1: a creator whose derived wallet is sealed -------------------------------------
+
+await test(['AE1', 'AE11', 'KM33', 'KM34'], 'E1: once a creator’s derived index is sealed, every creator flow names only the creator account, and any balance left in the sealed wallet keeps the seed, with an alert', async () => {
+  fresh();
+  await registered();
+  markConfigured();
+  kchain.set({ accountState: readyState() });
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  const derived = addressOf(21);
+  const creatorSafe = keptra.predictSafeAddress(SIGNER, 'CREATOR');
+  const creatorAccount = store.rows('bridge_v2_accounts').find((row) => row.role === 'CREATOR');
+  store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: 21, wallet_address: derived });
+  store.insert('bridge_v2_migrations', { wallet_index: 21, derived_address: derived, account_id: creatorAccount.id, kind: 'CREATOR', sealed_at: new Date().toISOString() });
+
+  const startRoute = await import('../../../api/bridge/v2/creator/campaign/start.ts');
+  const statusRoute = await import('../../../api/bridge/v2/creator/campaign/status.ts');
+  const submitRoute = await import('../../../api/bridge/v2/creator/campaign/submit.ts');
+  const draft = { module: '0x2247aeF54C66bD5149989f9c66522d3b439a4A7b', prizeToken: config.USDC, prizeAmount: '10000000', durationSeconds: 3600, winnersCount: 1, slotCap: 10 };
+  const started = await startRoute.POST(request(url('creator/campaign/start'), { cookie: SESSION_COOKIE, body: draft }));
+  assert.equal(started.status, 200);
+  assert.equal((await started.json()).depositAddress, creatorSafe, 'the sealed derived wallet was handed out as a deposit address');
+  const status = await (await statusRoute.POST(request(url('creator/campaign/status'), { cookie: SESSION_COOKIE }))).json();
+  assert.equal(status.depositAddress, creatorSafe);
+  // Module 2's derived path signs nothing for it any more.
+  const submitted = await submitRoute.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+  assert.equal(submitted.status, 409);
+  assert.equal((await submitted.json()).error, 'Sign this campaign with your passkey.');
+  assert.ok(!chain.calls.some((c) => ['fundDerivedWallet', 'submitAsDerived'].includes(c.name)), 'the derived key was asked to sign');
+  // The relay builds the campaign from the creator account.
+  chain.set({ erc20BalanceOf: 100_000_000n });
+  const relayLib = await relayLibrary();
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'createCampaign' }, null);
+  assert.equal(prepared.account.safe, creatorSafe);
+  assert.equal(keptra.callsOf(prepared.tx).length, 3, 'two approvals and createGiveaway');
+  // Nothing is left to migrate, and the route does not name the derived wallet.
+  const migrate = await migrateRoute.POST(request(url('account/migrate'), { cookie: SESSION_COOKIE, body: { kind: 'CREATOR' } }));
+  assert.equal(migrate.status, 404);
+
+  // The readiness reads the sealed wallet too: a balance in it is "not ready", with an alert.
+  const { seedRetirementReadiness } = await import('../../../lib/bridge-v2/migration.ts');
+  chain.set({ erc20BalanceOf: (_token, holder) => (holder.toLowerCase() === derived.toLowerCase() ? 20_000_000n : 0n) });
+  const log = recordingLogger();
+  const holding = await seedRetirementReadiness(log);
+  assert.deepEqual([holding.ready, holding.wallets, holding.holding], [false, 1, 1], 'a sealed wallet holding USDC was reported ready');
+  const alerted = log.events.filter((e) => e.kind === 'alert' && e.detail.summary === 'derived wallet holds a balance');
+  assert.deepEqual(alerted.map((e) => [e.detail.wallets, e.detail.sealed]), [[1, 1]]);
+  chain.set({ erc20BalanceOf: 0n });
+  const empty = recordingLogger();
+  assert.equal((await seedRetirementReadiness(empty)).ready, true);
+  assert.ok(!empty.events.some((e) => e.kind === 'alert'), 'an alert with nothing held');
+});
+
+await test(['AE1'], 'E1: an unsealed derived wallet holding a balance is "not ready" and alerts as well', async () => {
+  fresh();
+  store.rows('bridge_v2_participants')[0].wallet_index = 22;
+  store.rows('bridge_v2_participants')[0].wallet_address = addressOf(22);
+  chain.set({ erc20BalanceOf: (_token, holder) => (holder.toLowerCase() === addressOf(22).toLowerCase() ? 1n : 0n) });
+  const { seedRetirementReadiness } = await import('../../../lib/bridge-v2/migration.ts');
+  const log = recordingLogger();
+  assert.equal((await seedRetirementReadiness(log)).ready, false);
+  assert.deepEqual(
+    log.events.filter((e) => e.kind === 'alert').map((e) => [e.detail.summary, e.detail.wallets, e.detail.sealed]),
+    [['derived wallet holds a balance', 1, 0]],
+  );
+});
+
+// --- E2: the relay's volume ---------------------------------------------------------
+
+await test(['AE2', 'AE11'], 'E2: at most 20 relayed transactions per account in 24 hours; cancelling a recovery and the reaction to a compromise pass that limit and an exhausted spend ceiling, uncounted', async () => {
+  fresh();
+  const { passkey } = await registered();
+  markConfigured();
+  kchain.set({ accountState: readyState(), isValidPasskeySignature: true, hasCode: true });
+  chain.set({ erc20BalanceOf: 9_000_000n });
+  const relayLib = await relayLibrary();
+  const account = store.rows('bridge_v2_accounts').find((row) => row.role === 'PARTICIPANT');
+  const relayed = (hoursAgo) =>
+    store.insert('bridge_v2_relayed_transactions', { account_id: account.id, created_at: new Date(Date.now() - hoursAgo * HOUR_MS).toISOString() });
+  const transfer = { kind: 'transfer', giveawayId: 1n, to: DESTINATION, amount: 1n };
+  const body = { kind: 'transfer', giveawayId: '1', to: DESTINATION, amount: '1' };
+  const sentCount = () => kchain.calls.filter((c) => c.name === 'sendRelayed').length;
+  relayed(25); // outside the window
+  for (let i = 0; i < 19; i += 1) relayed(1);
+
+  // The 20th: prepared, signed, recorded before it is sent.
+  const prepared = await relayLib.prepareAction('participant-1', transfer, null);
+  const assertion = await passkey.sign(prepared.hash);
+  const sent = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { ...body, nonce: prepared.tx.nonce.toString(), ...assertion } }));
+  assert.equal(sent.status, 200);
+  assert.equal(store.rows('bridge_v2_relayed_transactions').length, 21);
+  // The 21st is refused before a hash is built, and nothing is sent.
+  await assert.rejects(relayLib.prepareAction('participant-1', transfer, null), (error) => error.reason === 'relay_limit');
+  const refused = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body }));
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, 'Your account reached its limit of transactions for the last 24 hours. Try again later.');
+  assert.equal(sentCount(), 1);
+
+  // The shared spend ceiling is exhausted too.
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: false, error: null }));
+  const spendAsked = () => db.callsTo('rpc:bridge_v2_claim_spend').length;
+  kchain.set({ accountState: readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: 10n }) });
+  for (const kind of ['cancelRecovery', 'revokeGuardian']) {
+    const asked = spendAsked();
+    const tx = await relayLib.prepareAction('participant-1', { kind }, null);
+    const signed = await passkey.sign(tx.hash);
+    const response = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind, nonce: tx.tx.nonce.toString(), ...signed } }));
+    assert.equal(response.status, 200, `${kind} was stopped`);
+    assert.equal(spendAsked(), asked, `${kind} asked the shared ceiling`);
+  }
+  assert.equal(sentCount(), 3);
+  assert.equal(store.rows('bridge_v2_relayed_transactions').length, 21, 'an always-possible transaction was counted');
+
+  // With the window moved on, an ordinary action is back under the limit — and meets the ceiling.
+  store.rows('bridge_v2_relayed_transactions').forEach((row) => {
+    row.created_at = new Date(Date.now() - 25 * HOUR_MS).toISOString();
+  });
+  kchain.set({ accountState: readyState() });
+  const ordinary = await relayLib.prepareAction('participant-1', transfer, null);
+  const ordinarySigned = await passkey.sign(ordinary.hash);
+  const unpaid = await relayRoute.POST(request(url('account/relay'), { cookie: SESSION_COOKIE, body: { ...body, nonce: ordinary.tx.nonce.toString(), ...ordinarySigned } }));
+  assert.equal((await unpaid.json()).error, 'The bridge cannot send this right now. Try again shortly.');
+  assert.equal(sentCount(), 3);
+});
+
+await test(['AE2'], 'E2: a burst signed at once cannot pass the limit either — each submission is counted again once its own row is written', async () => {
+  fresh();
+  const { passkey } = await registered();
+  markConfigured();
+  kchain.set({ accountState: readyState(), isValidPasskeySignature: true, hasCode: true });
+  chain.set({ erc20BalanceOf: 9_000_000n });
+  const account = store.rows('bridge_v2_accounts').find((row) => row.role === 'PARTICIPANT');
+  for (let i = 0; i < 19; i += 1) store.insert('bridge_v2_relayed_transactions', { account_id: account.id });
+  const relayLib = await relayLibrary();
+  const transfer = { kind: 'transfer', giveawayId: 1n, to: DESTINATION, amount: 1n };
+  const prepared = await relayLib.prepareAction('participant-1', transfer, null);
+  const assertion = await passkey.sign(prepared.hash);
+  // Another submission, signed at the same moment, writes its row between this one's check and its own.
+  db.on('bridge_v2_relayed_transactions:insert', (op) => {
+    store.insert('bridge_v2_relayed_transactions', { account_id: account.id });
+    store.insert('bridge_v2_relayed_transactions', op.payload);
+    return { data: null, error: null };
+  });
+  await assert.rejects(
+    relayLib.submitAction('participant-1', transfer, null, prepared.tx.nonce, assertion, recordingLogger()),
+    (error) => error.reason === 'relay_limit',
+  );
+  assert.equal(kchain.calls.filter((c) => c.name === 'sendRelayed').length, 0, 'the 21st was sent');
+});
+
+// --- E3 and E10: deployed and "never configured" are the chain's answer --------------
+
+await test(['AE3', 'AE10', 'AD1'], 'E3 and E10: an account the chain holds configured is recognised on use whatever deployed_at says; one the chain never showed configured stays "never configured"', async () => {
+  fresh();
+  await registered();
+  const SECOND = '0x7272727272727272727272727272727272727272';
+  const second = await createPasskey();
+  await accounts.registerPasskey('participant-1', second.credentialId, second.x, second.y, SECOND);
+  const relayLib = await relayLibrary();
+  const row = (role) => store.rows('bridge_v2_accounts').find((r) => r.role === role);
+  const read = async (role, state) => {
+    kchain.set({ accountState: state });
+    return relayLib.readAccount(await accounts.findAccount('participant-1', role));
+  };
+  assert.equal(row('PARTICIPANT').deployed_at ?? null, null, 'the first receipt was lost: nothing marked');
+
+  // E10: never seen configured — module, no guardian — only configure is accepted.
+  const bare = await read('PARTICIPANT', readyState([SIGNER], []));
+  assert.deepEqual([bare.recognized, bare.configured, bare.usable], [false, false, false]);
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'cancelRecovery' }, null), (error) => error.reason === 'configuration_incomplete');
+  // A foreign owner is not 6.1 (A3): not recognised.
+  const foreign = await read('PARTICIPANT', readyState(['0x7474747474747474747474747474747474747474']));
+  assert.equal(foreign.recognized, false);
+  assert.equal(row('PARTICIPANT').deployed_at ?? null, null);
+  // E3: configured as 6.1 says — recognised and marked on use.
+  const configured = await read('PARTICIPANT', readyState());
+  assert.deepEqual([configured.recognized, configured.configured, configured.usable], [true, true, true]);
+  assert.equal(typeof row('PARTICIPANT').deployed_at, 'string');
+  // Two owners, both the participant's passkeys (6.2.4): recognised too.
+  const two = await read('CREATOR', readyState([SIGNER, SECOND]));
+  assert.equal(two.recognized, true);
+  assert.equal(typeof row('CREATOR').deployed_at, 'string');
+  // E10: now configured once, a revoked guardian leaves it usable (D1).
+  const revoked = await read('PARTICIPANT', readyState([SIGNER], []));
+  assert.deepEqual([revoked.recognized, revoked.configured, revoked.usable], [false, true, true]);
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null), (error) => error.reason === 'no_guardian');
+});
+
+await test(['AE3', 'AE11', 'KM14'], 'E3: a lost first receipt no longer keeps an account out of recovery — the route and the pass decide by the chain — and the maintenance pass recognises it', async () => {
+  fresh();
+  await registered();
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  const NEW = '0x7171717171717171717171717171717171717171';
+  const replacement = await createPasskey();
+  const next = await accounts.registerPasskey('participant-1', replacement.credentialId, replacement.x, replacement.y, NEW);
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  let confirmedOnChain = false;
+  kchain.set({
+    hasCode: true,
+    chainNow: now,
+    accountState: () =>
+      confirmedOnChain ? readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: now + 604_800n, recoveryNewOwners: [NEW] }) : readyState(),
+    sendRelayed: () => {
+      confirmedOnChain = true;
+      return `0x${'cd'.repeat(32)}`;
+    },
+  });
+  assert.ok(store.rows('bridge_v2_accounts').every((r) => (r.deployed_at ?? null) === null));
+  // The route: the accounts exist on-chain, so there is an account to recover.
+  const opened = await recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: replacement.credentialId } }));
+  assert.equal(opened.status, 200, 'the route refused an account the chain holds');
+  const request_ = store.rows('bridge_v2_recoveries')[0];
+  Object.assign(request_, { status: 'PHONE_VERIFIED', passkey_id: next.id });
+  // The pass: confirmed on the accounts the chain holds, not REFUSED for want of a mark.
+  assert.equal(await recovery.confirmVerifiedRecoveries(recordingLogger(), deadline()), 1);
+  assert.equal(request_.status, 'CONFIRMED');
+  assert.ok(kchain.calls.some((c) => c.name === 'recoveryHash'), 'the guardian never signed');
+
+  // The maintenance pass marks what the chain holds configured.
+  confirmedOnChain = false;
+  store.rows('bridge_v2_accounts').forEach((r) => {
+    r.deployed_at = null;
+  });
+  const log = recordingLogger();
+  assert.equal(await (await relayLibrary()).recognizeDeployedAccounts(log, deadline()), 2);
+  assert.ok(store.rows('bridge_v2_accounts').every((r) => typeof r.deployed_at === 'string'));
+  assert.equal(log.events.filter((e) => e.kind === 'account.recognized').length, 2);
+  // Nothing left to recognise; and a pass with no time recognises nothing.
+  assert.equal(await (await relayLibrary()).recognizeDeployedAccounts(log, deadline()), 0);
+});
+
+// --- E4: the D3 closure and the confirmation ------------------------------------------
+
+await test(['AE4', 'AE11', 'AD3'], 'E4: the recovery route asked mid-signature cannot expire the request the guardian reserved; it stays PHONE_VERIFIED while signed and becomes CONFIRMED', async () => {
+  fresh();
+  await registered();
+  markConfigured();
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  const NEW = '0x7171717171717171717171717171717171717171';
+  const replacement = await createPasskey();
+  const passkey = await accounts.registerPasskey('participant-1', replacement.credentialId, replacement.x, replacement.y, NEW);
+  const row = store.insert('bridge_v2_recoveries', {
+    participant_id: 'participant-1',
+    passkey_id: passkey.id,
+    status: 'PHONE_VERIFIED',
+    link_code_hash: 'e4-race',
+    link_expires_at: new Date(Date.now() - 22 * HOUR_MS).toISOString(),
+    created_at: new Date(Date.now() - 23 * HOUR_MS).toISOString(),
+    confirming_at: null,
+  });
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  let confirmedOnChain = false;
+  const seen = [];
+  kchain.set({
+    hasCode: true,
+    chainNow: now,
+    accountState: () =>
+      confirmedOnChain ? readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: now + 604_800n, recoveryNewOwners: [NEW] }) : readyState(),
+    recoveryHash: async () => {
+      // The moment of the signature: 24 hours have passed, and the participant asks again.
+      seen.push(row.status);
+      row.created_at = new Date(Date.now() - 25 * HOUR_MS).toISOString();
+      const response = await recoveryRoute.POST(request(url('account/recovery'), { cookie: SESSION_COOKIE, body: { credentialId: replacement.credentialId } }));
+      seen.push(response.status, row.status);
+      return `0x${'ab'.repeat(32)}`;
+    },
+    sendRelayed: () => {
+      confirmedOnChain = true;
+      return `0x${'cd'.repeat(32)}`;
+    },
+  });
+  assert.equal(await recovery.confirmVerifiedRecoveries(recordingLogger(), deadline()), 1);
+  assert.deepEqual(seen.slice(0, 3), ['PHONE_VERIFIED', 409, 'PHONE_VERIFIED'], 'D3 closed the request the guardian was signing for');
+  assert.equal(row.status, 'CONFIRMED');
+  assert.equal(row.confirming_at, null);
+  assert.equal(store.rows('bridge_v2_recoveries').length, 1, 'a second request was opened beside it');
+});
+
+await test(['AE4', 'AE11'], 'E4: a request D3 expired, one past its 24 hours, or one another pass reserved is never signed for; a dead pass’s reservation is given back, and D3 then closes it', async () => {
+  fresh();
+  await registered();
+  markConfigured();
+  kchain.set({ hasCode: true, accountState: readyState() });
+  const passkey = await accounts.registerPasskey('participant-1', 'n'.repeat(22), 1n, 2n, '0x7171717171717171717171717171717171717171');
+  const request_ = (hash, status, hoursAgo, confirmingAt = null) =>
+    store.insert('bridge_v2_recoveries', {
+      participant_id: 'participant-1',
+      passkey_id: passkey.id,
+      status,
+      link_code_hash: hash,
+      link_expires_at: new Date().toISOString(),
+      created_at: new Date(Date.now() - hoursAgo * HOUR_MS).toISOString(),
+      confirming_at: confirmingAt,
+    });
+  const expired = request_('e4-expired', 'EXPIRED', 1);
+  const overdue = request_('e4-overdue', 'PHONE_VERIFIED', 24.5);
+  const reserved = request_('e4-reserved', 'PHONE_VERIFIED', 1, new Date(Date.now() - 3_600_000).toISOString());
+  assert.equal(await accounts.reserveRecovery(expired.id), false, 'an expired request was reserved');
+  assert.equal(await accounts.reserveRecovery(overdue.id), false, 'a request past its 24 hours was reserved');
+  assert.equal(await accounts.reserveRecovery(reserved.id), false, 'a reserved request was reserved twice');
+  assert.equal(await recovery.confirmVerifiedRecoveries(recordingLogger(), deadline()), 0);
+  assert.equal(kchain.calls.filter((c) => ['recoveryHash', 'sendRelayed'].includes(c.name)).length, 0, 'the guardian signed');
+
+  // D3 closes the overdue one, never the reserved one, however old.
+  reserved.created_at = new Date(Date.now() - 30 * HOUR_MS).toISOString();
+  assert.equal(await recovery.closeOverdueRecoveries(recordingLogger(), deadline()), 1);
+  assert.deepEqual([overdue.status, reserved.status], ['EXPIRED', 'PHONE_VERIFIED']);
+  // The next maintenance pass gives a dead pass's reservation back first; D3 then closes it.
+  assert.equal(await accounts.releaseRecoveryReservations(), 1);
+  assert.equal(await recovery.closeOverdueRecoveries(recordingLogger(), deadline()), 1);
+  assert.equal(reserved.status, 'EXPIRED');
+});
+
+// --- E5: the maintenance budget -----------------------------------------------------------
+
+await test(['AE5', 'KM15', 'KM22'], 'E5: when the sweep and the migration spend the whole run, the pass has already confirmed, notified and finalised its recoveries', async () => {
+  fresh();
+  await registered();
+  markConfigured();
+  const NEW = '0x7171717171717171717171717171717171717171';
+  const replacement = await createPasskey();
+  const passkey = await accounts.registerPasskey('participant-1', replacement.credentialId, replacement.x, replacement.y, NEW);
+  const verified = store.insert('bridge_v2_recoveries', {
+    participant_id: 'participant-1',
+    passkey_id: passkey.id,
+    status: 'PHONE_VERIFIED',
+    link_code_hash: 'e5-verified',
+    link_expires_at: new Date().toISOString(),
+    created_at: new Date(Date.now() - HOUR_MS).toISOString(),
+  });
+  // A second participant whose change of access is due to finish, with its first notice owed.
+  store.insert('bridge_v2_participants', { id: 'participant-2', email_canonical: 'second@example.test', wallet_index: null, wallet_address: null, telegram_chat_enc: null });
+  const OTHER_SAFE = '0x6868686868686868686868686868686868686868';
+  const OTHER_NEW = '0x6767676767676767676767676767676767676767';
+  const otherKey = await accounts.registerPasskey('participant-2', 'o'.repeat(22), 3n, 4n, OTHER_NEW);
+  store.insert('bridge_v2_accounts', { participant_id: 'participant-2', role: 'PARTICIPANT', safe_address: OTHER_SAFE, initial_signer: SAFE, guardian_address: guardianAddress(), deployed_at: new Date().toISOString() });
+  const due = store.insert('bridge_v2_recoveries', {
+    participant_id: 'participant-2',
+    passkey_id: otherKey.id,
+    status: 'CONFIRMED',
+    link_code_hash: 'e5-due',
+    link_expires_at: new Date().toISOString(),
+    started_at: new Date(Date.now() - 8 * 24 * HOUR_MS).toISOString(),
+    execute_after: new Date(Date.now() + HOUR_MS).toISOString(),
+  });
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  let confirmedOnChain = false;
+  kchain.set({
+    hasCode: true,
+    chainNow: now,
+    accountState: (safe) =>
+      safe.toLowerCase() === OTHER_SAFE.toLowerCase()
+        ? readyState([SAFE], [guardianAddress()], { recoveryExecuteAfter: now - 10n, recoveryNewOwners: [OTHER_NEW] })
+        : confirmedOnChain
+          ? readyState([SIGNER], [guardianAddress()], { recoveryExecuteAfter: now + 604_800n, recoveryNewOwners: [NEW] })
+          : readyState(),
+    sendRelayed: (_lease, call) => {
+      if (call.data.startsWith(encodeFunctionData({ abi: keptra.RECOVERY_MODULE_ABI, functionName: 'multiConfirmRecovery', args: [SAFE, [], 1n, [], true] }).slice(0, 10))) {
+        confirmedOnChain = true;
+      }
+      return `0x${'cd'.repeat(32)}`;
+    },
+  });
+
+  // The sweep and the migration take the pipeline's lock, and with it the run's whole budget.
+  const realNow = Date.now;
+  let spent = false;
+  const { TEST_CRON_SECRET } = await import('../harness.mjs');
+  const maintenance = await import('../../../api/bridge/v2/cron/maintenance.ts');
+  db.on('rpc:bridge_v2_try_lock', (op) => {
+    if (op.args.p_name === 'cron/process') {
+      spent = true;
+      Date.now = () => realNow() + (config.RUN_BUDGET_MS + 60_000);
+    }
+    return { data: 'holder-abc', error: null };
+  });
+  db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
+  db.on('rpc:bridge_v2_cleanup', () => ({ data: [], error: null }));
+  db.on('bridge_v2_external_spend:select', () => ({ data: [], error: null }));
+  let body;
+  try {
+    const response = await maintenance.GET(request(url('cron/maintenance'), { method: 'GET', headers: { authorization: `Bearer ${TEST_CRON_SECRET}` } }));
+    body = await response.json();
+  } finally {
+    Date.now = realNow;
+  }
+  assert.ok(spent, 'the sweep never ran');
+  assert.equal(body.accounts.recoveriesConfirmed, 1, 'the confirmation was starved by the sweep and the migration');
+  assert.equal(verified.status, 'CONFIRMED');
+  // Notified (6.3.2) and finalised (R-6) in the same pass, before the time went.
+  assert.ok(store.rows('bridge_v2_recovery_notices').some((n) => n.recovery_id === due.id && n.stage === 'START'), 'the notice was starved');
+  const finalize = encodeFunctionData({ abi: keptra.RECOVERY_MODULE_ABI, functionName: 'finalizeRecovery', args: [OTHER_SAFE] });
+  assert.ok(kchain.calls.some((c) => c.name === 'sendRelayed' && c.args[1].data === finalize), 'the finalisation was starved');
+  // What came after the sweep did run out of time, which is what this pass was built to show.
+  assert.ok(alertsLogged().includes('recovery scan did not reach every account'), `alerts were ${alertsLogged()}`);
+});
+
+// --- E7: a relay campaign left in FUNDING -------------------------------------------------
+
+const GIVEAWAY_CREATED = CREATOR_CAMPAIGN_MANAGER_ABI.find((item) => item.type === 'event' && item.name === 'GiveawayCreated');
+/** The log createGiveaway leaves, as the chain would return it. */
+const giveawayCreatedLog = (giveawayId) => ({
+  address: config.GIVEAWAY_MANAGER_V2,
+  topics: encodeEventTopics({ abi: [GIVEAWAY_CREATED], eventName: 'GiveawayCreated', args: { giveawayId, creator: SAFE, prizeModule: zeroAddress } }),
+  data: encodeAbiParameters(GIVEAWAY_CREATED.inputs.filter((input) => !input.indexed), [0, config.USDC, 1n, 0n, config.USDC, 1n, 1n, 1, 10, 1n]),
+});
+
+function fundingDraft(creatorId, extra = {}) {
+  return store.insert('bridge_v2_creator_campaigns', {
+    creator_id: creatorId,
+    status: 'FUNDING',
+    module: '0x2247aeF54C66bD5149989f9c66522d3b439a4A7b',
+    prize_token: config.USDC,
+    prize_amount: '10000000',
+    duration_seconds: '3600',
+    winners_count: 1,
+    slot_cap: 10,
+    fee_amount: '1000000',
+    slots_cost: '1000000',
+    giveaway_id: null,
+    tx_hash: null,
+    ...extra,
+  });
+}
+
+await test(['AE7', 'AE11'], 'E7: the pass settles each relay campaign in FUNDING from the chain — registered if mined, released to PENDING_DEPOSIT if reverted, dropped or never sent, left while pending — and never touches module 2’s', async () => {
+  fresh();
+  const hash = (digit) => `0x${String(digit).repeat(64)}`;
+  const creator = (i, walletIndex = null) =>
+    store.insert('bridge_v2_creators', { participant_id: `p-${i}`, wallet_index: walletIndex, wallet_address: walletIndex === null ? `0x${String(i).repeat(40)}` : addressOf(walletIndex) }).id;
+  const stale = new Date(Date.now() - config.RELAYED_CAMPAIGN_STALE_MS - 1_000).toISOString();
+  const mined = fundingDraft(creator(1), { tx_hash: hash(1) });
+  const reverted = fundingDraft(creator(2), { tx_hash: hash(2) });
+  const dropped = fundingDraft(creator(3), { tx_hash: hash(3) });
+  const pending = fundingDraft(creator(4), { tx_hash: hash(4) });
+  const neverSent = fundingDraft(creator(5), { updated_at: stale });
+  const inFlight = fundingDraft(creator(6));
+  const derived = fundingDraft(creator(7, 31), { updated_at: stale });
+  chain.set({
+    waitForReceipt: (asked) => (asked === hash(1) ? { status: 'success', logs: [giveawayCreatedLog(77n)] } : asked === hash(2) ? { status: 'reverted', logs: [] } : null),
+    transactionKnown: (asked) => asked === hash(4),
+  });
+  const log = recordingLogger();
+  const relayLib = await relayLibrary();
+  assert.equal(await relayLib.reconcileRelayedCampaigns(log, deadline()), 4);
+  assert.deepEqual([mined.status, mined.giveaway_id, mined.tx_hash], ['CONFIRMED', '77', hash(1)]);
+  for (const row of [reverted, dropped, neverSent]) assert.deepEqual([row.status, row.tx_hash], ['PENDING_DEPOSIT', null]);
+  assert.equal(pending.status, 'FUNDING', 'a transaction still in the mempool was given up on');
+  assert.equal(inFlight.status, 'FUNDING', 'a request still running had its draft released');
+  assert.equal(derived.status, 'FUNDING', 'module 2’s derived submit was touched (D-FUNDING is not this piece’s)');
+  assert.deepEqual(
+    log.events.filter((e) => e.kind === 'creator_campaign.released').map((e) => e.detail.reason).sort(),
+    ['dropped', 'never_sent', 'reverted'],
+  );
+  // A pass with no time settles nothing.
+  assert.equal(await relayLib.reconcileRelayedCampaigns(log, deadline(false)), 0);
+});
+
+await test(['AE7'], 'E7: the relay writes the transaction on the draft before the wait, so a receipt that never comes leaves it findable; a second signature waits for the pass', async () => {
+  fresh();
+  const { passkey } = await registered();
+  markConfigured();
+  kchain.set({ accountState: readyState(), isValidPasskeySignature: true, hasCode: true });
+  chain.set({ erc20BalanceOf: 100_000_000n, waitForReceipt: null });
+  const creatorSafe = keptra.predictSafeAddress(SIGNER, 'CREATOR');
+  const creatorRow = store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: null, wallet_address: creatorSafe });
+  const draft = fundingDraft(creatorRow.id, { status: 'PENDING_DEPOSIT' });
+  const relayLib = await relayLibrary();
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'createCampaign' }, null);
+  const assertion = await passkey.sign(prepared.hash);
+  const submitted = await relayLib.submitAction('participant-1', { kind: 'createCampaign' }, null, prepared.tx.nonce, assertion, recordingLogger());
+  assert.equal(submitted.receipt, null);
+  assert.deepEqual([draft.status, draft.tx_hash], ['FUNDING', submitted.txHash]);
+  await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'createCampaign' }, null), (error) => error.reason === 'campaign_in_flight');
+  // The pass finds it dropped: released, and the creator can sign it again.
+  chain.set({ transactionKnown: false });
+  assert.equal(await relayLib.reconcileRelayedCampaigns(recordingLogger(), deadline()), 1);
+  assert.equal(draft.status, 'PENDING_DEPOSIT');
+  assert.equal((await relayLib.prepareAction('participant-1', { kind: 'createCampaign' }, null)).campaign.id, draft.id);
+});
+
+// --- E9: nothing in production only the tests read -----------------------------------------
+
+await test(['AE9', 'AC13'], 'E9: production carries no guardian_revoked_at, no deploy_tx_hash, no RecoveryNoticeStage, and every ABI entry keptra.ts declares is one production encodes or reads', () => {
+  const sources = productionSources();
+  for (const name of ['guardian_revoked_at', 'guardianRevokedAt', 'deploy_tx_hash', 'RecoveryNoticeStage']) {
+    const users = sources.filter(([, text]) => new RegExp(`\\b${name}\\b`).test(text)).map(([path]) => path);
+    assert.deepEqual(users, [], `${name} is still in production code`);
+  }
+  const everything = sources.map(([, text]) => text).join('\n');
+  for (const abi of [keptra.SAFE_ABI, keptra.PROXY_FACTORY_ABI, keptra.MULTI_SEND_ABI, keptra.SIGNER_FACTORY_ABI, keptra.RECOVERY_MODULE_ABI]) {
+    for (const item of abi) {
+      assert.equal(item.type, 'function', `${item.name}: an event is declared for the tests alone`);
+      assert.ok(everything.includes(`functionName: '${item.name}'`), `${item.name} is declared and never encoded or read by production`);
+    }
+  }
+  // 0012 creates neither column; it drops both from a database that ran an earlier text.
+  const migration = read('supabase/migrations/0012_keptra_accounts.sql');
+  const accountsTable = migration.slice(migration.indexOf('CREATE TABLE IF NOT EXISTS bridge_v2_accounts'), migration.indexOf(');', migration.indexOf('CREATE TABLE IF NOT EXISTS bridge_v2_accounts')));
+  assert.ok(!/deploy_tx_hash|guardian_revoked_at/.test(accountsTable));
+  assert.match(migration, /DROP COLUMN IF EXISTS deploy_tx_hash;/);
+  assert.match(migration, /DROP COLUMN IF EXISTS guardian_revoked_at;/);
+  // E8: each comment of linkcodes.ts sits on its own function.
+  const linkcodes = read('lib/bridge-v2/linkcodes.ts');
+  assert.match(linkcodes, /Issues a code for one participant and one campaign\.[\s\S]*?\*\/\s*export async function issueLinkCode/);
+  assert.ok(!/\*\/\s*\/\*\*/.test(linkcodes), 'two doc comments one above the other');
 });
 
 // ===========================================================================
@@ -1495,6 +2029,7 @@ if (engine !== null) {
       bridge_v2_passkeys: 'SELECT,INSERT',
       bridge_v2_recoveries: 'SELECT,INSERT,UPDATE',
       bridge_v2_recovery_notices: 'SELECT,INSERT',
+      bridge_v2_relayed_transactions: 'SELECT,INSERT',
     };
     const held = await q(
       `SELECT c.relname AS name, r.rolname AS role,
@@ -1523,7 +2058,7 @@ if (engine !== null) {
   });
 
   await test(['KM1', 'AC11'], '0012: the new tables are closed to the browser roles', async () => {
-    for (const table of ['bridge_v2_passkeys', 'bridge_v2_accounts', 'bridge_v2_recoveries', 'bridge_v2_recovery_notices', 'bridge_v2_migrations', 'bridge_v2_guardian_changes']) {
+    for (const table of ['bridge_v2_passkeys', 'bridge_v2_accounts', 'bridge_v2_recoveries', 'bridge_v2_recovery_notices', 'bridge_v2_migrations', 'bridge_v2_guardian_changes', 'bridge_v2_relayed_transactions']) {
       for (const role of ['anon', 'authenticated']) {
         const outcome = await asRole(engine, role, (client) => attempt(client, `SELECT 1 FROM ${table} LIMIT 1`));
         assert.equal(outcome.ok, false, `${role} can read ${table}`);
@@ -1531,5 +2066,50 @@ if (engine !== null) {
       const service = await asRole(engine, 'service_role', (client) => attempt(client, `SELECT 1 FROM ${table} LIMIT 1`));
       assert.equal(service.ok, true, `service_role cannot read ${table}`);
     }
+  });
+  await test(['AE4', 'AE11'], '0012: a reserved request is never expired by D3, one D3 expired is never reserved, and run at the same moment exactly one of the two wins', async () => {
+    const { id } = await participant('reserve@example.test');
+    const passkey = (await q(`INSERT INTO bridge_v2_passkeys (participant_id, credential_id, public_x, public_y, signer_address) VALUES ($1, $2, 1, 2, $3) RETURNING id`, [id, 'r'.repeat(20), '0x9696969696969696969696969696969696969696'])).rows[0].id;
+    const open = async (code) => {
+      await q(`UPDATE bridge_v2_recoveries SET status = 'EXPIRED' WHERE participant_id = $1 AND status = 'PHONE_VERIFIED'`, [id]);
+      return (await q(`INSERT INTO bridge_v2_recoveries (participant_id, passkey_id, status, link_code_hash, link_expires_at) VALUES ($1, $2, 'PHONE_VERIFIED', $3, now()) RETURNING id`, [id, passkey, code])).rows[0].id;
+    };
+    // What reserveRecovery and D3's closure (advanceRecovery, unreserved) send.
+    const reserve = (request) =>
+      q(`UPDATE bridge_v2_recoveries SET confirming_at = now(), updated_at = now() WHERE id = $1 AND status = 'PHONE_VERIFIED' AND confirming_at IS NULL AND created_at > now() - interval '24 hours' RETURNING id`, [request]);
+    const expire = (request) =>
+      q(`UPDATE bridge_v2_recoveries SET status = 'EXPIRED', updated_at = now() WHERE id = $1 AND status = 'PHONE_VERIFIED' AND confirming_at IS NULL RETURNING id`, [request]);
+    const first = await open('reserve-1');
+    assert.equal((await reserve(first)).rowCount, 1);
+    assert.equal((await expire(first)).rowCount, 0, 'D3 expired a reserved request');
+    assert.equal((await reserve(first)).rowCount, 0, 'reserved twice');
+    // Given back (releaseRecoveryReservations): D3 may close it, and then it is never reserved.
+    await q(`UPDATE bridge_v2_recoveries SET confirming_at = NULL WHERE status = 'PHONE_VERIFIED' AND confirming_at IS NOT NULL AND id = $1`, [first]);
+    assert.equal((await expire(first)).rowCount, 1);
+    assert.equal((await reserve(first)).rowCount, 0, 'an expired request was reserved');
+    // The race itself, on two connections at once.
+    for (let round = 0; round < 5; round += 1) {
+      const request = await open(`race-${round}`);
+      const [reserved, expired] = await Promise.all([reserve(request), expire(request)]);
+      assert.equal(reserved.rowCount + expired.rowCount, 1, `round ${round}: both or neither won`);
+    }
+  });
+
+  await test(['AE2', 'AE9'], '0012: relayed transactions are recorded by the service and counted in a window; the accounts table has no column production does not read', async () => {
+    const { id } = await participant('relayed@example.test');
+    const account = (await q(`INSERT INTO bridge_v2_accounts (participant_id, role, safe_address, initial_signer, guardian_address) VALUES ($1, 'PARTICIPANT', $2, $3, $3) RETURNING id`, [id, '0x9595959595959595959595959595959595959595', SIGNER])).rows[0].id;
+    for (let i = 0; i < 3; i += 1) {
+      const insert = await asRole(engine, 'service_role', (client) => attempt(client, `INSERT INTO bridge_v2_relayed_transactions (account_id) VALUES ($1)`, [account]));
+      assert.equal(insert.ok, true);
+    }
+    // The query relayedSince makes.
+    const counted = await q(`SELECT id FROM bridge_v2_relayed_transactions WHERE account_id = $1 AND created_at >= $2`, [account, new Date(Date.now() - 86_400_000).toISOString()]);
+    assert.equal(counted.rowCount, 3);
+    assert.equal((await attempt(engine.pool, `INSERT INTO bridge_v2_relayed_transactions (account_id) VALUES (gen_random_uuid())`)).code, '23503');
+    const columns = await q(`SELECT column_name FROM information_schema.columns WHERE table_name = 'bridge_v2_accounts'`);
+    const names = columns.rows.map((row) => row.column_name);
+    assert.ok(!names.includes('deploy_tx_hash') && !names.includes('guardian_revoked_at'), `columns: ${names}`);
+    const recoveries = await q(`SELECT column_name FROM information_schema.columns WHERE table_name = 'bridge_v2_recoveries' AND column_name = 'confirming_at'`);
+    assert.equal(recoveries.rowCount, 1);
   });
 }

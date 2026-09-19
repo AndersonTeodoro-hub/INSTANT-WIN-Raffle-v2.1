@@ -134,14 +134,6 @@ export const SAFE_ABI = [
   { type: 'function', name: 'enableModule', stateMutability: 'nonpayable', inputs: [{ type: 'address' }], outputs: [] },
   {
     type: 'function',
-    name: 'disableModule',
-    stateMutability: 'nonpayable',
-    inputs: [{ type: 'address' }, { type: 'address' }],
-    outputs: [],
-  },
-  { type: 'function', name: 'setFallbackHandler', stateMutability: 'nonpayable', inputs: [{ type: 'address' }], outputs: [] },
-  {
-    type: 'function',
     name: 'addOwnerWithThreshold',
     stateMutability: 'nonpayable',
     inputs: [{ type: 'address' }, { type: 'uint256' }],
@@ -150,8 +142,6 @@ export const SAFE_ABI = [
   { type: 'function', name: 'nonce', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'getOwners', stateMutability: 'view', inputs: [], outputs: [{ type: 'address[]' }] },
   { type: 'function', name: 'getThreshold', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
-  { type: 'function', name: 'VERSION', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
-  { type: 'function', name: 'isModuleEnabled', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'bool' }] },
   {
     type: 'function',
     name: 'getModulesPaginated',
@@ -180,7 +170,6 @@ export const PROXY_FACTORY_ABI = [
     ],
     outputs: [{ type: 'address' }],
   },
-  { type: 'function', name: 'proxyCreationCode', stateMutability: 'pure', inputs: [], outputs: [{ type: 'bytes' }] },
 ] as const;
 
 export const MULTI_SEND_ABI = [
@@ -214,16 +203,6 @@ export const SIGNER_FACTORY_ABI = [
       { name: 'verifiers', type: 'uint176' },
     ],
     outputs: [{ type: 'bytes4' }],
-  },
-  {
-    type: 'event',
-    name: 'Created',
-    inputs: [
-      { name: 'signer', type: 'address', indexed: true },
-      { name: 'x', type: 'uint256', indexed: false },
-      { name: 'y', type: 'uint256', indexed: false },
-      { name: 'verifiers', type: 'uint176', indexed: false },
-    ],
   },
 ] as const;
 
@@ -290,26 +269,8 @@ export const RECOVERY_MODULE_ABI = [
     ],
   },
   { type: 'function', name: 'nonce', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { type: 'function', name: 'isGuardian', stateMutability: 'view', inputs: [{ type: 'address' }, { type: 'address' }], outputs: [{ type: 'bool' }] },
-  { type: 'function', name: 'guardiansCount', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'threshold', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'getGuardians', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'address[]' }] },
-  {
-    type: 'event',
-    name: 'RecoveryCanceled',
-    inputs: [
-      { name: 'wallet', type: 'address', indexed: true },
-      { name: 'nonce', type: 'uint256', indexed: false },
-    ],
-  },
-  {
-    type: 'event',
-    name: 'NonceInvalidated',
-    inputs: [
-      { name: 'wallet', type: 'address', indexed: true },
-      { name: 'nonce', type: 'uint256', indexed: false },
-    ],
-  },
 ] as const;
 
 // -----------------------------------------------------------------------------

@@ -6,8 +6,9 @@ import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { getParticipant } from '../../../../lib/bridge-v2/participants.js';
 import { findCreatorByParticipant } from '../../../../lib/bridge-v2/creators.js';
 import { authorizeMigration, findAccount, findPasskey } from '../../../../lib/bridge-v2/accounts.js';
-import { accountState, isValidPasskeySignature } from '../../../../lib/bridge-v2/keptraChain.js';
-import { accountUsable, assertionToSignature, migrationChallenge } from '../../../../lib/bridge-v2/keptra.js';
+import { isValidPasskeySignature } from '../../../../lib/bridge-v2/keptraChain.js';
+import { assertionToSignature, migrationChallenge } from '../../../../lib/bridge-v2/keptra.js';
+import { readAccount } from '../../../../lib/bridge-v2/relay.js';
 
 /**
  * POST /api/bridge/v2/account/migrate
@@ -65,8 +66,9 @@ const route = handle('account/migrate', async ({ request, log }) => {
   // C4: the account is where the balances will go. Until it exists on-chain with
   // its module and guardian, its address is not shown and nothing is authorised;
   // the page has the account set up first (account/relay, kind "configure").
-  const state = await accountState(account.safe);
-  if (!accountUsable(state, account.deployedAt !== null)) return refuse(409, 'Set up your account first.');
+  // E3 and E10: read from the chain, and marked deployed if it holds it configured.
+  const { state, usable } = await readAccount(account);
+  if (!usable) return refuse(409, 'Set up your account first.');
 
   const challenge = migrationChallenge(derived, account.safe);
   if (body.signature === undefined) return ok({ challenge });

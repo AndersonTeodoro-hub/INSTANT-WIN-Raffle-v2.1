@@ -126,6 +126,8 @@ const REFUSALS: Record<string, string> = {
   amount: 'That amount cannot be sent.',
   guardian_change_limit: 'Recovery settings were changed too often today. Try again tomorrow.',
   guardian_incident: 'Recovery cannot be set up while its key is being replaced. Try again later.',
+  relay_limit: 'Your account reached its limit of transactions for the last 24 hours. Try again later.',
+  campaign_in_flight: 'This campaign was already sent. Wait for it to be confirmed.',
 };
 
 /** The Action a body names, or null. A closed list, like the union it builds. */

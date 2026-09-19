@@ -6,6 +6,7 @@ import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { hasVerifiedPhone } from '../../../../lib/bridge-v2/phone.js';
 import { hashRecoveryCode, newRecoveryCode } from '../../../../lib/bridge-v2/linkcodes.js';
 import { accountsOf, findPasskey, openRecovery } from '../../../../lib/bridge-v2/accounts.js';
+import { hasCode } from '../../../../lib/bridge-v2/keptraChain.js';
 import { LINK_CODE_TTL_MS } from '../../../../lib/bridge-v2/config.js';
 import { closeOverdueRecoveries } from '../../../../lib/bridge-v2/recovery.js';
 import { requireEnv } from '../../../../lib/bridge-v2/env.js';
@@ -56,8 +57,11 @@ const route = handle('account/recovery', async ({ request, log }) => {
   const passkey = await findPasskey(session.participantId, credentialId);
   if (passkey === null) return refuse(404, 'Register the new passkey first.');
 
-  const deployed = (await accountsOf(session.participantId)).filter((account) => account.deployedAt !== null);
-  if (deployed.length === 0) return refuse(409, 'There is no account to recover yet.');
+  // Adenda E3: whether there is an account to recover is the chain's answer, not
+  // the deployed_at mark's — a first receipt may never have come.
+  const accounts = await accountsOf(session.participantId);
+  const onChain = await Promise.all(accounts.map((account) => hasCode(account.safe)));
+  if (!onChain.some(Boolean)) return refuse(409, 'There is no account to recover yet.');
 
   // Adenda D3: a request of this participant past its 24 hours is closed now,
   // not at the next maintenance pass, so it never blocks this one for longer.

@@ -24,6 +24,12 @@
  * opened is closed, with an alert (closeOverdueRecoveries). Adenda D4: once a
  * recovery is finalised, an account of the participant not deployed yet takes
  * the new passkey's address.
+ *
+ * Adenda E3: which accounts a request covers is the chain's answer — every
+ * account of the participant that exists on-chain — and never the deployed_at
+ * mark, which a lost receipt leaves unwritten. Adenda E4: the guardian signs
+ * only for a request it reserved first, still PHONE_VERIFIED and inside its 24
+ * hours (accounts.reserveRecovery); D3's closure never touches a reserved one.
  */
 
 import type { Logger } from './log.js';
@@ -51,8 +57,11 @@ import {
   recoveryOverdue,
   recordRecoveryNotice,
   recoveriesIn,
+  releaseRecoveryReservations,
+  reserveRecovery,
   sentRecoveryNotices,
   touchRecovery,
+  type Account,
   type Recovery,
 } from './accounts.js';
 import { guardianAddress, signRecoveryHash } from './guardian.js';
@@ -67,9 +76,21 @@ const BATCH = 5;
 const sameOwners = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((owner, i) => owner.toLowerCase() === b[i].toLowerCase());
 
+/** Adenda E3: the participant's accounts with the state the chain holds for each. */
+async function accountsOnChain(participantId: string) {
+  const accounts = await accountsOf(participantId);
+  const states = await Promise.all(accounts.map((account) => accountState(account.safe)));
+  return accounts.map((account, i) => ({ account, state: states[i] }));
+}
+
 /**
  * PHONE_VERIFIED -> CONFIRMED. R-1 before any signature: nothing is confirmed
  * for an owner list that fails it, on any account (M17).
+ *
+ * E4: each request is reserved before anything is done for it, and a request
+ * that cannot be reserved — moved on by somebody else, expired by D3, or past
+ * its 24 hours — is not signed for. A confirmation that does not finish gives
+ * its reservation back, so the next pass takes it up again.
  */
 export async function confirmVerifiedRecoveries(log: Logger, deadline: RunDeadline): Promise<number> {
   let confirmed = 0;
@@ -77,19 +98,25 @@ export async function confirmVerifiedRecoveries(log: Logger, deadline: RunDeadli
     if (!deadline.hasTimeFor(RECOVERY_CONFIRM_MS)) break;
     // D3: past its 24 hours a request is closeOverdueRecoveries's, never signed for.
     if (recoveryOverdue(request)) continue;
+    if (!(await reserveRecovery(request.id))) continue;
     try {
       if (await confirmOne(request, log)) confirmed += 1;
     } catch (error) {
       await log.failure('recovery.failed', error);
       await touchRecovery(request.id);
+    } finally {
+      // A no-op once the request left PHONE_VERIFIED.
+      await releaseRecoveryReservations(request.id);
     }
   }
   return confirmed;
 }
 
+/** One reserved request (E4): the caller holds it PHONE_VERIFIED for as long as this runs. */
 async function confirmOne(request: Recovery, log: Logger): Promise<boolean> {
   const passkey = await passkeyById(request.passkeyId);
-  const accounts = (await accountsOf(request.participantId)).filter((account) => account.deployedAt !== null);
+  // E3: every account of the participant that exists on-chain.
+  const accounts = (await accountsOnChain(request.participantId)).filter(({ state }) => state.deployed);
   if (passkey === null || accounts.length === 0) {
     await advanceRecovery(request.id, 'PHONE_VERIFIED', 'REFUSED');
     await log.event('recovery.refused', { reason: passkey === null ? 'no_passkey' : 'no_account' });
@@ -111,14 +138,13 @@ async function confirmOne(request: Recovery, log: Logger): Promise<boolean> {
   const deployed = new Set((await hasCode(passkey.signer)) ? [passkey.signer.toLowerCase()] : []);
 
   let executeAfter = 0n;
-  for (const account of accounts) {
+  for (const { account, state } of accounts) {
     const refusal = newOwnersRefusal(account.safe, newOwners, guardian, deployed);
     if (refusal !== null) {
       await advanceRecovery(request.id, 'PHONE_VERIFIED', 'REFUSED');
       await log.event('recovery.refused', { reason: refusal });
       return false;
     }
-    const state = await accountState(account.safe);
     if (state.owners.some((owner) => owner.toLowerCase() === passkey.signer.toLowerCase())) {
       // Already an owner here: nothing to recover on this account.
       continue;
@@ -152,6 +178,7 @@ async function confirmOne(request: Recovery, log: Logger): Promise<boolean> {
   await advanceRecovery(request.id, 'PHONE_VERIFIED', 'CONFIRMED', {
     started_at: new Date(Number(startedAt) * 1000).toISOString(),
     execute_after: new Date(Number(executeAfter) * 1000).toISOString(),
+    confirming_at: null,
   });
   await log.event('recovery.confirmed');
   return true;
@@ -166,7 +193,9 @@ async function confirmOne(request: Recovery, log: Logger): Promise<boolean> {
  * nothing confirmed, it is EXPIRED. The maintenance pass runs it for everybody,
  * and the recovery route for the participant asking, so none blocks a new
  * request for longer than the 24 hours. CONFIRMED is not touched: the module
- * cannot replace a pending recovery with a single guardian.
+ * cannot replace a pending recovery with a single guardian (E6). E4: neither is
+ * a request reserved for a confirmation in progress; the pass that reserved it
+ * moves it itself, or gives it back.
  */
 export async function closeOverdueRecoveries(log: Logger, deadline?: RunDeadline, participantId?: string): Promise<number> {
   let closed = 0;
@@ -174,10 +203,9 @@ export async function closeOverdueRecoveries(log: Logger, deadline?: RunDeadline
     if (deadline !== undefined && !deadline.hasTimeFor(RECOVERY_ADVANCE_MS)) break;
     try {
       const passkey = await passkeyById(request.passkeyId);
-      const accounts = (await accountsOf(request.participantId)).filter((account) => account.deployedAt !== null);
       let executeAfter = 0n;
       if (passkey !== null) {
-        for (const state of await Promise.all(accounts.map((account) => accountState(account.safe)))) {
+        for (const { state } of await accountsOnChain(request.participantId)) {
           if (state.recoveryExecuteAfter > executeAfter && sameOwners(state.recoveryNewOwners, [passkey.signer])) {
             executeAfter = state.recoveryExecuteAfter;
           }
@@ -185,11 +213,17 @@ export async function closeOverdueRecoveries(log: Logger, deadline?: RunDeadline
       }
       const moved =
         executeAfter > 0n
-          ? await advanceRecovery(request.id, 'PHONE_VERIFIED', 'CONFIRMED', {
-              started_at: new Date(Number(executeAfter - RECOVERY_PERIOD_SECONDS) * 1000).toISOString(),
-              execute_after: new Date(Number(executeAfter) * 1000).toISOString(),
-            })
-          : await advanceRecovery(request.id, 'PHONE_VERIFIED', 'EXPIRED');
+          ? await advanceRecovery(
+              request.id,
+              'PHONE_VERIFIED',
+              'CONFIRMED',
+              {
+                started_at: new Date(Number(executeAfter - RECOVERY_PERIOD_SECONDS) * 1000).toISOString(),
+                execute_after: new Date(Number(executeAfter) * 1000).toISOString(),
+              },
+              true,
+            )
+          : await advanceRecovery(request.id, 'PHONE_VERIFIED', 'EXPIRED', {}, true);
       if (!moved) continue;
       closed += 1;
       await log.event(executeAfter > 0n ? 'recovery.confirmed' : 'recovery.expired', { overdue: true });
@@ -258,8 +292,10 @@ export async function advanceConfirmedRecoveries(
     try {
       const passkey = await passkeyById(request.passkeyId);
       if (passkey === null) continue;
-      const accounts = (await accountsOf(request.participantId)).filter((account) => account.deployedAt !== null);
-      const states = await Promise.all(accounts.map((account) => accountState(account.safe)));
+      // E3: every account of the participant, as the chain holds it.
+      const onChain = await accountsOnChain(request.participantId);
+      const accounts: Account[] = onChain.map(({ account }) => account);
+      const states = onChain.map(({ state }) => state);
       const pending = accounts.filter((_, i) => states[i].recoveryExecuteAfter > 0n);
 
       if (pending.length === 0) {
@@ -270,8 +306,8 @@ export async function advanceConfirmedRecoveries(
           // D4: an account not deployed yet was bound to the lost passkey by its
           // address; it takes the new one's. Before the request is closed, so a
           // pass that dies here repeats it (readdressAccount is conditional).
-          for (const account of await accountsOf(request.participantId)) {
-            if (account.deployedAt !== null || account.initialSigner.toLowerCase() === passkey.signer.toLowerCase()) continue;
+          for (const [i, account] of accounts.entries()) {
+            if (states[i].deployed || account.initialSigner.toLowerCase() === passkey.signer.toLowerCase()) continue;
             if (await hasCode(account.safe)) continue;
             await readdressAccount(account, passkey.signer);
             await log.event('account.readdressed', { role: account.role });

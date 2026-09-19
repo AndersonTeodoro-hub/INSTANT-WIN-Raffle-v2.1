@@ -147,6 +147,7 @@ export const KEPTRA_TABLES = [
   'bridge_v2_recovery_notices',
   'bridge_v2_migrations',
   'bridge_v2_guardian_changes',
+  'bridge_v2_relayed_transactions',
   'bridge_v2_guardian_incidents',
   'bridge_v2_phones',
   'bridge_v2_ops_events',

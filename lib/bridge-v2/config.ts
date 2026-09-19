@@ -459,6 +459,18 @@ export const RECOVERY_CONFIRM_MS = 3 * (RECEIPT_TIMEOUT_MS + 3 * RPC_TIMEOUT_MS)
 export const RECOVERY_ADVANCE_MS = RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
 /** C1, C10: one page of accounts read for a recovery nobody registered. Reads only. */
 export const RECOVERY_SCAN_MS = 2 * RPC_TIMEOUT_MS;
+/**
+ * SPEC-BLOCO-03 Adenda E3: one account the relay sent for and nobody marked
+ * deployed — its state read from the chain, the owner's passkeys, the mark — plus
+ * its share of the page it came in.
+ */
+export const ACCOUNT_RECOGNITION_MS = 2 * RPC_TIMEOUT_MS + 3 * DB_TIMEOUT_MS;
+/**
+ * SPEC-BLOCO-03 Adenda E7: one campaign the relay left in FUNDING — its creator
+ * read, a bounded wait for its receipt, the node asked about the hash, and the
+ * transition.
+ */
+export const CAMPAIGN_RECONCILE_MS = RECEIPT_TIMEOUT_MS + 2 * RPC_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
 
 /**
  * SPEC-BLOCO-03 Adenda C11: the guardian changes (a revocation, or the guardian
@@ -466,6 +478,13 @@ export const RECOVERY_SCAN_MS = 2 * RPC_TIMEOUT_MS;
  * relay refuses.
  */
 export const GUARDIAN_CHANGES_PER_DAY = 3;
+
+/**
+ * SPEC-BLOCO-03 Adenda E2: the transactions the relayer pays for on one account
+ * in 24 hours. Above it, the relay refuses — except the cancellation of a
+ * recovery and the reaction to a compromise, which no limit stops.
+ */
+export const RELAYED_TRANSACTIONS_PER_DAY = 20;
 
 /**
  * SPEC-BLOCO-03 Adenda D3: a change of access that has not reached CONFIRMED
@@ -502,7 +521,8 @@ export const RECOVERY_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
  * transition, 240_000 for a prize; and in the maintenance pass (C1) 120_000 for
  * one migrated asset, 106_000 for sealing a migrated wallet, 180_000 for a
  * recovery confirmation, 70_000 for advancing one, 20_000 for a page of the
- * recovery scan.
+ * recovery scan, 44_000 for recognising one account (E3), 82_000 for one
+ * campaign left in FUNDING (E7).
  * The largest leaves 40_000 ms of margin.
  *
  * Adenda C1: EVERY reservation a maintenance step passes to hasTimeFor is in
@@ -521,6 +541,8 @@ export const EVERY_RESERVATION_MS: Record<string, number> = {
   recoveryConfirm: RECOVERY_CONFIRM_MS,
   recoveryAdvance: RECOVERY_ADVANCE_MS,
   recoveryScan: RECOVERY_SCAN_MS,
+  accountRecognition: ACCOUNT_RECOGNITION_MS,
+  campaignReconcile: CAMPAIGN_RECONCILE_MS,
 };
 
 export const LARGEST_UNIT_MS = Math.max(...Object.values(EVERY_RESERVATION_MS));
@@ -798,6 +820,14 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // because of the receipt.
   'api/bridge/v2/account/relay.ts': maxDurationSeconds(13, 15) + Math.ceil(RECEIPT_TIMEOUT_MS / 1000),
 };
+
+/**
+ * SPEC-BLOCO-03 Adenda E7: a relay campaign in FUNDING with no transaction
+ * recorded, older than this, belongs to a request that no longer runs — the
+ * route's own ceiling plus the margin FUNDING_STALE_MS gives a run — and is
+ * released.
+ */
+export const RELAYED_CAMPAIGN_STALE_MS = (ROUTE_MAX_DURATION_SECONDS['api/bridge/v2/account/relay.ts'] + 120) * 1000;
 
 /**
  * G4, checked rather than declared, exactly as the run budget above is.

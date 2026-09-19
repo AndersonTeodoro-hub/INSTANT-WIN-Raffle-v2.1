@@ -37,16 +37,15 @@ import {
 import { checked, getDb } from './db.js';
 import {
   accountById,
+  derivedWallets,
   pendingMigrations,
   sealMigration,
   touchMigration,
-  unsealedDerivedWallets,
   type Migration,
 } from './accounts.js';
 import { acquireFunder, disableFunder, randomFunderAddress, releaseFunder, renewLease, signAsFunder } from './funders.js';
 import { signAsDerived } from './wallet.js';
-import { accountState } from './keptraChain.js';
-import { accountUsable } from './keptra.js';
+import { readAccount } from './relay.js';
 
 // -----------------------------------------------------------------------------
 // what a derived wallet holds, and what is still tied to it
@@ -252,7 +251,8 @@ export async function migrateOne(
 
   // C4 as D1 reads it: value only ever goes to an account that exists with its
   // configuration. Until then nothing moves, and the wallet keeps its balance.
-  if (!accountUsable(await accountState(account.safe), account.deployedAt !== null)) {
+  // E3 and E10: whether it does is the chain's answer.
+  if (!(await readAccount(account)).usable) {
     await log.event('migration.waiting', { kind: migration.kind });
     return false;
   }
@@ -301,16 +301,28 @@ export async function migrateAuthorizedWallets(log: Logger, poolSize: number, de
  * has a balance (USDC, a prize token, a prize NFT) or a right still open. ETH
  * dust below what a sweep costs is not a balance here: A9 hands the ETH to the
  * existing sweep, which by design leaves what is not worth recovering.
+ *
+ * Adenda E1: every derived wallet is read, sealed or not, and any balance in
+ * any of them makes the answer "not ready" and raises an alert. A sealed
+ * wallet's rights were closed when it was sealed, and its key signs nothing
+ * since; only what it holds is asked.
  */
 export async function seedRetirementReadiness(
+  log: Logger,
   // G4: the maintenance pass bounds this like everything else it runs. A pass
   // that could not look at every wallet does not say "ready".
   hasTime: () => boolean = () => true,
-): Promise<{ ready: boolean; blocking: number; wallets: number }> {
-  const wallets = await unsealedDerivedWallets();
+): Promise<{ ready: boolean; blocking: number; holding: number; wallets: number }> {
+  const wallets = await derivedWallets();
   let blocking = 0;
+  let holding = 0;
+  let sealedHolding = 0;
+  let complete = true;
   for (const wallet of wallets) {
-    if (!hasTime()) return { ready: false, blocking, wallets: wallets.length };
+    if (!hasTime()) {
+      complete = false;
+      break;
+    }
     const migration: Migration = {
       id: '',
       walletIndex: wallet.walletIndex,
@@ -318,9 +330,16 @@ export async function seedRetirementReadiness(
       accountId: '',
       kind: wallet.kind,
     };
-    const held = await assetTransfers(migration, wallet.address);
-    if (held.length > 0 || (await openRights(wallet.kind, wallet.address)) > 0) blocking += 1;
+    const held = (await assetTransfers(migration, wallet.address)).length > 0;
+    if (held) {
+      holding += 1;
+      if (wallet.sealed) sealedHolding += 1;
+    }
+    if (held || (!wallet.sealed && (await openRights(wallet.kind, wallet.address)) > 0)) blocking += 1;
   }
-  return { ready: blocking === 0, blocking, wallets: wallets.length };
+  if (holding > 0) {
+    await alert(log, 'derived wallet holds a balance', { wallets: holding, sealed: sealedHolding });
+  }
+  return { ready: complete && blocking === 0, blocking, holding, wallets: wallets.length };
 }
 

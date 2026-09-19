@@ -3,10 +3,11 @@ import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { parseCredentialId, parseUint256 } from '../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
-import { accountState, signerAddressOf } from '../../../../lib/bridge-v2/keptraChain.js';
+import { signerAddressOf } from '../../../../lib/bridge-v2/keptraChain.js';
 import { ensureAccounts, liveRecovery, registerPasskey } from '../../../../lib/bridge-v2/accounts.js';
 import { guardianAddress } from '../../../../lib/bridge-v2/guardian.js';
-import { accountUsable, recoveryActive } from '../../../../lib/bridge-v2/keptra.js';
+import { recoveryActive } from '../../../../lib/bridge-v2/keptra.js';
+import { readAccount } from '../../../../lib/bridge-v2/relay.js';
 
 /** The P-256 field prime: a public key coordinate is below it. */
 const P256_P = BigInt('0xffffffff00000001000000000000000000000000' + 'ffffffffffffffffffffffff');
@@ -61,27 +62,26 @@ const route = handle('account/register', async ({ request, log }) => {
   if (passkey === 'TAKEN') return refuse(409, 'This passkey is already registered.');
 
   const accounts = await ensureAccounts(session.participantId, signer, guardianAddress());
-  const states = await Promise.all(accounts.map((account) => accountState(account.safe)));
+  // E3 and E10: read from the chain, and marked deployed if it holds them configured.
+  const views = await Promise.all(accounts.map((account) => readAccount(account)));
   const recovery = await liveRecovery(session.participantId);
   await log.event('account.registered');
 
-  const usable = accounts.map((account, i) => accountUsable(states[i], account.deployedAt !== null));
-
   return ok({
     signer,
-    accounts: accounts.map((account, i) => ({
+    accounts: views.map(({ account, state, usable }) => ({
       role: account.role,
       // C4 as D1 reads it: an account's address is shown only once it exists
       // on-chain with its configuration; before that it is not a place to send
       // anything. The page asks for `configure` (account/relay) and reads it
       // again. A configured account whose guardian was revoked stays usable.
-      address: usable[i] ? account.safe : null,
-      deployed: states[i].deployed,
-      configured: usable[i],
+      address: usable ? account.safe : null,
+      deployed: state.deployed,
+      configured: usable,
       // A6 and C6: read from the chain against the CURRENT guardian, so an account
       // that revoked its guardian, or still holds one rotated away, shows no
       // recovery until it adds the new one.
-      recoveryEnabled: recoveryActive(states[i], guardianAddress()),
+      recoveryEnabled: recoveryActive(state, guardianAddress()),
     })),
     recovery: recovery === null ? null : { status: recovery.status, executeAfter: recovery.executeAfter },
   });

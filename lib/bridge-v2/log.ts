@@ -80,6 +80,10 @@ export type OpsKind =
   | 'account.refused'
   // Adenda D4: an account not deployed yet took the new passkey's address.
   | 'account.readdressed'
+  // Adenda E3: an account found on-chain as 6.1 says, with no mark, was marked.
+  | 'account.recognized'
+  // Adenda E7: a relay campaign whose transaction never landed went back to PENDING_DEPOSIT.
+  | 'creator_campaign.released'
   | 'entry.reminded'
   | 'recovery.requested'
   | 'recovery.verified'

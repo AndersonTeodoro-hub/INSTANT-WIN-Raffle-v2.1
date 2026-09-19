@@ -89,6 +89,17 @@ const ABI = parseAbi([
   'function claimable(uint256,address) view returns (uint256)',
   'event Approval(address indexed owner, address indexed spender, uint256 value)',
   'event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)',
+  // Adenda E9: read by these tests only, so declared here and not in keptra.ts.
+  'function VERSION() view returns (string)',
+  'function isModuleEnabled(address) view returns (bool)',
+  'function setApprovalForAll(address,bool)',
+  'function lotsOf(uint256) view returns ((uint256,uint256,uint256)[])',
+  'function proxyCreationCode() pure returns (bytes)',
+  'function isGuardian(address,address) view returns (bool)',
+  'function guardiansCount(address) view returns (uint256)',
+  'event Created(address indexed signer, uint256 x, uint256 y, uint176 verifiers)',
+  'event RecoveryCanceled(address indexed wallet, uint256 nonce)',
+  'event NonceInvalidated(address indexed wallet, uint256 nonce)',
 ]);
 
 const read = (address, abi, functionName, args = []) => client.readContract({ address, abi, functionName, args });
@@ -194,7 +205,7 @@ await test(['KM44'], 'the on-chain harness refuses any node that is not 127.0.0.
 // ===========================================================================
 
 await test(['KM8'], 'the proxy creation code the address is computed from is the factory’s own', async () => {
-  const code = await read(keptra.SAFE_PROXY_FACTORY, keptra.PROXY_FACTORY_ABI, 'proxyCreationCode');
+  const code = await read(keptra.SAFE_PROXY_FACTORY, ABI, 'proxyCreationCode');
   assert.equal(code.toLowerCase(), keptra.PROXY_CREATION_CODE.toLowerCase());
 });
 
@@ -285,7 +296,7 @@ await test(['KM3'], 'the account is a proxy of SafeL2 1.4.1', async () => {
   // The proxy keeps its singleton in slot 0.
   const word = await client.getStorageAt({ address: creator.creator.safe, slot: '0x0' });
   assert.equal(`0x${word.slice(-40)}`.toLowerCase(), keptra.SAFE_L2_SINGLETON.toLowerCase());
-  assert.equal(await read(creator.creator.safe, keptra.SAFE_ABI, 'VERSION'), '1.4.1');
+  assert.equal(await read(creator.creator.safe, ABI, 'VERSION'), '1.4.1');
 });
 
 /** 6.1.2: the v0.2.1 SharedSigner, named here and only here (C13) to show it is never an owner. */
@@ -302,7 +313,7 @@ await test(['KM4', 'KM1'], 'the only owner is the passkey signer, threshold 1, d
 });
 
 await test(['KM5'], 'the signer was created with the precompile-only verifiers', async () => {
-  const created = parseEventLogs({ abi: keptra.SIGNER_FACTORY_ABI, eventName: 'Created', logs: createReceipt.logs }).filter(
+  const created = parseEventLogs({ abi: ABI, eventName: 'Created', logs: createReceipt.logs }).filter(
     (event) => event.address.toLowerCase() === keptra.SIGNER_FACTORY.toLowerCase(),
   );
   assert.equal(created.length, 1);
@@ -313,10 +324,10 @@ await test(['KM5'], 'the signer was created with the precompile-only verifiers',
 
 await test(['KM6', 'KM7'], 'the recovery module is the only module, with one guardian and threshold 1', async () => {
   const state = await kchain.accountState(creator.creator.safe);
-  assert.equal(await read(creator.creator.safe, keptra.SAFE_ABI, 'isModuleEnabled', [keptra.RECOVERY_MODULE]), true);
+  assert.equal(await read(creator.creator.safe, ABI, 'isModuleEnabled', [keptra.RECOVERY_MODULE]), true);
   assert.deepEqual(state.modules.map((m) => m.toLowerCase()), [keptra.RECOVERY_MODULE.toLowerCase()]);
-  assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'guardiansCount', [creator.creator.safe]), 1n);
-  assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [creator.creator.safe, guardianAddress()]), true);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [creator.creator.safe]), 1n);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [creator.creator.safe, guardianAddress()]), true);
   assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'threshold', [creator.creator.safe]), 1n);
 });
 
@@ -330,11 +341,12 @@ await test(['KM20', 'AC14'], 'the fallback handler is the CompatibilityFallbackH
     kchain.configurationRefusal({ ...state, fallbackHandler: keptra.RECOVERY_MODULE }, guardianAddress(), [creator.signer]),
     'module_is_fallback_handler',
   );
-  // C14: markDeployed ran, for this very transaction — not just "some value".
+  // C14: markDeployed ran after this very transaction (the mark was absent
+  // before it, KM8 above), once the chain showed the account configured.
   const row = store.rows('bridge_v2_accounts').find((a) => a.id === creator.creator.id);
   assert.equal(typeof row.deployed_at, 'string', 'deployed_at was never written');
   assert.ok(Number.isFinite(Date.parse(row.deployed_at)), `deployed_at is not a time: ${row.deployed_at}`);
-  assert.equal(row.deploy_tx_hash, createTxHash);
+  assert.equal(row.deploy_tx_hash, undefined, 'E9: deploy_tx_hash is written again');
 });
 
 // ===========================================================================
@@ -697,7 +709,7 @@ await test(['KM16', 'KM18'], 'the old passkey cancels: cancelRecovery and invali
   assert.equal(keptra.callsOf(prepared.tx).length, 2);
   const submitted = await relayAs('lost-1', lostKey, { kind: 'cancelRecovery' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
-  const events = parseEventLogs({ abi: keptra.RECOVERY_MODULE_ABI, logs: submitted.receipt.logs }).map((e) => e.eventName);
+  const events = parseEventLogs({ abi: ABI, logs: submitted.receipt.logs }).map((e) => e.eventName);
   assert.ok(events.includes('RecoveryCanceled') && events.includes('NonceInvalidated'), `events were ${events}`);
   assert.equal(BigInt((await moduleRequest()).executeAfter), 0n);
   assert.match((await finalizeReason()) ?? '', /SM: no ongoing recovery/);
@@ -798,7 +810,7 @@ await test(['KM19', 'AC2'], 'R-3 as A6 corrects it: with a recovery pending, one
   assert.equal(keptra.callsOf(prepared.tx).length, 3);
   const submitted = await relayAs('revoke-1', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
-  assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'guardiansCount', [subject.participant.safe]), 0n);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [subject.participant.safe]), 0n);
   assert.equal(BigInt((await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'getRecoveryRequest', [subject.participant.safe])).executeAfter), 0n);
 
   const guardian = guardianAddress();
@@ -816,7 +828,7 @@ await test(['KM19', 'AC2'], 'R-3 as A6 corrects it: with a recovery pending, one
   // it keeps every other action meanwhile is the AD1 test below.)
   const added = await relayAs('revoke-1', key, { kind: 'configure' }, 'PARTICIPANT');
   assert.equal(added.receipt.status, 'success');
-  assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [subject.participant.safe, guardian]), true);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [subject.participant.safe, guardian]), true);
 });
 
 await test(['KM19'], 'R-3 with no recovery pending does not revert: invalidate and revoke only (A6)', async () => {
@@ -827,7 +839,7 @@ await test(['KM19'], 'R-3 with no recovery pending does not revert: invalidate a
   assert.equal(keptra.callsOf(prepared.tx).length, 2);
   const submitted = await relayAs('revoke-2', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
   assert.equal(submitted.receipt.status, 'success');
-  assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'guardiansCount', [subject.participant.safe]), 0n);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [subject.participant.safe]), 0n);
 });
 
 await test(['AD1', 'KM12', 'KM19'], 'D1: after R-3 the account keeps working with no guardian; during an incident configure waits for the rotation, then adds the new key', async () => {
@@ -861,7 +873,7 @@ await test(['AD1', 'KM12', 'KM19'], 'D1: after R-3 the account keeps working wit
     const rotated = guardianAddress();
     assert.equal((await relayAs('incident-1', second, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
     assert.deepEqual((await guardians()).map((g) => g.toLowerCase()), [rotated.toLowerCase()]);
-    assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [safe, compromised]), false);
+    assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [safe, compromised]), false);
   } finally {
     process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
     // The incident was this test's; the tests after it use the suite's guardian key.
@@ -905,7 +917,7 @@ await test(['KM32', 'KM34', 'KM2', 'AC1'], 'a derived wallet with USDC: authoris
   // C4: the account exists, configured, before it is a destination.
   assert.equal((await relayAs('legacy-1', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
 
-  const before = await migration.seedRetirementReadiness();
+  const before = await migration.seedRetirementReadiness(log);
   assert.equal(before.ready, false, 'readiness said ready with a derived wallet holding USDC');
 
   assert.equal(await authorize('legacy-1', key, 'PARTICIPANT', derivedAddress, account), 'AUTHORIZED');
@@ -933,9 +945,24 @@ await test(['KM33', 'AC1'], 'the same for a creator’s derived wallet', async (
   await assert.rejects(wallet.signAsDerived(creatorIndex, { chainId: 42161, to: creatorDerived, gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 0n, nonce: 0 }), /sealed/);
 });
 
-await test(['KM34'], 'with every derived wallet empty and sealed, the seed can be retired', async () => {
-  const after = await migration.seedRetirementReadiness();
-  assert.equal(after.ready, true, `still blocking: ${after.blocking}`);
+await test(['KM34', 'AE1', 'AE11'], 'with every derived wallet empty and sealed, the seed can be retired — the sealed ones read on-chain and shown empty; a balance in one keeps the seed, with an alert', async () => {
+  // E1: both wallets are sealed, and both are read — their balances, on-chain.
+  assert.equal(await accounts.isIndexSealed(derivedIndex), true);
+  assert.equal(await accounts.isIndexSealed(creatorIndex), true);
+  for (const address of [derivedAddress, creatorDerived]) assert.equal(await usdcOf(address), 0n, `${address} is sealed and not empty`);
+  const after = await migration.seedRetirementReadiness(log);
+  assert.deepEqual([after.ready, after.wallets, after.holding], [true, 2, 0], `still blocking: ${after.blocking}`);
+  // Something arrives in a sealed wallet: not ready, and an alert says so.
+  await setUsdcBalance(rpc, USDC, creatorDerived, 1n);
+  const watched = recordingLogger();
+  const holding = await migration.seedRetirementReadiness(watched);
+  assert.deepEqual([holding.ready, holding.holding], [false, 1], 'a sealed wallet holding USDC was reported ready');
+  assert.deepEqual(
+    watched.events.filter((e) => e.kind === 'alert').map((e) => [e.detail.summary, e.detail.sealed]),
+    [['derived wallet holds a balance', 1]],
+  );
+  await setUsdcBalance(rpc, USDC, creatorDerived, 0n);
+  assert.equal((await migration.seedRetirementReadiness(log)).ready, true);
 });
 
 await test(['KM34', 'KM2'], 'a derived wallet with a right still open is moved but not sealed (A8)', async () => {
@@ -957,7 +984,7 @@ await test(['KM34', 'KM2'], 'a derived wallet with a right still open is moved b
   assert.equal(await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, tick()), 0);
   assert.equal(await usdcOf(account.safe), 700_000n, 'the balance was not moved');
   assert.equal(await accounts.isIndexSealed(index), false, 'sealed with a right still open');
-  assert.equal((await migration.seedRetirementReadiness()).ready, false);
+  assert.equal((await migration.seedRetirementReadiness(log)).ready, false);
 });
 
 // ===========================================================================
@@ -1014,9 +1041,9 @@ await test(['AC2', 'KM6', 'KM20'], 'an account somebody else deployed bare is re
   assert.equal(completed.receipt.status, 'success');
   const state = await kchain.accountState(subject.creator.safe);
   assert.equal(kchain.configurationRefusal(state, guardianAddress(), [subject.signer]), null);
-  assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [subject.creator.safe, guardianAddress()]), true);
+  assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [subject.creator.safe, guardianAddress()]), true);
   const row = store.rows('bridge_v2_accounts').find((a) => a.id === subject.creator.id);
-  assert.equal(row.deploy_tx_hash, completed.txHash, 'the completed account was not marked');
+  assert.equal(typeof row.deployed_at, 'string', 'the completed account was not marked');
   await assert.rejects(relay.prepareAction('bare-1', { kind: 'configure' }, 'CREATOR'), (error) => error.reason === 'already_configured');
 });
 
@@ -1066,7 +1093,7 @@ await test(['AC6', 'AC4', 'KM19'], 'after a guardian rotation the page is told t
     assert.equal((await participantView()).recoveryEnabled, false);
     assert.equal((await relayAs('rotate-1', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
     assert.equal((await participantView()).recoveryEnabled, true);
-    assert.equal(await read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'isGuardian', [subject.participant.safe, guardianAddress()]), true);
+    assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'isGuardian', [subject.participant.safe, guardianAddress()]), true);
   } finally {
     process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
   }
@@ -1174,24 +1201,30 @@ await test(['AD3', 'KM6'], 'D3: at 24 hours a request the guardian confirmed on-
   assert.equal(partial.status, 'CANCELED');
 });
 
-await test(['AC11'], 'three guardian changes in 24 hours are paid by the relayer; the fourth is refused before anything is signed or sent', async () => {
+await test(['AC11', 'AE2'], 'three guardians added back in 24 hours are paid by the relayer; the fourth is refused before anything is signed or sent; a revocation never is', async () => {
   const key = await createPasskey();
   const subject = await registerParticipant('cap-1', key);
   assert.equal((await relayAs('cap-1', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
-  for (const kind of ['revokeGuardian', 'configure', 'revokeGuardian']) {
+  for (const kind of ['revokeGuardian', 'configure', 'revokeGuardian', 'configure', 'revokeGuardian', 'configure', 'revokeGuardian']) {
     assert.equal((await relayAs('cap-1', key, { kind }, 'PARTICIPANT')).receipt.status, 'success', kind);
   }
-  const guardians = () => read(keptra.RECOVERY_MODULE, keptra.RECOVERY_MODULE_ABI, 'guardiansCount', [subject.participant.safe]);
+  const guardians = () => read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [subject.participant.safe]);
   assert.equal(await guardians(), 0n);
   const sentBefore = await client.getTransactionCount({ address: funderAddress(0) });
   await assert.rejects(relayAs('cap-1', key, { kind: 'configure' }, 'PARTICIPANT'), (error) => error.reason === 'guardian_change_limit');
   assert.equal(await client.getTransactionCount({ address: funderAddress(0) }), sentBefore, 'the relayer sent something');
   const changes = store.rows('bridge_v2_guardian_changes').filter((row) => row.account_id === subject.participant.id);
-  assert.equal(changes.length, 3, 'the creation counted as a change, or a change went unrecorded');
+  assert.equal(changes.length, 3, 'the creation or a revocation counted as a change, or a change went unrecorded');
   // A day later the window has moved on.
   for (const row of changes) row.created_at = new Date(Date.now() - 25 * 3_600_000).toISOString();
   assert.equal((await relayAs('cap-1', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
   assert.equal(await guardians(), 1n);
+  // E2: with the three re-additions used again, the reaction to a compromise still goes out.
+  for (const kind of ['revokeGuardian', 'configure', 'revokeGuardian', 'configure']) {
+    assert.equal((await relayAs('cap-1', key, { kind }, 'PARTICIPANT')).receipt.status, 'success', kind);
+  }
+  assert.equal((await relayAs('cap-1', key, { kind: 'revokeGuardian' }, 'PARTICIPANT')).receipt.status, 'success', 'a revocation was refused');
+  assert.equal(await guardians(), 0n);
 });
 
 // --- B5: a prize that is not USDC, from a creator account ------------------------
@@ -1255,7 +1288,58 @@ await test(['KM27', 'KM28', 'AC14'], 'B5: a creator account with a non-USDC priz
 
 // --- an NFT prize claimed through a prize module ------------------------------------
 
-await test(['KM25', 'KM26', 'AC14'], 'an NFT prize is claimed by the account through the ERC-721 prize module, which delivers it with safeTransferFrom', async () => {
+/**
+ * Ten entrants in an NFT campaign — the player's account, entering with its
+ * passkey, and nine others — then close, draw and settle on a seed that makes the
+ * account the one winner. The ERC-721 claim and the ERC-1155 claim (E11) share it.
+ */
+async function playerWins(nftGiveaway) {
+    // Ten entrants: the player's account, entering with its passkey, and nine others.
+    const entrants = Array.from({ length: 9 }, () => privateKeyToAccount(generatePrivateKey()).address);
+    for (const entrant of entrants) {
+      await rpc.setBalance(entrant, 10n ** 17n);
+      await rpc.impersonate(entrant);
+    }
+    const nftTree = buildTree([player.participant.safe, ...entrants].map((a) => a.toLowerCase()));
+    await rpc.impersonate(bridgeRole);
+    await rpc.send({ from: bridgeRole, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName: 'addEligibilityRoot', args: [nftGiveaway, nftTree.root] }) });
+    await rpc.stopImpersonating(bridgeRole);
+    const nftRoot = store.insert('bridge_v2_eligibility_roots', { giveaway_id: nftGiveaway.toString(), root_index: '0', root: nftTree.root, leaf_count: 10 });
+    nftTree.addresses.forEach((address, position) => store.insert('bridge_v2_eligibility_leaves', { root_id: nftRoot.id, address, position }));
+    store.insert('bridge_v2_entries', { participant_id: 'player-1', giveaway_id: nftGiveaway.toString(), status: 'ELIGIBLE', wallet_address: player.participant.safe, root_index: '0', self_custody: true, passkey: true, outcome: null });
+    assert.equal((await relayAs('player-1', playerKey, { kind: 'enter', giveawayId: nftGiveaway })).receipt.status, 'success');
+    for (const entrant of entrants) {
+      const position = nftTree.addresses.indexOf(entrant.toLowerCase());
+      const entered = await rpc.send({ from: entrant, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName: 'enter', args: [nftGiveaway, 0n, proofFor(nftTree, position)] }) });
+      assert.equal(entered.status, '0x1');
+    }
+
+    // Close, draw, and settle on a seed that makes the account the one winner:
+    // each seed is tried on a snapshot and thrown away if it does not.
+    await rpc.increaseTime(3_700);
+    const caller = entrants[0];
+    const call = (functionName) => rpc.send({ from: caller, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName, args: [nftGiveaway] }) });
+    assert.equal((await call('closeGiveaway')).status, '0x1');
+    assert.equal((await call('requestDraw')).status, '0x1');
+    const { vrfRequestId } = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [nftGiveaway]);
+    const coordinator = await read(GIVEAWAY_MANAGER_V2, ABI, 'vrfCoordinator');
+    await rpc.setBalance(coordinator, 10n ** 18n);
+    let won = false;
+    for (let word = 1n; word <= 200n && !won; word += 1n) {
+      const attempt = await rpc.snapshot();
+      await rpc.impersonate(caller);
+      await rpc.impersonate(coordinator);
+      await rpc.send({ from: coordinator, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName: 'rawFulfillRandomWords', args: [vrfRequestId, [word]] }) });
+      await rpc.stopImpersonating(coordinator);
+      assert.equal((await call('finalizeWinners')).status, '0x1');
+      won = (await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'claimable', [nftGiveaway, player.participant.safe])) > 0n;
+      if (!won) await rpc.revert(attempt);
+    }
+    for (const entrant of entrants) await rpc.stopImpersonating(entrant);
+    assert.ok(won, 'no seed in 200 made the account the winner');
+}
+
+await test(['KM25', 'KM26', 'AC14', 'AE11'], 'an NFT prize is claimed by the account through the ERC-721 prize module, which delivers it with safeTransferFrom, and leaves by the relay’s transfer action', async () => {
   // The registered ERC-721 prize module: the one of the two NFT modules with itemsOf.
   let module721 = null;
   for (const candidate of ['0xafe9E198816DEa24e7f74e9D666c0F250aD688BC', '0xeb54e328F9F38222FA91e29D6c0367342B8EFD50']) {
@@ -1297,49 +1381,7 @@ await test(['KM25', 'KM26', 'AC14'], 'an NFT prize is claimed by the account thr
   const nftGiveaway = giveawayIdFromLogs(created.logs);
   assert.ok(nftGiveaway !== null && nftGiveaway > giveawayId);
 
-  // Ten entrants: the player's account, entering with its passkey, and nine others.
-  const entrants = Array.from({ length: 9 }, () => privateKeyToAccount(generatePrivateKey()).address);
-  for (const entrant of entrants) {
-    await rpc.setBalance(entrant, 10n ** 17n);
-    await rpc.impersonate(entrant);
-  }
-  const nftTree = buildTree([player.participant.safe, ...entrants].map((a) => a.toLowerCase()));
-  await rpc.impersonate(bridgeRole);
-  await rpc.send({ from: bridgeRole, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName: 'addEligibilityRoot', args: [nftGiveaway, nftTree.root] }) });
-  await rpc.stopImpersonating(bridgeRole);
-  const nftRoot = store.insert('bridge_v2_eligibility_roots', { giveaway_id: nftGiveaway.toString(), root_index: '0', root: nftTree.root, leaf_count: 10 });
-  nftTree.addresses.forEach((address, position) => store.insert('bridge_v2_eligibility_leaves', { root_id: nftRoot.id, address, position }));
-  store.insert('bridge_v2_entries', { participant_id: 'player-1', giveaway_id: nftGiveaway.toString(), status: 'ELIGIBLE', wallet_address: player.participant.safe, root_index: '0', self_custody: true, passkey: true, outcome: null });
-  assert.equal((await relayAs('player-1', playerKey, { kind: 'enter', giveawayId: nftGiveaway })).receipt.status, 'success');
-  for (const entrant of entrants) {
-    const position = nftTree.addresses.indexOf(entrant.toLowerCase());
-    const entered = await rpc.send({ from: entrant, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName: 'enter', args: [nftGiveaway, 0n, proofFor(nftTree, position)] }) });
-    assert.equal(entered.status, '0x1');
-  }
-
-  // Close, draw, and settle on a seed that makes the account the one winner:
-  // each seed is tried on a snapshot and thrown away if it does not.
-  await rpc.increaseTime(3_700);
-  const caller = entrants[0];
-  const call = (functionName) => rpc.send({ from: caller, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName, args: [nftGiveaway] }) });
-  assert.equal((await call('closeGiveaway')).status, '0x1');
-  assert.equal((await call('requestDraw')).status, '0x1');
-  const { vrfRequestId } = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [nftGiveaway]);
-  const coordinator = await read(GIVEAWAY_MANAGER_V2, ABI, 'vrfCoordinator');
-  await rpc.setBalance(coordinator, 10n ** 18n);
-  let won = false;
-  for (let word = 1n; word <= 200n && !won; word += 1n) {
-    const attempt = await rpc.snapshot();
-    await rpc.impersonate(caller);
-    await rpc.impersonate(coordinator);
-    await rpc.send({ from: coordinator, to: GIVEAWAY_MANAGER_V2, data: encodeFunctionData({ abi: ABI, functionName: 'rawFulfillRandomWords', args: [vrfRequestId, [word]] }) });
-    await rpc.stopImpersonating(coordinator);
-    assert.equal((await call('finalizeWinners')).status, '0x1');
-    won = (await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'claimable', [nftGiveaway, player.participant.safe])) > 0n;
-    if (!won) await rpc.revert(attempt);
-  }
-  for (const entrant of entrants) await rpc.stopImpersonating(entrant);
-  assert.ok(won, 'no seed in 200 made the account the winner');
+  await playerWins(nftGiveaway);
 
   // The claim, signed by the passkey: the module sends the NFT into the account.
   const claimed = await relayAs('player-1', playerKey, { kind: 'claim', giveawayId: nftGiveaway });
@@ -1350,6 +1392,286 @@ await test(['KM25', 'KM26', 'AC14'], 'an NFT prize is claimed by the account thr
   await assert.rejects(relay.prepareAction('player-1', { kind: 'transfer', giveawayId: nftGiveaway, to: destination, amount: 2n }, null), (error) => error.reason === 'amount');
   assert.equal((await relayAs('player-1', playerKey, { kind: 'transfer', giveawayId: nftGiveaway, to: destination, amount: 1n })).receipt.status, 'success');
   assert.equal((await read(NPM, ABI, 'ownerOf', [tokenId])).toLowerCase(), destination.toLowerCase());
+});
+
+// ===========================================================================
+// Adenda E — the decisions after the final audit of piece 1, on the real contracts (AEn)
+// ===========================================================================
+
+/** A creator whose deposit address is the creator account (6.6.3), as creator/campaign/start leaves it. */
+async function accountCreator(id, key) {
+  const subject = await registerParticipant(id, key);
+  const creatorRow = store.insert('bridge_v2_creators', { participant_id: id, wallet_index: null, wallet_address: subject.creator.safe });
+  return { ...subject, creatorRow };
+}
+
+/** A draft priced as creator-1's: ten USDC to ten winners. */
+const draftFor = (creatorId, status = 'PENDING_DEPOSIT', extra = {}) =>
+  store.insert('bridge_v2_creator_campaigns', {
+    creator_id: creatorId,
+    status,
+    module: ERC20_PRIZE_MODULE,
+    prize_token: USDC,
+    prize_amount: PRIZE.toString(),
+    duration_seconds: '3600',
+    winners_count: 10,
+    slot_cap: 10,
+    fee_amount: fee.toString(),
+    slots_cost: slotsCost.toString(),
+    giveaway_id: null,
+    tx_hash: null,
+    ...extra,
+  });
+
+await test(['AE3', 'AE7', 'AE10', 'AE11', 'KM8'], 'E3, E7, E10: the receipt of a creator account’s first transaction never comes — the next maintenance pass recognises the account from the chain and registers the campaign it created; its guardian revoked, it stays usable', async () => {
+  const key = await createPasskey();
+  const subject = await accountCreator('receipt-1', key);
+  const draft = draftFor(subject.creatorRow.id);
+  await setUsdcBalance(rpc, USDC, subject.creator.safe, PRIZE + fee + slotsCost);
+  // The node takes the transaction and mines nothing until told to, so the relay's
+  // bounded wait for the receipt runs out (RECEIPT_TIMEOUT_MS, the production value).
+  await rpc.call('evm_setAutomine', [false]);
+  let submitted;
+  try {
+    submitted = await relayAs('receipt-1', key, { kind: 'createCampaign' });
+  } finally {
+    await rpc.call('evm_mine', []);
+    await rpc.call('evm_setAutomine', [true]);
+  }
+  assert.equal(submitted.receipt, null, 'the receipt came after all');
+  const row = store.rows('bridge_v2_accounts').find((a) => a.id === subject.creator.id);
+  assert.equal(row.deployed_at ?? null, null, 'marked without a receipt');
+  assert.deepEqual([draft.status, draft.tx_hash], ['FUNDING', submitted.txHash], 'E7: the transaction is not on the draft');
+  // The chain has both: the account, configured as 6.1 says, and the campaign.
+  const mined = await client.getTransactionReceipt({ hash: submitted.txHash });
+  assert.equal(mined.status, 'success');
+  assert.equal(kchain.configurationRefusal(await kchain.accountState(subject.creator.safe), guardianAddress(), [subject.signer]), null);
+
+  // The next maintenance pass: E3 recognises the account, E7 registers the campaign.
+  assert.ok((await relay.recognizeDeployedAccounts(log, tick())) >= 1);
+  assert.equal(typeof row.deployed_at, 'string', 'E3: the account was not recognised');
+  assert.equal(await relay.reconcileRelayedCampaigns(log, tick()), 1);
+  const { giveawayIdFromLogs } = await import('../../../lib/bridge-v2/chain.ts');
+  const created = giveawayIdFromLogs(mined.logs);
+  assert.ok(created !== null);
+  assert.deepEqual([draft.status, draft.giveaway_id, draft.tx_hash], ['CONFIRMED', created.toString(), submitted.txHash]);
+  const recorded = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [created]);
+  assert.equal(recorded.creator.toLowerCase(), subject.creator.safe.toLowerCase());
+
+  // E10: configured once, as the chain showed it, so a guardian its user revokes (R-3) leaves it usable.
+  assert.equal((await relayAs('receipt-1', key, { kind: 'revokeGuardian' }, 'CREATOR')).receipt.status, 'success');
+  const view = await relay.readAccount(await accounts.findAccount('receipt-1', 'CREATOR'));
+  assert.deepEqual([view.state.guardians.length, view.configured, view.usable], [0, true, true]);
+});
+
+await test(['AE7', 'AE11'], 'E7: a relay campaign whose transaction the node never knew is released by the next pass, and the deposit still in the creator account is signed for again', async () => {
+  const key = await createPasskey();
+  const subject = await accountCreator('dropped-1', key);
+  // C4: the account exists, configured, before the deposit.
+  assert.equal((await relayAs('dropped-1', key, { kind: 'configure' }, 'CREATOR')).receipt.status, 'success');
+  await setUsdcBalance(rpc, USDC, subject.creator.safe, PRIZE + fee + slotsCost);
+  // A transaction recorded on the draft that was never mined, and that the node does not know.
+  const lost = keccak256(toHex('keptra-e7-dropped'));
+  const draft = draftFor(subject.creatorRow.id, 'FUNDING', { tx_hash: lost });
+  await assert.rejects(relay.prepareAction('dropped-1', { kind: 'createCampaign' }, null), (error) => error.reason === 'campaign_in_flight');
+  assert.equal(await relay.reconcileRelayedCampaigns(log, tick()), 1);
+  assert.deepEqual([draft.status, draft.tx_hash], ['PENDING_DEPOSIT', null]);
+  const signed = await relayAs('dropped-1', key, { kind: 'createCampaign' });
+  assert.equal(signed.receipt.status, 'success');
+  assert.deepEqual([draft.status, draft.giveaway_id], ['CONFIRMED', signed.giveawayId.toString()]);
+  const recorded = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [signed.giveawayId]);
+  assert.equal(recorded.creator.toLowerCase(), subject.creator.safe.toLowerCase());
+  assert.equal(await usdcOf(subject.creator.safe), 0n);
+});
+
+await test(['AE2', 'AE11', 'KM16', 'KM18', 'KM19'], 'E2 on the real contracts: the 21st relayed transaction of the day is refused before anything is sent; the guardian’s confirmation still goes out, and the cancellation and the reaction to a compromise go out with the spend ceiling exhausted', async () => {
+  const key = await createPasskey();
+  const subject = await registerParticipant('volume-1', key);
+  const safe = subject.participant.safe;
+  assert.equal((await relayAs('volume-1', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
+  await setUsdcBalance(rpc, USDC, safe, 100n);
+  const unit = { kind: 'transfer', giveawayId, to: destination, amount: 1n };
+  for (let i = 0; i < 19; i += 1) assert.equal((await relayAs('volume-1', key, unit)).receipt.status, 'success', `transfer ${i}`);
+  const counted = () => store.rows('bridge_v2_relayed_transactions').filter((row) => row.account_id === subject.participant.id).length;
+  assert.equal(counted(), 20);
+  assert.equal(await usdcOf(safe), 81n);
+  const sentBefore = await client.getTransactionCount({ address: funderAddress(0) });
+  await assert.rejects(relayAs('volume-1', key, unit), (error) => error.reason === 'relay_limit');
+  assert.equal(await client.getTransactionCount({ address: funderAddress(0) }), sentBefore, 'the relayer sent the 21st');
+  assert.equal(await usdcOf(safe), 81n);
+
+  // A change of access: the guardian's confirmation is the bridge's transaction, not the account's.
+  const replacement = await createPasskey();
+  const replacementSigner = await kchain.signerAddressOf(replacement.x, replacement.y);
+  const passkey = await accounts.registerPasskey('volume-1', replacement.credentialId, replacement.x, replacement.y, replacementSigner);
+  const request_ = store.insert('bridge_v2_recoveries', {
+    participant_id: 'volume-1',
+    passkey_id: passkey.id,
+    status: 'PHONE_VERIFIED',
+    link_code_hash: 'volume-h',
+    link_expires_at: new Date(Date.now() + 60_000).toISOString(),
+  });
+  assert.equal(await recovery.confirmVerifiedRecoveries(log, tick()), 1);
+  assert.equal(request_.status, 'CONFIRMED');
+  // The shared spend ceiling is exhausted: nothing else the bridge pays for goes out.
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: false, error: null }));
+  try {
+    await assert.rejects(relay.sendAsRelayer([keptra.createSignerCall(replacement.x, replacement.y)], log).then((sent) => {
+      if (sent === null) throw new Error('refused');
+    }), /refused/);
+    const cancelled = await relayAs('volume-1', key, { kind: 'cancelRecovery' }, 'PARTICIPANT');
+    assert.equal(cancelled.receipt.status, 'success');
+    const events = parseEventLogs({ abi: ABI, logs: cancelled.receipt.logs }).map((e) => e.eventName);
+    assert.ok(events.includes('RecoveryCanceled') && events.includes('NonceInvalidated'), `events were ${events}`);
+    const revoked = await relayAs('volume-1', key, { kind: 'revokeGuardian' }, 'PARTICIPANT');
+    assert.equal(revoked.receipt.status, 'success');
+    assert.equal(await read(keptra.RECOVERY_MODULE, ABI, 'guardiansCount', [safe]), 0n);
+  } finally {
+    db.on('rpc:bridge_v2_claim_spend', () => ({ data: true, error: null }));
+  }
+  assert.equal(counted(), 20, 'an always-possible transaction was counted');
+  await recovery.advanceConfirmedRecoveries(log, tick());
+  assert.equal(request_.status, 'CANCELED');
+});
+
+await test(['AE1', 'AE11', 'KM33'], 'E1 on the real contracts: after its derived wallet is migrated and sealed, the creator is handed its creator account as the deposit address and creates the campaign from it', async () => {
+  const index = 905;
+  const derived = wallet.addressOf(index);
+  const key = await createPasskey();
+  const signer = await kchain.signerAddressOf(key.x, key.y);
+  store.insert('bridge_v2_participants', { id: 'sealed-creator', email_canonical: 'sealed@example.test', wallet_index: null, wallet_address: null, telegram_chat_enc: null });
+  store.insert('bridge_v2_creators', { participant_id: 'sealed-creator', wallet_index: index, wallet_address: derived });
+  store.insert('bridge_v2_phones', { participant_id: 'sealed-creator', phone_hmac: 'sealed-phone', released_at: null });
+  await accounts.registerPasskey('sealed-creator', key.credentialId, key.x, key.y, signer);
+  const [account] = (await accounts.ensureAccounts('sealed-creator', signer, guardianAddress())).filter((a) => a.role === 'CREATOR');
+  await setUsdcBalance(rpc, USDC, derived, 2_000_000n);
+  assert.equal((await relayAs('sealed-creator', key, { kind: 'configure' }, 'CREATOR')).receipt.status, 'success');
+  // Authorised, moved and sealed as KM33 does it.
+  const challenge = keptra.migrationChallenge(derived, account.safe);
+  const assertion = await key.sign(challenge);
+  const signature = keptra.assertionToSignature(challenge, assertion.authenticatorData, assertion.clientDataJSON, assertion.signature);
+  assert.equal(await kchain.isValidPasskeySignature(challenge, signature, key.x, key.y), true);
+  await accounts.authorizeMigration(index, derived, account.id, 'CREATOR');
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await accounts.isIndexSealed(index), true);
+  assert.equal(await usdcOf(account.safe), 2_000_000n);
+
+  // The creator starts a campaign: the address handed out is the creator account's, never the sealed wallet's.
+  sessionFor('sealed-creator');
+  const startRoute = await import('../../../api/bridge/v2/creator/campaign/start.ts');
+  const statusRoute = await import('../../../api/bridge/v2/creator/campaign/status.ts');
+  const started = await startRoute.POST(
+    request('https://events.invalid/api/bridge/v2/creator/campaign/start', {
+      cookie: 'iw_bridge_session=a-token-value',
+      body: { module: ERC20_PRIZE_MODULE, prizeToken: USDC, prizeAmount: PRIZE.toString(), durationSeconds: 3600, winnersCount: 10, slotCap: 10 },
+    }),
+  );
+  assert.equal(started.status, 200);
+  const handed = await started.json();
+  assert.equal(handed.depositAddress, account.safe, 'the sealed derived wallet was handed out');
+  const status = await (await statusRoute.POST(request('https://events.invalid/api/bridge/v2/creator/campaign/status', { cookie: 'iw_bridge_session=a-token-value' }))).json();
+  assert.equal(status.depositAddress, account.safe);
+  // The deposit arrives there, and the creator account creates the campaign with its passkey.
+  await setUsdcBalance(rpc, USDC, account.safe, BigInt(handed.prizeAmount) + BigInt(handed.feeAmount) + BigInt(handed.usdcForSlots));
+  const created = await relayAs('sealed-creator', key, { kind: 'createCampaign' });
+  assert.equal(created.receipt.status, 'success');
+  const recorded = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [created.giveawayId]);
+  assert.equal(recorded.creator.toLowerCase(), account.safe.toLowerCase());
+  assert.equal(await usdcOf(derived), 0n, 'something reached the sealed wallet');
+});
+
+await test(['AE11', 'KM32', 'KM10', 'AC4'], 'the migration route on the real contracts: refused before the account is set up, then the challenge, the passkey’s authorisation checked by the signer code, and the move it allows', async () => {
+  const index = 906;
+  const derived = wallet.addressOf(index);
+  const key = await createPasskey();
+  const signer = await kchain.signerAddressOf(key.x, key.y);
+  store.insert('bridge_v2_participants', { id: 'route-migrant', email_canonical: 'route-migrant@example.test', wallet_index: index, wallet_address: derived, telegram_chat_enc: null });
+  await accounts.registerPasskey('route-migrant', key.credentialId, key.x, key.y, signer);
+  const [account] = (await accounts.ensureAccounts('route-migrant', signer, guardianAddress())).filter((a) => a.role === 'PARTICIPANT');
+  await setUsdcBalance(rpc, USDC, derived, 1_250_000n);
+  sessionFor('route-migrant');
+  const migrateRoute = await import('../../../api/bridge/v2/account/migrate.ts');
+  const call = (body) =>
+    migrateRoute.POST(request('https://events.invalid/api/bridge/v2/account/migrate', { cookie: 'iw_bridge_session=a-token-value', body }));
+  // C4: nothing is handed out before the account exists on-chain, configured.
+  const early = await call({ kind: 'PARTICIPANT' });
+  assert.equal(early.status, 409);
+  assert.equal((await early.json()).challenge, undefined);
+  assert.equal((await relayAs('route-migrant', key, { kind: 'configure' }, 'PARTICIPANT')).receipt.status, 'success');
+  const { challenge } = await (await call({ kind: 'PARTICIPANT' })).json();
+  assert.equal(challenge, keptra.migrationChallenge(derived, account.safe));
+  // An assertion over any other challenge is refused.
+  const wrong = await key.sign(keptra.migrationChallenge(derived, derived));
+  assert.equal((await call({ kind: 'PARTICIPANT', ...wrong })).status, 401);
+  assert.equal(store.rows('bridge_v2_migrations').filter((m) => m.wallet_index === index).length, 0);
+  // The right one: verified by the signer factory on the fork, then recorded.
+  const assertion = await key.sign(challenge);
+  const authorised = await call({ kind: 'PARTICIPANT', ...assertion });
+  assert.equal((await authorised.json()).status, 'AUTHORIZED');
+  assert.deepEqual(store.rows('bridge_v2_migrations').filter((m) => m.wallet_index === index).map((m) => m.kind), ['PARTICIPANT']);
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await usdcOf(derived), 0n);
+  assert.equal(await usdcOf(account.safe), 1_250_000n);
+  assert.equal(await accounts.isIndexSealed(index), true);
+});
+
+await test(['AE11', 'KM25', 'KM26'], 'an ERC-1155 prize is claimed by the account through the ERC-1155 prize module, and leaves by the relay’s transfer action, one unit', async () => {
+  // The registered ERC-1155 prize module: the one of the two NFT modules with lotsOf.
+  let module1155 = null;
+  for (const candidate of ['0xafe9E198816DEa24e7f74e9D666c0F250aD688BC', '0xeb54e328F9F38222FA91e29D6c0367342B8EFD50']) {
+    const answers = await read(candidate, ABI, 'lotsOf', [0n]).then(() => true, () => false);
+    if (answers && (await read(GIVEAWAY_MANAGER_V2, ABI, 'isModuleRegistered', [candidate]))) module1155 = candidate;
+  }
+  assert.ok(module1155 !== null, 'no registered ERC-1155 prize module');
+  const declaredValue = 10_000_000n;
+  const nftFee = await read(GIVEAWAY_MANAGER_V2, ABI, 'currentFee', [1, declaredValue]);
+  const { giveawayIdFromLogs } = await import('../../../lib/bridge-v2/chain.ts');
+
+  // A unit held by a plain account that the module can take into custody: that account is the brand.
+  const head = await client.getBlockNumber();
+  const logs = await client.getLogs({ event: ABI.find((item) => item.type === 'event' && item.name === 'TransferSingle'), fromBlock: head - 5_000n, toBlock: head });
+  let prize = null;
+  for (const entry of logs.reverse().slice(0, 80)) {
+    const { to: holder, id } = entry.args;
+    if (holder === zeroAddress || (await client.getCode({ address: holder })) !== undefined) continue;
+    const collection = entry.address;
+    if ((await read(collection, ABI, 'balanceOf', [holder, id]).catch(() => 0n)) === 0n) continue;
+    const attempt = await rpc.snapshot();
+    await rpc.setBalance(holder, 10n ** 18n);
+    await setUsdcBalance(rpc, USDC, holder, nftFee + slotsCost);
+    await rpc.impersonate(holder);
+    const send = (to, data) => rpc.send({ from: holder, to, data }).catch(() => ({ status: '0x0', logs: [] }));
+    const approvedAll = await send(collection, encodeFunctionData({ abi: ABI, functionName: 'setApprovalForAll', args: [module1155, true] }));
+    const approvedFee = await send(USDC, encodeFunctionData({ abi: ABI, functionName: 'approve', args: [GIVEAWAY_MANAGER_V2, nftFee + slotsCost] }));
+    const prizeData = encodeAbiParameters([{ type: 'address' }, { type: 'uint256[]' }, { type: 'uint256[]' }], [collection, [id], [1n]]);
+    const created = await send(
+      GIVEAWAY_MANAGER_V2,
+      encodeFunctionData({ abi: ABI, functionName: 'createGiveaway', args: [module1155, prizeData, 1n, declaredValue, 3600n, 1, 10] }),
+    );
+    await rpc.stopImpersonating(holder);
+    if (approvedAll.status === '0x1' && approvedFee.status === '0x1' && created.status === '0x1') {
+      prize = { collection, id, giveaway: giveawayIdFromLogs(created.logs) };
+      break;
+    }
+    await rpc.revert(attempt);
+  }
+  assert.ok(prize !== null && prize.giveaway !== null, 'no ERC-1155 unit could be put into a campaign');
+
+  await playerWins(prize.giveaway);
+  // The claim, signed by the passkey: the module sends the unit into the account (A2).
+  const unitsOf = (holder) => read(prize.collection, ABI, 'balanceOf', [holder, prize.id]);
+  const before = await unitsOf(player.participant.safe);
+  assert.equal((await relayAs('player-1', playerKey, { kind: 'claim', giveawayId: prize.giveaway })).receipt.status, 'success');
+  assert.equal(await unitsOf(player.participant.safe), before + 1n);
+  // Out again by the relay's transfer action: one prize position is one unit (C7).
+  await assert.rejects(
+    relay.prepareAction('player-1', { kind: 'transfer', giveawayId: prize.giveaway, to: destination, amount: 2n }, null),
+    (error) => error.reason === 'amount',
+  );
+  const received = await unitsOf(destination);
+  assert.equal((await relayAs('player-1', playerKey, { kind: 'transfer', giveawayId: prize.giveaway, to: destination, amount: 1n })).receipt.status, 'success');
+  assert.equal(await unitsOf(destination), received + 1n);
+  assert.equal(await unitsOf(player.participant.safe), before);
 });
 
 export { TEST_MNEMONIC };

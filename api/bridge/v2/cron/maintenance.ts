@@ -33,7 +33,8 @@ import {
   confirmVerifiedRecoveries,
 } from '../../../../lib/bridge-v2/recovery.js';
 import { migrateAuthorizedWallets, seedRetirementReadiness } from '../../../../lib/bridge-v2/migration.js';
-import { expireAbandonedRecoveries } from '../../../../lib/bridge-v2/accounts.js';
+import { expireAbandonedRecoveries, releaseRecoveryReservations } from '../../../../lib/bridge-v2/accounts.js';
+import { reconcileRelayedCampaigns, recognizeDeployedAccounts } from '../../../../lib/bridge-v2/relay.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/maintenance
@@ -141,6 +142,31 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       await log.event('cleanup.done', { removed: total });
       return total;
     });
+
+    // SPEC-BLOCO-03 Adenda E5: the change-of-access steps run before the sweep
+    // and the migration, so no pass fails to try to confirm, notify or finalise
+    // a recovery because those two spent its time. Each its own `safely`, like
+    // everything here: one that cannot run is reported as null.
+    //
+    // Adenda C3: a request whose Telegram link expired unused closes by itself.
+    const recoveriesExpired = await safely(log, 'recovery_expire', async () => {
+      const expired = await expireAbandonedRecoveries();
+      if (expired > 0) await log.event('recovery.expired', { requests: expired });
+      return expired;
+    });
+    // Adenda E4: only this pass reserves a request, under this lock, so a
+    // reservation found now was left by a pass that died mid-confirmation.
+    await safely(log, 'recovery_reservations', () => releaseRecoveryReservations());
+    // Adenda D3: a request not CONFIRMED 24 hours after it was opened, with an
+    // alert. Before the confirmations, so none is signed for past its 24 hours.
+    const recoveriesOverdue = await safely(log, 'recovery_overdue', () => closeOverdueRecoveries(log, deadline));
+    // 6.3 and R-6: confirm what passed A14 and R-1, notify, finalise what is due.
+    const recoveriesConfirmed = await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
+    const recoveriesClosed = await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
+    // Adenda E3: an account the chain holds configured, whose first receipt was lost.
+    const accountsRecognized = await safely(log, 'account_recognition', () => recognizeDeployedAccounts(log, deadline));
+    // Adenda E7: a relay campaign left in FUNDING by a receipt that never came.
+    const campaignsReconciled = await safely(log, 'campaign_reconcile', () => reconcileRelayedCampaigns(log, deadline));
 
     // H7: the remainder goes back to a funder, never to an address a request
     // could name (H2). WHICH funder is drawn per wallet rather than fixed —
@@ -286,8 +312,8 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       return value;
     });
 
-    // SPEC-BLOCO-03 section 6 — Keptra accounts. Each check its own `safely`,
-    // like everything above: one that cannot run is reported as null.
+    // SPEC-BLOCO-03 section 6 — Keptra accounts, the checks. Each its own
+    // `safely`, like everything above: one that cannot run is reported as null.
     //
     // M39, section 5: every role its own key.
     const roleKeysDistinct = await safely(log, 'role_keys', async () => {
@@ -295,24 +321,17 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
       if (collisions.length > 0) await alert(log, 'two server roles share a key', { pairs: collisions.length });
       return collisions.length === 0;
     });
-    // Adenda C3: a request whose Telegram link expired unused closes by itself.
-    const recoveriesExpired = await safely(log, 'recovery_expire', async () => {
-      const expired = await expireAbandonedRecoveries();
-      if (expired > 0) await log.event('recovery.expired', { requests: expired });
-      return expired;
-    });
-    // Adenda D3: a request not CONFIRMED 24 hours after it was opened, with an
-    // alert. Before the confirmations, so none is signed for past its 24 hours.
-    const recoveriesOverdue = await safely(log, 'recovery_overdue', () => closeOverdueRecoveries(log, deadline));
-    // 6.3 and R-6: confirm what passed A14 and R-1, notify, finalise what is due.
-    const recoveriesConfirmed = await safely(log, 'recovery_confirm', () => confirmVerifiedRecoveries(log, deadline));
-    const recoveriesClosed = await safely(log, 'recovery_advance', () => advanceConfirmedRecoveries(log, deadline));
     // M22: a pending recovery with no request of ours behind it.
     const recoveriesUnregistered = await safely(log, 'recovery_unregistered', () => alertUnregisteredRecoveries(log, deadline));
-    // M34, 6.6.4 as A8 rewrites it: whether the derivation seed can be retired.
+    // M34, 6.6.4 as A8 and E1 rewrite it: whether the derivation seed can be retired.
     const seedRetirable = await safely(log, 'seed_readiness', async () => {
-      const readiness = await seedRetirementReadiness(() => deadline.hasTimeFor(SWEEP_WORST_CASE_MS));
-      await log.event('migration.readiness', { ready: readiness.ready, blocking: readiness.blocking, wallets: readiness.wallets });
+      const readiness = await seedRetirementReadiness(log, () => deadline.hasTimeFor(SWEEP_WORST_CASE_MS));
+      await log.event('migration.readiness', {
+        ready: readiness.ready,
+        blocking: readiness.blocking,
+        holding: readiness.holding,
+        wallets: readiness.wallets,
+      });
       return readiness.ready;
     });
 
@@ -341,6 +360,8 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
         recoveriesConfirmed,
         recoveriesClosed,
         recoveriesUnregistered,
+        accountsRecognized,
+        campaignsReconciled,
         migrationsSealed,
         seedRetirable,
       },

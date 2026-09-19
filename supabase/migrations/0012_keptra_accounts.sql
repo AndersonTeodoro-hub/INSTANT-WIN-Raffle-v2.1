@@ -72,8 +72,8 @@ CREATE INDEX IF NOT EXISTS bridge_v2_passkeys_participant_idx ON bridge_v2_passk
 -- the account is deployed, a finalised recovery moves both to the new passkey
 -- (Adenda D4); once deployed, neither changes.
 -- guardian_address is the guardian the account's configuration adds, and after
--- A6 the one it holds; guardian_revoked_at marks an account left without
--- recovery until it adds the new one.
+-- A6 the one it added back. deployed_at: the account was read from the chain
+-- configured as 6.1 says — after its first transaction, or later (Adenda E3).
 CREATE TABLE IF NOT EXISTS bridge_v2_accounts (
   id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   participant_id      uuid        NOT NULL REFERENCES bridge_v2_participants (id),
@@ -82,11 +82,13 @@ CREATE TABLE IF NOT EXISTS bridge_v2_accounts (
   initial_signer      text        NOT NULL CHECK (initial_signer ~ '^0x[0-9a-fA-F]{40}$'),
   guardian_address    text        NOT NULL CHECK (guardian_address ~ '^0x[0-9a-fA-F]{40}$'),
   deployed_at         timestamptz,
-  deploy_tx_hash      text,
-  guardian_revoked_at timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT bridge_v2_accounts_one_per_role UNIQUE (participant_id, role)
 );
+-- Adenda E9: two columns an earlier text of this file had, which production never
+-- read. Dropped for a database that ran that text.
+ALTER TABLE bridge_v2_accounts DROP COLUMN IF EXISTS deploy_tx_hash;
+ALTER TABLE bridge_v2_accounts DROP COLUMN IF EXISTS guardian_revoked_at;
 
 COMMENT ON TABLE bridge_v2_accounts IS
   'SPEC-BLOCO-03 6.1: one Safe per participant and role. The bridge never holds a key for it.';
@@ -121,6 +123,10 @@ ALTER TABLE bridge_v2_entries ADD CONSTRAINT bridge_v2_entries_passkey_self_cust
 --                   (Adenda C3); closed so it never blocks a new request
 -- The link code is the Telegram deep link of A14, stored as a keyed hash like
 -- bridge_v2_link_codes and matched to the chat by its HMAC (R4).
+-- confirming_at (Adenda E4): a PHONE_VERIFIED request the maintenance pass has
+-- reserved for the guardian's confirmation, before anything is signed. D3 never
+-- expires a reserved request; the pass gives the reservation back when it does
+-- not finish.
 CREATE TABLE IF NOT EXISTS bridge_v2_recoveries (
   id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   participant_id     uuid        NOT NULL REFERENCES bridge_v2_participants (id),
@@ -132,6 +138,7 @@ CREATE TABLE IF NOT EXISTS bridge_v2_recoveries (
   link_expires_at    timestamptz NOT NULL,
   telegram_chat_hmac text,
   phone_verified_at  timestamptz,
+  confirming_at      timestamptz,
   -- t0 and the end of the 7 days, both from the chain's clock.
   started_at         timestamptz,
   execute_after      timestamptz,
@@ -147,8 +154,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS bridge_v2_recoveries_live_chat_unique
   WHERE telegram_chat_hmac IS NOT NULL AND status = 'AWAITING_PHONE';
 CREATE INDEX IF NOT EXISTS bridge_v2_recoveries_queue_idx
   ON bridge_v2_recoveries (status, updated_at);
--- Idempotence for a database that ran an earlier text of this file, whose CHECK
--- did not know EXPIRED: the constraint is replaced by the one above.
+-- Idempotence for a database that ran an earlier text of this file: its CHECK
+-- did not know EXPIRED, and it had no confirming_at (E4).
+ALTER TABLE bridge_v2_recoveries ADD COLUMN IF NOT EXISTS confirming_at timestamptz;
 ALTER TABLE bridge_v2_recoveries DROP CONSTRAINT IF EXISTS bridge_v2_recoveries_status_check;
 ALTER TABLE bridge_v2_recoveries ADD CONSTRAINT bridge_v2_recoveries_status_check CHECK (status IN (
   'AWAITING_PHONE', 'PHONE_VERIFIED', 'CONFIRMED', 'FINALIZED', 'CANCELED', 'REFUSED', 'EXPIRED'));
@@ -189,8 +197,11 @@ CREATE INDEX IF NOT EXISTS bridge_v2_migrations_pending_idx
 -- -----------------------------------------------------------------------------
 -- 7. guardian changes — Adenda C11
 -- -----------------------------------------------------------------------------
--- One row per guardian revocation or re-addition the relayer paid for, written
--- before the transaction is sent. The relay refuses a fourth in 24 hours.
+-- One row per guardian re-addition the relayer paid for, written before the
+-- transaction is sent. The relay refuses a fourth in 24 hours. A revocation is
+-- never refused and not recorded (Adenda E2: the reaction to a compromise is
+-- always possible); each one needs a guardian added before it, so the gas stays
+-- bounded.
 CREATE TABLE IF NOT EXISTS bridge_v2_guardian_changes (
   id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id uuid        NOT NULL REFERENCES bridge_v2_accounts (id),
@@ -200,7 +211,23 @@ CREATE INDEX IF NOT EXISTS bridge_v2_guardian_changes_account_idx
   ON bridge_v2_guardian_changes (account_id, created_at);
 
 -- -----------------------------------------------------------------------------
--- 8. guardian incidents — Adenda D1
+-- 8. relayed transactions — Adenda E2
+-- -----------------------------------------------------------------------------
+-- One row per transaction the relay sends for an account, written before it is
+-- sent. The relay refuses a 21st in 24 hours. The cancellation of a recovery
+-- (6.3.3) and the reaction to a compromise (R-3) are never recorded and never
+-- refused. The rows also name the accounts the relay has deployed, which the
+-- maintenance pass reads for one whose first receipt was lost (E3).
+CREATE TABLE IF NOT EXISTS bridge_v2_relayed_transactions (
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id uuid        NOT NULL REFERENCES bridge_v2_accounts (id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bridge_v2_relayed_transactions_account_idx
+  ON bridge_v2_relayed_transactions (account_id, created_at);
+
+-- -----------------------------------------------------------------------------
+-- 9. guardian incidents — Adenda D1
 -- -----------------------------------------------------------------------------
 -- A guardian key declared compromised, written by the owner by hand when the
 -- incident opens. While the key the bridge is configured with
@@ -222,6 +249,7 @@ ALTER TABLE bridge_v2_recoveries       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_recovery_notices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_migrations       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_guardian_changes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bridge_v2_relayed_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bridge_v2_guardian_incidents ENABLE ROW LEVEL SECURITY;
 
 -- Adenda D6, and 0006 Achado 6 as 0011 applies it: Supabase's default
@@ -234,6 +262,7 @@ REVOKE ALL ON TABLE public.bridge_v2_recoveries         FROM service_role;
 REVOKE ALL ON TABLE public.bridge_v2_recovery_notices   FROM service_role;
 REVOKE ALL ON TABLE public.bridge_v2_migrations         FROM service_role;
 REVOKE ALL ON TABLE public.bridge_v2_guardian_changes   FROM service_role;
+REVOKE ALL ON TABLE public.bridge_v2_relayed_transactions FROM service_role;
 REVOKE ALL ON TABLE public.bridge_v2_guardian_incidents FROM service_role;
 
 -- Exactly the verbs lib/bridge-v2/accounts.ts uses. No DELETE anywhere: a
@@ -241,7 +270,7 @@ REVOKE ALL ON TABLE public.bridge_v2_guardian_incidents FROM service_role;
 -- incident are records.
 -- passkeys: registerPasskey inserts; every other function reads.
 GRANT SELECT, INSERT         ON TABLE public.bridge_v2_passkeys           TO service_role;
--- accounts: ensureAccounts inserts; markDeployed, recordGuardian and
+-- accounts: ensureAccounts inserts; markDeployed (E3), recordGuardian and
 -- readdressAccount (D4) update.
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_accounts           TO service_role;
 -- recoveries: openRecovery inserts; every transition is an update.
@@ -252,6 +281,8 @@ GRANT SELECT, INSERT         ON TABLE public.bridge_v2_recovery_notices   TO ser
 GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_migrations         TO service_role;
 -- guardian changes: recorded and counted (C11).
 GRANT SELECT, INSERT         ON TABLE public.bridge_v2_guardian_changes   TO service_role;
+-- relayed transactions: recorded and counted (E2), and read for E3.
+GRANT SELECT, INSERT         ON TABLE public.bridge_v2_relayed_transactions TO service_role;
 -- incidents: read by guardianCompromised; only the owner writes them.
 GRANT SELECT                 ON TABLE public.bridge_v2_guardian_incidents TO service_role;
 
@@ -261,4 +292,5 @@ REVOKE ALL ON TABLE public.bridge_v2_recoveries       FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_recovery_notices FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_migrations       FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_guardian_changes FROM anon, authenticated;
+REVOKE ALL ON TABLE public.bridge_v2_relayed_transactions FROM anon, authenticated;
 REVOKE ALL ON TABLE public.bridge_v2_guardian_incidents FROM anon, authenticated;

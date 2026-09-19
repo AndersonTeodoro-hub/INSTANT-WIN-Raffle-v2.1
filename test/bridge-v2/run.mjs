@@ -70,6 +70,8 @@ const REQUIREMENTS = [
   'AC1', 'AC2', 'AC3', 'AC4', 'AC5', 'AC6', 'AC7', 'AC9', 'AC10', 'AC11', 'AC13', 'AC14',
   // SPEC-BLOCO-03 Adenda D, as ADn. D2, D5, D7 and D8 ask for no code.
   'AD1', 'AD3', 'AD4', 'AD6',
+  // SPEC-BLOCO-03 Adenda E, as AEn. E6 and E12 ask for no code; E8 is a comment.
+  'AE1', 'AE2', 'AE3', 'AE4', 'AE5', 'AE7', 'AE9', 'AE10', 'AE11',
 ];
 
 for (const path of SUITES) {
