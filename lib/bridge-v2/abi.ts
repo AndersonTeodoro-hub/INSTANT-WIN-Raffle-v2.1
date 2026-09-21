@@ -38,7 +38,7 @@
  * contractErrorName at the foot of this file is what finally reads them.
  */
 
-import { decodeErrorResult, type Hex } from 'viem';
+import { decodeErrorResult, parseAbi, type Hex } from 'viem';
 
 export const GIVEAWAY_MANAGER_V2_ABI = [
   {
@@ -1042,6 +1042,112 @@ export const ERC1155_PRIZE_MODULE_ABI = [
 export const ERC1155_RECEIVER_INTERFACE_ID = '0x4e2312e0' as const;
 
 // -----------------------------------------------------------------------------
+// SPEC-BLOCO-03 piece 5 — KeptraEscrow, KeptraGuarantee, KeptraVoucher (183a2b4)
+// -----------------------------------------------------------------------------
+
+/** KeptraEscrow.State, the values the bridge branches on. */
+export const OrderState = { NONE: 0, PAID: 1, SHIPPED: 2, WINDOW: 3, CONTESTED: 4, CLOSED: 5 } as const;
+/** KeptraEscrow.Mode (7.6). */
+export const OrderMode = { CARRIER: 0, OWN_MEANS: 1 } as const;
+/** KeptraEscrow.Outcome, as OrderClosed carries it. */
+export const OrderOutcome = { STORE: 0, RECIPIENT: 1, SPLIT: 2, REFUNDED: 3, CANCELLED: 4 } as const;
+/** KeptraEscrow order flags (F_PROOF, F_REFUSAL, F_VERIFIED). */
+export const OrderFlag = { PROOF: 1, REFUSAL: 2, VERIFIED: 4 } as const;
+
+/**
+ * What the bridge reads of the escrow, and the calls a Keptra account signs into
+ * it through the relay (P1). The bridge's own keys sign none of these: the keeper
+ * and the bridge role have ABIs of their own below (H1, P13).
+ */
+export const KEPTRA_ESCROW_ABI = parseAbi([
+  'struct Terms { address store; uint96 price; address payout; uint96 shipping; uint96 returnCost; uint16 refusalFeeBps; uint16 shipDays; uint16 deliveryDays; uint8 mode; bool prize; bool active; }',
+  'struct Order { uint64 termsId; uint32 quantity; uint8 state; uint8 flags; uint16 feeBps; address payer; uint96 paid; uint64 paidAt; uint64 shippedAt; uint64 windowEndsAt; uint64 contestedAt; uint256 voucherId; bytes32 codeCommit; bytes32 trackingHash; }',
+  'function getTerms(uint256 termsId) view returns (Terms)',
+  'function getOrder(uint256 orderId) view returns (Order)',
+  'function orderCount() view returns (uint256)',
+  'function regionsOf(uint256 termsId) view returns (bytes)',
+  'function usedTrackingHash(bytes32 trackingHash) view returns (bool)',
+  'function arbiter() view returns (address)',
+  'function reputation() view returns (address)',
+  'function pay(uint256 termsId, uint32 quantity, bytes32 codeCommit) returns (uint256)',
+  'function redeemVoucher(uint256 voucherId, bytes32 codeCommit, uint256 deadline, bytes signature) returns (uint256)',
+  'function cancel(uint256 orderId)',
+  'function confirm(uint256 orderId)',
+  'function contest(uint256 orderId)',
+  'function createOffer(address payout, uint96 price, uint96 shipping, uint96 returnCost, uint16 refusalFeeBps, uint16 shipDays, uint16 deliveryDays, uint8 mode, bytes regions) returns (uint256)',
+  'function deactivateOffer(uint256 termsId)',
+  'function ship(uint256 orderId, bytes32 trackingHash)',
+  'function submitCode(uint256 orderId, bytes32 code)',
+  'function declareDelivered(uint256 orderId)',
+  'function declareRefusal(uint256 orderId)',
+  'function refund(uint256 orderId, uint96 amount)',
+  'event OrderOpened(uint256 indexed orderId, uint256 indexed termsId, address indexed payer, uint96 paid, uint256 voucherId)',
+  'event OrderClosed(uint256 indexed orderId, uint8 outcome, bool materialFailure)',
+  'error InvalidAddress()',
+  'error InvalidParams()',
+  'error InvalidAmount()',
+  'error NotStore()',
+  'error NotAuthorised()',
+  'error NotRecipient()',
+  'error WrongState()',
+  'error WrongMode()',
+  'error DeadlinePassed()',
+  'error DeadlineNotReached()',
+  'error AlreadyUsed()',
+  'error TransferAmountMismatch()',
+  'error BadAttestation()',
+]);
+
+/** The guarantee: an obligation read back, the one a brand creates (P1), and its refusals. */
+export const KEPTRA_GUARANTEE_ABI = parseAbi([
+  'struct Obligation { address brand; uint64 termsId; uint32 units; uint32 openUnits; uint96 bond; uint96 coverage; address source; }',
+  'function getObligation(uint256 obligationId) view returns (Obligation)',
+  'function createObligation(uint96 declaredValue, uint96 shipping, uint96 returnCost, uint16 shipDays, uint16 deliveryDays, uint8 mode, bytes regions, uint32 units) returns (uint256)',
+  'function totalDebtOf(address brand) view returns (uint256)',
+  'error OpenDebt()',
+  'error CoverageLimit()',
+  'error SourceNotAuthorised()',
+  'error VoucherNotRedeemable()',
+  'error NotReleasable()',
+]);
+
+/** The voucher (11.2): its clocks, where it is, and the two approvals an account signs. */
+export const KEPTRA_VOUCHER_ABI = parseAbi([
+  'function ownerOf(uint256 tokenId) view returns (address)',
+  'function voided(uint256 tokenId) view returns (bool)',
+  'function claimedAt(uint256 tokenId) view returns (uint64)',
+  'function giveawayOf(uint256 tokenId) view returns (uint256)',
+  'function obligationOf(uint256 tokenId) view returns (uint256)',
+  'function lastId() view returns (uint256)',
+  'function releasable(uint256 tokenId, uint256 itemIndex) view returns (bool)',
+  'function approve(address to, uint256 tokenId)',
+  'function setApprovalForAll(address operator, bool approved)',
+  'error TransferRestricted()',
+  'error AlreadyVoided()',
+]);
+
+/** 13.2 as the escrow reads it at creation (H11): the brand's tier and its numbers. */
+export const KEPTRA_REPUTATION_ABI = parseAbi([
+  'struct Params { uint16 bondBps; uint16 protectionBps; uint96 coverageLimit; bool canCreate; }',
+  'function termsFor(address store) view returns (uint8 tier, Params params)',
+]);
+
+/**
+ * P11: the keeper's exits by time — the escrow's three and the guarantee's one. An
+ * ABI of their own, as §18 M2 keeps GIVEAWAY_LIFECYCLE_ABI, so the keeper can sign
+ * these four and nothing else of the escrow.
+ */
+export const KEPTRA_KEEPER_ABI = parseAbi([
+  'function expire(uint256 orderId)',
+  'function closeWindow(uint256 orderId)',
+  'function resolveAbsentArbiter(uint256 orderId)',
+  'function voidVoucher(uint256 voucherId, uint256 itemIndex)',
+]);
+
+/** 13.1 and H3: the bridge role's one transaction on the escrow. */
+export const KEPTRA_BRIDGE_ROLE_ABI = parseAbi(['function markVerifiedRecipient(uint256 orderId)']);
+
+// -----------------------------------------------------------------------------
 // K5 — reading a revert back
 // -----------------------------------------------------------------------------
 
@@ -1064,6 +1170,11 @@ const REVERT_ABIS = [
   ERC1155_PRIZE_MODULE_ABI,
   CREATOR_CAMPAIGN_MANAGER_ABI,
   CREATOR_APPROVAL_ABI,
+  // SPEC-BLOCO-03 piece 5: an exit somebody else already made reads as WrongState
+  // or NotReleasable, not as a failure (P11).
+  KEPTRA_ESCROW_ABI,
+  KEPTRA_GUARANTEE_ABI,
+  KEPTRA_VOUCHER_ABI,
 ] as const;
 
 /**

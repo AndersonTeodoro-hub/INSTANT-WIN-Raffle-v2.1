@@ -49,38 +49,76 @@
  * reads the calls before they are encoded.
  */
 
-import { encodeFunctionData, type Hex } from 'viem';
+import { encodeAbiParameters, encodeFunctionData, keccak256, type Hex } from 'viem';
 import { alert } from './alert.js';
 import { claimSpend } from './spend.js';
 import type { Logger } from './log.js';
 import { runDeadline, type RunDeadline } from './runlock.js';
-import { CREATOR_APPROVAL_ABI, CREATOR_CAMPAIGN_MANAGER_ABI, ERC20_ABI, GIVEAWAY_MANAGER_V2_ABI, PrizeKind } from './abi.js';
+import {
+  CREATOR_APPROVAL_ABI,
+  CREATOR_CAMPAIGN_MANAGER_ABI,
+  ERC20_ABI,
+  GIVEAWAY_MANAGER_V2_ABI,
+  KEPTRA_ESCROW_ABI,
+  KEPTRA_GUARANTEE_ABI,
+  KEPTRA_VOUCHER_ABI,
+  OrderFlag,
+  OrderMode,
+  OrderState,
+  PrizeKind,
+} from './abi.js';
 import {
   ACCOUNT_RECOGNITION_MS,
   CAMPAIGN_RECONCILE_MS,
+  CONTRACT_MAX_DURATION_SECONDS,
+  CONTRACT_MAX_PARTICIPANTS,
+  CONTRACT_MIN_DURATION_SECONDS,
+  CONTRACT_MIN_PARTICIPANTS,
+  ERC721_PRIZE_MODULE,
   GIVEAWAY_MANAGER_V2,
   GUARDIAN_CHANGES_PER_DAY,
   GUARDIAN_RECORD_MS,
   GUARDIAN_SCAN_MS,
+  KEPTRA_ESCROW,
+  KEPTRA_GUARANTEE,
+  KEPTRA_VOUCHER,
+  REDEMPTION_ATTESTATION_TTL_SECONDS,
   RELAYED_CAMPAIGN_STALE_MS,
   RELAYED_TRANSACTIONS_PER_DAY,
   RELAY_SEND_MS,
   USDC,
+  VOUCHER_CAMPAIGN_MAX_ITEMS,
 } from './config.js';
 import {
   campaignsCreatedBy,
   claimableFor,
+  currentCreationFee,
   erc20BalanceOf,
   encodeTokenPrizeData,
   giveawayIdFromLogs,
   prizeDelivery,
   readGiveaway,
+  signRedemption,
+  slotPrice,
   transactionKnown,
   waitForReceipt,
   type MinedReceipt,
 } from './chain.js';
 import {
+  brandParams,
+  orderIdFromLogs,
+  readObligation,
+  readOrder,
+  readTerms,
+  readVouchers,
+  type OrderWithTerms,
+  type TermsView,
+} from './escrowChain.js';
+import { bindAddress, keptraContractsConfigured, orderHasAddress, shipmentOf, unboundAddress, type AddressPurpose } from './orders.js';
+import { hasVerifiedPhone } from './phone.js';
+import {
   accountState,
+  chainNow,
   configurationRefusal,
   hasCode,
   isValidPasskeySignature,
@@ -149,21 +187,81 @@ export type Action =
   | { readonly kind: 'cancelRecovery' }
   | { readonly kind: 'revokeGuardian' }
   /** C2, C4, A6: complete what the account lacks — create it, enable the module, add the guardian. */
-  | { readonly kind: 'configure' };
+  | { readonly kind: 'configure' }
+  // SPEC-BLOCO-03 piece 5, P1 — the recipient (6.2.2, T1, T2, T6, T9).
+  /** T1 in COMPRA. `codeCommit` is the delivery code's commitment from the recipient's own device (H18), zero by carrier. */
+  | { readonly kind: 'pay'; readonly termsId: bigint; readonly quantity: number; readonly codeCommit: Hex }
+  /** T1 in PRÉMIO. `deadline` is the attestation's: set by prepare, echoed by submit so both build the same bytes. */
+  | { readonly kind: 'redeem'; readonly voucherId: bigint; readonly codeCommit: Hex; readonly deadline: bigint | null }
+  | { readonly kind: 'cancelOrder'; readonly orderId: bigint }
+  | { readonly kind: 'confirm'; readonly orderId: bigint }
+  | { readonly kind: 'contest'; readonly orderId: bigint }
+  // P1 — the store and the brand, from their creator account (P2).
+  | { readonly kind: 'createOffer'; readonly terms: OfferTerms }
+  | { readonly kind: 'deactivateOffer'; readonly termsId: bigint }
+  | { readonly kind: 'ship'; readonly orderId: bigint }
+  | { readonly kind: 'submitCode'; readonly orderId: bigint; readonly code: Hex }
+  | { readonly kind: 'declareDelivered'; readonly orderId: bigint }
+  | { readonly kind: 'declareRefusal'; readonly orderId: bigint }
+  | { readonly kind: 'refund'; readonly orderId: bigint; readonly amount: bigint }
+  | { readonly kind: 'createObligation'; readonly terms: OfferTerms; readonly units: number }
+  | {
+      readonly kind: 'createVoucherCampaign';
+      readonly obligationId: bigint;
+      readonly voucherIds: readonly bigint[];
+      readonly durationSeconds: number;
+      readonly slotCap: number;
+    };
+
+/** Section 7 as a store or brand states it. For an obligation, `price` is the declared value and there is no refusal fee (11.6). */
+export interface OfferTerms {
+  readonly payout: `0x${string}`;
+  readonly price: bigint;
+  readonly shipping: bigint;
+  readonly returnCost: bigint;
+  readonly refusalFeeBps: number;
+  readonly shipDays: number;
+  readonly deliveryDays: number;
+  readonly mode: number;
+  /** I14: ISO-3166-1 alpha-2 pairs, as bytes (orders.encodeRegions). */
+  readonly regions: Hex;
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_SECONDS = 86_400n;
+const ZERO_HASH = `0x${'0'.repeat(64)}` as Hex;
+const MAX_UINT96 = (1n << 96n) - 1n;
+const BPS = 10_000n;
 
 /**
  * Adenda E2: the cancellation of a recovery (6.3.3, R-2) and the reaction to a
  * compromise (R-3, A6). Always possible: never counted against the relay's limit,
  * never refused by it, and sent whatever the shared spend ceiling says.
+ *
+ * Adenda P16: and contesting, confirming and cancelling an order — a right with a
+ * deadline is never lost to a limit.
  */
-const ALWAYS_POSSIBLE: ReadonlySet<Action['kind']> = new Set(['cancelRecovery', 'revokeGuardian']);
+const ALWAYS_POSSIBLE: ReadonlySet<Action['kind']> = new Set(['cancelRecovery', 'revokeGuardian', 'cancelOrder', 'confirm', 'contest']);
 
-/** Which of the participant's two accounts an action runs on (A10). */
+/** P1: what a recipient does, and what a store or a brand does. */
+const RECIPIENT_ACTIONS: ReadonlySet<Action['kind']> = new Set(['pay', 'redeem', 'cancelOrder', 'confirm', 'contest']);
+const STORE_ACTIONS: ReadonlySet<Action['kind']> = new Set([
+  'createOffer',
+  'deactivateOffer',
+  'ship',
+  'submitCode',
+  'declareDelivered',
+  'declareRefusal',
+  'refund',
+  'createObligation',
+  'createVoucherCampaign',
+]);
+
+/** Which of the participant's two accounts an action runs on (A10). P2: a store is its creator account. */
 export function roleFor(action: Action, requested: AccountRole | null): AccountRole {
   if (action.kind === 'enter' || action.kind === 'claim' || action.kind === 'transfer') return 'PARTICIPANT';
-  if (action.kind === 'createCampaign') return 'CREATOR';
+  if (action.kind === 'createCampaign' || STORE_ACTIONS.has(action.kind)) return 'CREATOR';
+  if (RECIPIENT_ACTIONS.has(action.kind)) return 'PARTICIPANT';
   return requested ?? 'PARTICIPANT';
 }
 
@@ -242,6 +340,8 @@ export interface Prepared {
   readonly guardianChange: boolean;
   /** createCampaign: the draft the transaction creates. */
   readonly campaign: CreatorCampaign | null;
+  /** redeem: the attestation's deadline, which the submit echoes (H7). */
+  readonly redeemDeadline: bigint | null;
 }
 
 /**
@@ -253,8 +353,11 @@ async function actionCalls(
   account: Account,
   state: AccountState,
   action: Action,
-): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null; campaign?: CreatorCampaign }> {
+): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null; campaign?: CreatorCampaign; redeemDeadline?: bigint }> {
   const safe = account.safe;
+  if (RECIPIENT_ACTIONS.has(action.kind) || STORE_ACTIONS.has(action.kind)) {
+    return { ...(await orderCalls(participantId, safe, action)), extraSigner: null };
+  }
   switch (action.kind) {
     case 'enter': {
       // A4: the entry is signed once its root is published. The proof is for the
@@ -410,7 +513,301 @@ async function actionCalls(
       if (configurationGap(state) !== 'guardian') return { calls: [], extraSigner: null };
       return { calls: addGuardianCalls(guardianAddress()), extraSigner: null };
     }
+    default:
+      throw new RelayRefusal('unknown_action');
   }
+}
+
+// -----------------------------------------------------------------------------
+// SPEC-BLOCO-03 piece 5 — the orders, through the relay (P1)
+// -----------------------------------------------------------------------------
+
+const approve = (token: `0x${string}`, spender: `0x${string}`, amount: bigint): SafeCall => ({
+  to: token,
+  data: encodeFunctionData({ abi: CREATOR_APPROVAL_ABI, functionName: 'approve', args: [spender, amount] }),
+});
+
+const escrow = (data: Hex): SafeCall => ({ to: KEPTRA_ESCROW, data });
+
+/** The block's clock, which is the one every deadline of the escrow is compared against. */
+const nowSeconds = (): Promise<bigint> => chainNow();
+
+/** The order, if this account is the side of it that `side` names; otherwise it is nobody's business here (M36). */
+async function orderOf(orderId: bigint, safe: `0x${string}`, side: 'payer' | 'store'): Promise<OrderWithTerms> {
+  let found: OrderWithTerms;
+  try {
+    found = await readOrder(orderId);
+  } catch {
+    // Past the escrow's count: getOrder reverts.
+    throw new RelayRefusal('no_order');
+  }
+  const party = side === 'payer' ? found.order.payer : found.terms.store;
+  if (found.order.state === OrderState.NONE || party.toLowerCase() !== safe.toLowerCase()) throw new RelayRefusal('no_order');
+  return found;
+}
+
+/** 9.2 and H18: a commitment by the own-means mode, none by carrier (KeptraEscrow._openOrder). */
+function checkCommit(mode: number, commit: Hex): void {
+  if (mode === OrderMode.OWN_MEANS ? commit.toLowerCase() === ZERO_HASH : commit.toLowerCase() !== ZERO_HASH) {
+    throw new RelayRefusal('code_commit');
+  }
+}
+
+/** Section 7's ceilings, the ones every set of conditions shares (KeptraEscrow._validateTerms), before a revert costs gas. */
+function checkTerms(terms: OfferTerms, refusalFeeAllowed: boolean): void {
+  const ok =
+    terms.price > 0n &&
+    terms.price <= MAX_UINT96 &&
+    terms.shipping <= MAX_UINT96 &&
+    terms.returnCost <= terms.shipping &&
+    terms.refusalFeeBps >= 0 &&
+    terms.refusalFeeBps <= (refusalFeeAllowed ? 1_500 : 0) &&
+    terms.shipDays >= 1 &&
+    terms.shipDays <= 5 &&
+    terms.deliveryDays >= 1 &&
+    terms.deliveryDays <= 10 &&
+    (terms.mode === OrderMode.CARRIER || terms.mode === OrderMode.OWN_MEANS);
+  if (!ok) throw new RelayRefusal('terms');
+}
+
+async function usdcAtLeast(safe: `0x${string}`, amount: bigint): Promise<void> {
+  if ((await erc20BalanceOf(USDC, safe)) < amount) throw new RelayRefusal('deposit_missing');
+}
+
+/**
+ * The calls of an order action, from the chain and the database; from the request
+ * only the action's own numbers, each checked against what the escrow will check.
+ */
+async function orderCalls(
+  participantId: string,
+  safe: `0x${string}`,
+  action: Action,
+): Promise<{ calls: SafeCall[]; redeemDeadline?: bigint }> {
+  // P24: no order action while the contracts are not configured.
+  if (!keptraContractsConfigured()) throw new RelayRefusal('orders_not_configured');
+  switch (action.kind) {
+    case 'pay': {
+      let terms: TermsView;
+      try {
+        terms = await readTerms(action.termsId);
+      } catch {
+        throw new RelayRefusal('no_offer');
+      }
+      if (!terms.active || terms.prize || terms.store.toLowerCase() === '0x0000000000000000000000000000000000000000') throw new RelayRefusal('no_offer');
+      // P15: the address, in a region the store accepts, is registered before the payment.
+      if ((await unboundAddress(participantId, { termsId: action.termsId })) === null) throw new RelayRefusal('no_address');
+      checkCommit(terms.mode, action.codeCommit);
+      if (action.quantity < 1 || action.quantity > 0xffffffff) throw new RelayRefusal('amount');
+      const total = terms.price * BigInt(action.quantity) + terms.shipping;
+      if (total > MAX_UINT96) throw new RelayRefusal('amount');
+      await usdcAtLeast(safe, total);
+      return {
+        calls: [
+          approve(USDC, KEPTRA_ESCROW, total),
+          escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'pay', args: [action.termsId, action.quantity, action.codeCommit] })),
+        ],
+      };
+    }
+    case 'redeem': {
+      const [voucher] = await readVouchers([action.voucherId]);
+      if (voucher.owner === null || voucher.owner.toLowerCase() !== safe.toLowerCase() || voucher.voided) throw new RelayRefusal('no_voucher');
+      // 11.10: thirty days from the claim.
+      if (voucher.claimedAt === 0n || (await nowSeconds()) > voucher.claimedAt + 30n * DAY_SECONDS) throw new RelayRefusal('voucher_expired');
+      const terms = await readTerms((await readObligation(voucher.obligationId)).termsId);
+      // H7: the attestation is for an address registered for this voucher, in a region the brand accepts.
+      if ((await unboundAddress(participantId, { voucherId: action.voucherId })) === null) throw new RelayRefusal('no_address');
+      checkCommit(terms.mode, action.codeCommit);
+      const now = await nowSeconds();
+      const deadline = action.deadline ?? now + BigInt(REDEMPTION_ATTESTATION_TTL_SECONDS);
+      if (deadline <= now || deadline > now + BigInt(REDEMPTION_ATTESTATION_TTL_SECONDS)) throw new RelayRefusal('stale_attestation');
+      const signature = await signRedemption(action.voucherId, safe, deadline);
+      return {
+        calls: [
+          // The guarantee takes the voucher into custody with transferFrom (KeptraGuarantee.sol:289).
+          { to: KEPTRA_VOUCHER, data: encodeFunctionData({ abi: KEPTRA_VOUCHER_ABI, functionName: 'approve', args: [KEPTRA_GUARANTEE, action.voucherId] }) },
+          escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'redeemVoucher', args: [action.voucherId, action.codeCommit, deadline, signature] })),
+        ],
+        redeemDeadline: deadline,
+      };
+    }
+    case 'cancelOrder': {
+      const { order } = await orderOf(action.orderId, safe, 'payer');
+      if (order.state !== OrderState.PAID) throw new RelayRefusal('order_state');
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'cancel', args: [action.orderId] }))] };
+    }
+    case 'confirm': {
+      const { order } = await orderOf(action.orderId, safe, 'payer');
+      const open = order.state === OrderState.SHIPPED || (order.state === OrderState.WINDOW && (order.flags & OrderFlag.REFUSAL) === 0);
+      if (!open) throw new RelayRefusal('order_state');
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'confirm', args: [action.orderId] }))] };
+    }
+    case 'contest': {
+      const { order } = await orderOf(action.orderId, safe, 'payer');
+      if (order.state !== OrderState.WINDOW || (await nowSeconds()) > order.windowEndsAt) throw new RelayRefusal('order_state');
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'contest', args: [action.orderId] }))] };
+    }
+    case 'createOffer': {
+      const t = action.terms;
+      checkTerms(t, true);
+      // C4: a platform account is a payout only once it exists and is configured.
+      const payout = await accountBySafe(t.payout);
+      if (payout !== null && !(await readAccount(payout)).usable) throw new RelayRefusal('destination_not_ready');
+      return {
+        calls: [
+          escrow(
+            encodeFunctionData({
+              abi: KEPTRA_ESCROW_ABI,
+              functionName: 'createOffer',
+              args: [t.payout, t.price, t.shipping, t.returnCost, t.refusalFeeBps, t.shipDays, t.deliveryDays, t.mode, t.regions],
+            }),
+          ),
+        ],
+      };
+    }
+    case 'deactivateOffer': {
+      let terms: TermsView;
+      try {
+        terms = await readTerms(action.termsId);
+      } catch {
+        throw new RelayRefusal('no_offer');
+      }
+      if (terms.store.toLowerCase() !== safe.toLowerCase() || terms.prize) throw new RelayRefusal('no_offer');
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'deactivateOffer', args: [action.termsId] }))] };
+    }
+    case 'ship': {
+      const { order, terms } = await orderOf(action.orderId, safe, 'store');
+      if (order.state !== OrderState.PAID) throw new RelayRefusal('order_state');
+      let hash = ZERO_HASH;
+      if (terms.mode === OrderMode.CARRIER) {
+        // H17: the hash the bridge computed when the store registered the number (store/tracking).
+        const shipment = await shipmentOf(action.orderId);
+        if (shipment === null) throw new RelayRefusal('no_tracking');
+        hash = shipment.trackingHash;
+      }
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'ship', args: [action.orderId, hash] }))] };
+    }
+    case 'submitCode': {
+      const { order, terms } = await orderOf(action.orderId, safe, 'store');
+      if (terms.mode !== OrderMode.OWN_MEANS) throw new RelayRefusal('order_state');
+      // 9.2: the code the recipient showed matches the commitment made at the payment.
+      if (keccak256(encodeAbiParameters([{ type: 'bytes32' }], [action.code])).toLowerCase() !== order.codeCommit.toLowerCase()) {
+        throw new RelayRefusal('code');
+      }
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'submitCode', args: [action.orderId, action.code] }))] };
+    }
+    case 'declareDelivered': {
+      const { order, terms } = await orderOf(action.orderId, safe, 'store');
+      if (order.state !== OrderState.SHIPPED || (await nowSeconds()) > order.shippedAt + BigInt(terms.deliveryDays) * DAY_SECONDS) {
+        throw new RelayRefusal('order_state');
+      }
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'declareDelivered', args: [action.orderId] }))] };
+    }
+    case 'declareRefusal': {
+      const { order, terms } = await orderOf(action.orderId, safe, 'store');
+      if (terms.mode !== OrderMode.OWN_MEANS || order.state !== OrderState.SHIPPED) throw new RelayRefusal('order_state');
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'declareRefusal', args: [action.orderId] }))] };
+    }
+    case 'refund': {
+      const { order, terms } = await orderOf(action.orderId, safe, 'store');
+      if (order.state === OrderState.CLOSED || action.amount <= 0n || action.amount > MAX_UINT96) throw new RelayRefusal('amount');
+      const call = escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'refund', args: [action.orderId, action.amount] }));
+      if (!terms.prize) {
+        if (action.amount > order.paid) throw new RelayRefusal('amount');
+        return { calls: [call] };
+      }
+      // H6: in PRÉMIO the brand pays the refund from its own account, up to the unit's value.
+      if (action.amount > terms.price + terms.shipping) throw new RelayRefusal('amount');
+      await usdcAtLeast(safe, action.amount);
+      return { calls: [approve(USDC, KEPTRA_ESCROW, action.amount), call] };
+    }
+    case 'createObligation': {
+      const t = action.terms;
+      checkTerms(t, false);
+      if (action.units < 1 || action.units > 1_000) throw new RelayRefusal('amount');
+      const brand = await brandParams(safe);
+      // H24 and H32: a brand in debt, or suspended, creates nothing.
+      if (brand.debt !== 0n || !brand.canCreate) throw new RelayRefusal('brand_blocked');
+      // H11 and I8: the bond rounds up, the coverage is the rest, the fee is on the coverage.
+      const unitValue = t.price + t.shipping;
+      const bond = (unitValue * BigInt(brand.bondBps) + BPS - 1n) / BPS;
+      const units = BigInt(action.units);
+      const fee = ((unitValue - bond) * units * BigInt(brand.protectionBps)) / BPS;
+      const total = bond * units + fee;
+      await usdcAtLeast(safe, total);
+      return {
+        calls: [
+          approve(USDC, KEPTRA_GUARANTEE, total),
+          {
+            to: KEPTRA_GUARANTEE,
+            data: encodeFunctionData({
+              abi: KEPTRA_GUARANTEE_ABI,
+              functionName: 'createObligation',
+              args: [t.price, t.shipping, t.returnCost, t.shipDays, t.deliveryDays, t.mode, t.regions, action.units],
+            }),
+          },
+        ],
+      };
+    }
+    case 'createVoucherCampaign': {
+      // The same barrier every creator path has (07/09/2026 decision): a verified number.
+      if (!(await hasVerifiedPhone(participantId))) throw new RelayRefusal('phone_required');
+      const count = action.voucherIds.length;
+      if (count < 1 || count > VOUCHER_CAMPAIGN_MAX_ITEMS || new Set(action.voucherIds.map(String)).size !== count) throw new RelayRefusal('amount');
+      if (action.durationSeconds < CONTRACT_MIN_DURATION_SECONDS || action.durationSeconds > CONTRACT_MAX_DURATION_SECONDS) throw new RelayRefusal('terms');
+      if (action.slotCap < CONTRACT_MIN_PARTICIPANTS || action.slotCap > CONTRACT_MAX_PARTICIPANTS) throw new RelayRefusal('terms');
+      const obligation = await readObligation(action.obligationId);
+      if (obligation.brand.toLowerCase() !== safe.toLowerCase()) throw new RelayRefusal('no_obligation');
+      for (const voucher of await readVouchers(action.voucherIds)) {
+        // H9: a voucher not yet in any campaign and never claimed, of this obligation, in this account.
+        const loose =
+          voucher.owner !== null && voucher.owner.toLowerCase() === safe.toLowerCase() && !voucher.voided && voucher.claimedAt === 0n && voucher.obligationId === action.obligationId;
+        if (!loose) throw new RelayRefusal('no_voucher');
+      }
+      // 11.3 and H10: the campaign's declared value is the prize it deposits — every unit at the obligation's value.
+      const declaredValue = (await readTerms(obligation.termsId)).price * BigInt(count);
+      const fee = await currentCreationFee(PrizeKind.NFT, declaredValue);
+      const cost = fee + (await slotPrice()) * BigInt(action.slotCap);
+      await usdcAtLeast(safe, cost);
+      const operator = (approved: boolean): SafeCall => ({
+        to: KEPTRA_VOUCHER,
+        data: encodeFunctionData({ abi: KEPTRA_VOUCHER_ABI, functionName: 'setApprovalForAll', args: [ERC721_PRIZE_MODULE, approved] }),
+      });
+      return {
+        calls: [
+          // The module pulls each voucher with safeTransferFrom (ERC721PrizeModule takeCustody); the
+          // approval exists only inside this transaction.
+          operator(true),
+          approve(USDC, GIVEAWAY_MANAGER_V2, cost),
+          {
+            to: GIVEAWAY_MANAGER_V2,
+            data: encodeFunctionData({
+              abi: CREATOR_CAMPAIGN_MANAGER_ABI,
+              functionName: 'createGiveaway',
+              args: [
+                ERC721_PRIZE_MODULE,
+                encodeAbiParameters([{ type: 'address' }, { type: 'uint256[]' }], [KEPTRA_VOUCHER, [...action.voucherIds]]),
+                BigInt(count),
+                declaredValue,
+                BigInt(action.durationSeconds),
+                count,
+                action.slotCap,
+              ],
+            }),
+          },
+          operator(false),
+        ],
+      };
+    }
+    default:
+      throw new RelayRefusal('unknown_action');
+  }
+}
+
+/** What address a recipient action binds to the order it opens (P15, H7). */
+function purposeOf(action: Action): AddressPurpose | null {
+  if (action.kind === 'pay') return { termsId: action.termsId };
+  if (action.kind === 'redeem') return { voucherId: action.voucherId };
+  return null;
 }
 
 /**
@@ -477,14 +874,14 @@ export async function prepareAction(
     throw new RelayRefusal('relay_limit');
   }
 
-  const { calls, extraSigner, campaign = null } = await actionCalls(participantId, account, state, action);
+  const { calls, extraSigner, campaign = null, redeemDeadline = null } = await actionCalls(participantId, account, state, action);
   // F10: the closed list reads the calls before they are encoded, not a decoding of them.
   const all = [...(configuration ?? []), ...calls];
   const refusal = refusalFor(account.safe, all, state.nonce, configuration, guardianFor(state, action));
   if (refusal !== null) throw new RelayRefusal(refusal);
   const tx = safeTxFor(all, state.nonce);
 
-  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign };
+  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign, redeemDeadline };
 }
 
 /** A browser assertion over the prepared hash, as the route received it. */
@@ -499,6 +896,8 @@ export interface Submitted {
   readonly txHash: Hex;
   readonly receipt: MinedReceipt | null;
   readonly giveawayId: bigint | null;
+  /** pay and redeem: the order the escrow opened, from the receipt. */
+  readonly orderId: bigint | null;
 }
 
 /**
@@ -616,7 +1015,7 @@ export async function submitAction(
   });
   if (sent === null) throw new RelayRefusal('relayer_unavailable');
   if (sent.receipt === null || sent.receipt.status !== 'success') {
-    return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null };
+    return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null, orderId: null };
   }
 
   if (account.deployedAt === null) {
@@ -642,9 +1041,27 @@ export async function submitAction(
   if (action.kind === 'configure' && configurationGap(state) === 'guardian') {
     await recordGuardian(account.id, guardianAddress());
   }
+  if (action.kind === 'createVoucherCampaign') giveawayId = giveawayIdFromLogs(sent.receipt.logs);
+
+  // Q14: the order a pay or a redemption opened takes its address now; the orders
+  // pass does it from the chain when this receipt never came (bindRecipientAddress).
+  let orderId: bigint | null = null;
+  const purpose = purposeOf(action);
+  if (purpose !== null) {
+    orderId = orderIdFromLogs(sent.receipt.logs);
+    try {
+      const draft = orderId === null || (await orderHasAddress(orderId)) ? null : await unboundAddress(participantId, purpose);
+      if (orderId !== null && draft !== null && (await bindAddress(draft.id, orderId))) {
+        await log.event('order.address_bound', { order_id: orderId.toString(), reconciled: false });
+      }
+    } catch (error) {
+      // The payment stands; the pass binds it on its next run.
+      await log.failure('orders.failed', error, { stage: 'bind' });
+    }
+  }
 
   await log.event('account.relayed', { action: action.kind, deployed: state.deployed });
-  return { txHash: sent.hash, receipt: sent.receipt, giveawayId };
+  return { txHash: sent.hash, receipt: sent.receipt, giveawayId, orderId };
 }
 
 // -----------------------------------------------------------------------------

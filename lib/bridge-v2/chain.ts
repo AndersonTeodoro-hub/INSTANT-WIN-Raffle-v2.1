@@ -15,6 +15,11 @@
  * derived wallet and only the derived wallet can collect. Delivery is a separate
  * transaction for the same reason — claimPrize has no recipient parameter.
  *
+ * SPEC-BRIDGE-V2 §18 adds the keeper's four lifecycle calls, and SPEC-BLOCO-03
+ * piece 5 (P11, P13) the keeper's four exits of the escrow and the guarantee
+ * (sendKeeperExit), and two acts of the bridge role: markVerifiedRecipient and the
+ * redemption attestation, which is a signature and never a transaction.
+ *
  * The contract address and every function name below are literals from config
  * and abi — never read from an environment variable, never taken from input. A
  * configurable contract address is a configurable place to send money. The token
@@ -61,6 +66,8 @@ import {
   GIVEAWAY_LIFECYCLE_ABI,
   GIVEAWAY_MANAGER_V2_ABI,
   GiveawayStatus,
+  KEPTRA_BRIDGE_ROLE_ABI,
+  KEPTRA_KEEPER_ABI,
   PRIZE_MODULE_KIND_ABI,
   PrizeKind,
   VRF_COORDINATOR_V2_PLUS_ABI,
@@ -73,6 +80,8 @@ import {
   GAS_MARGIN_DENOMINATOR,
   GAS_MARGIN_NUMERATOR,
   GIVEAWAY_MANAGER_V2,
+  KEPTRA_ESCROW,
+  KEPTRA_GUARANTEE,
   LIFECYCLE_MAX_GAS_COST_WEI,
   LIFECYCLE_SCAN_PAGE,
   MAX_GAS_COST_WEI,
@@ -762,6 +771,113 @@ export async function sendLifecycleCall(action: LifecycleAction, giveawayId: big
   };
 
   return broadcast(await account.signTransaction(transaction));
+}
+
+// -----------------------------------------------------------------------------
+// SPEC-BLOCO-03 piece 5 — the escrow's exits (keeper) and the bridge role's two acts
+// -----------------------------------------------------------------------------
+
+/** P11: the exits by time the keeper may sign, named by the function it calls. */
+export type KeeperExit = 'expire' | 'closeWindow' | 'resolveAbsentArbiter' | 'voidVoucher';
+
+/**
+ * The calldata and target of one exit. A switch over literals, as
+ * lifecycleCalldata: P11 lets the keeper sign these four and no fifth (H1, P13).
+ */
+function exitCall(exit: KeeperExit, id: bigint, itemIndex: bigint): { to: `0x${string}`; data: Hex } {
+  switch (exit) {
+    case 'expire':
+      return { to: KEPTRA_ESCROW, data: encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'expire', args: [id] }) };
+    case 'closeWindow':
+      return { to: KEPTRA_ESCROW, data: encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'closeWindow', args: [id] }) };
+    case 'resolveAbsentArbiter':
+      return { to: KEPTRA_ESCROW, data: encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'resolveAbsentArbiter', args: [id] }) };
+    case 'voidVoucher':
+      return { to: KEPTRA_GUARANTEE, data: encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'voidVoucher', args: [id, itemIndex] }) };
+  }
+}
+
+/**
+ * Signs and broadcasts one exit by time as the keeper. SPEC-BLOCO-03 J5, P11.
+ *
+ * sendLifecycleCall's shape exactly — the lifecycle band and the keeper's own
+ * ceiling (§18 M7), the nonce at `pending` under the pipeline's lock (G6), and a
+ * revert read by name by the caller. Anybody may make these calls (I1); the
+ * keeper only pays for them, and like the lifecycle it spends nothing from the
+ * shared ceiling (P11, §18 B8).
+ */
+export async function sendKeeperExit(exit: KeeperExit, id: bigint, itemIndex: bigint = 0n): Promise<Hex> {
+  const account = privateKeyToAccount(requireEnv('BRIDGE_V2_KEEPER_KEY') as Hex);
+  const client = publicClient();
+  const { to, data } = exitCall(exit, id, itemIndex);
+
+  const [nonce, fees, estimate] = await Promise.all([
+    client.getTransactionCount({ address: account.address, blockTag: 'pending' }),
+    currentFees(),
+    client.estimateGas({ account: account.address, to, data }),
+  ]);
+  const plan = planGas(estimate, fees.maxFeePerGas, fees.maxPriorityFeePerGas, GAS_BANDS.LIFECYCLE, LIFECYCLE_MAX_GAS_COST_WEI);
+
+  return broadcast(
+    await account.signTransaction({
+      chainId: CHAIN_ID,
+      type: 'eip1559',
+      to,
+      data,
+      nonce,
+      gas: plan.gasLimit,
+      maxFeePerGas: plan.maxFeePerGas,
+      maxPriorityFeePerGas: plan.maxPriorityFeePerGas,
+    }),
+  );
+}
+
+/**
+ * 13.1 and H3: marks an order's recipient verified and distinct, signed by the
+ * bridge role — the key that publishes the roots. P14: the caller holds the
+ * pipeline's lock, which is what serialises this key's `pending` nonce with
+ * publishEligibilityRoot's.
+ */
+export async function sendRecipientMark(orderId: bigint): Promise<Hex> {
+  const account = privateKeyToAccount(requireEnv('BRIDGE_V2_ROLE_KEY') as Hex);
+  const client = publicClient();
+  const data = encodeFunctionData({ abi: KEPTRA_BRIDGE_ROLE_ABI, functionName: 'markVerifiedRecipient', args: [orderId] });
+  const [nonce, fees, estimate] = await Promise.all([
+    client.getTransactionCount({ address: account.address, blockTag: 'pending' }),
+    currentFees(),
+    client.estimateGas({ account: account.address, to: KEPTRA_ESCROW, data }),
+  ]);
+  const plan = planGas(estimate, fees.maxFeePerGas, fees.maxPriorityFeePerGas, GAS_BANDS.ESCROW_ROLE);
+  return broadcast(
+    await account.signTransaction({
+      chainId: CHAIN_ID,
+      type: 'eip1559',
+      to: KEPTRA_ESCROW,
+      data,
+      nonce,
+      gas: plan.gasLimit,
+      maxFeePerGas: plan.maxFeePerGas,
+      maxPriorityFeePerGas: plan.maxPriorityFeePerGas,
+    }),
+  );
+}
+
+/**
+ * H7 and I6: the bridge role's attestation that an address in a region the brand
+ * accepts was registered for this voucher — the EIP-712 signature redeemVoucher
+ * checks (KeptraEscrow.sol:73-74, :253, :526-535). Off-chain: nothing is sent.
+ * ECDSA here is deterministic (RFC 6979), so the same three values sign the same
+ * bytes, which is what lets the relay build a redemption twice.
+ */
+export async function signRedemption(voucherId: bigint, recipient: `0x${string}`, deadline: bigint): Promise<Hex> {
+  // F6: the account is created here, used, and dropped; only the signature leaves.
+  const account = privateKeyToAccount(requireEnv('BRIDGE_V2_ROLE_KEY') as Hex);
+  return account.signTypedData({
+    domain: { name: 'Keptra', version: '1', chainId: CHAIN_ID, verifyingContract: KEPTRA_ESCROW },
+    types: { Redemption: [{ name: 'voucherId', type: 'uint256' }, { name: 'recipient', type: 'address' }, { name: 'deadline', type: 'uint256' }] },
+    primaryType: 'Redemption',
+    message: { voucherId, recipient, deadline },
+  });
 }
 
 /**

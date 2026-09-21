@@ -354,3 +354,76 @@ export function sendRecoveryNoticeEmail(
     ].join('\n'),
   );
 }
+
+// -----------------------------------------------------------------------------
+// SPEC-BLOCO-03 piece 5 — the orders (email only, P3)
+// -----------------------------------------------------------------------------
+
+const utc = (seconds: bigint): string => new Date(Number(seconds) * 1000).toISOString().replace('T', ' ').slice(0, 16);
+
+/** Why a window opened (WindowOpened.kind): a proof of delivery, the store's word, or the store's refusal (P4). */
+export type WindowReason = 'proof' | 'declared' | 'refusal';
+
+const WINDOW_LEAD: Record<WindowReason, string> = {
+  proof: 'The delivery of your order was confirmed.',
+  declared: 'The store says your order was delivered.',
+  refusal: 'The store says your order was refused or not collected.',
+};
+
+/**
+ * 8.3 at T5, 9.4 and P4: the window has opened. The recipient confirms, or
+ * contests, with the passkey (6.2.2), so the link is keptra.io (B2).
+ */
+export function sendOrderWindowEmail(to: string, orderId: bigint, reason: WindowReason, windowEndsAt: bigint): Promise<MailResult> {
+  const act =
+    reason === 'refusal'
+      ? 'If that is not what happened, you can contest it until then; without a contest the refusal terms apply.'
+      : 'If it arrived as described, confirm it. If it did not arrive, or is not as described, you can contest until then; without a contest the store is paid.';
+  return post(
+    to,
+    `Your Keptra order #${orderId}: action window open`,
+    [WINDOW_LEAD[reason], '', `The window closes on ${utc(windowEndsAt)} UTC.`, act, '', `  ${KEPTRA_BASE}/orders/${orderId}`].join('\n'),
+  );
+}
+
+/** 8.3 and P4: 24 hours before the window closes. */
+export function sendOrderClosingEmail(to: string, orderId: bigint, refusal: boolean, windowEndsAt: bigint): Promise<MailResult> {
+  return post(
+    to,
+    `Your Keptra order #${orderId}: the window closes in less than 24 hours`,
+    [
+      `The window on your order closes on ${utc(windowEndsAt)} UTC.`,
+      refusal ? 'After that the refusal terms apply and the order is settled.' : 'After that the store is paid and the order is settled.',
+      'To confirm or to contest, before then:',
+      '',
+      `  ${KEPTRA_BASE}/orders/${orderId}`,
+    ].join('\n'),
+  );
+}
+
+/** P22: the store is told of an order it has to ship, and by when (7.7). */
+export function sendStoreOrderEmail(to: string, orderId: bigint, shipBy: bigint): Promise<MailResult> {
+  return post(
+    to,
+    `New Keptra order #${orderId}: ship by ${utc(shipBy)} UTC`,
+    [
+      `Order #${orderId} is waiting for its shipment.`,
+      `Declare it shipped by ${utc(shipBy)} UTC. After that the buyer can be refunded in full, and it counts against your record.`,
+      '',
+      `  ${KEPTRA_BASE}/store/orders/${orderId}`,
+    ].join('\n'),
+  );
+}
+
+/** P22: the arbiter is told of a contest, and of the five days 8.2 gives it. */
+export function sendArbiterContestEmail(to: string, orderId: bigint, decideBy: bigint): Promise<MailResult> {
+  return post(
+    to,
+    `Keptra contest on order #${orderId}`,
+    [
+      `Order #${orderId} was contested.`,
+      `Decide by ${utc(decideBy)} UTC. After that the order is settled by the proof alone (8.2).`,
+      'The evidence of both parties is read with the arbiter key (arbiter/evidence).',
+    ].join('\n'),
+  );
+}

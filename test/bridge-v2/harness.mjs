@@ -37,6 +37,7 @@ export const TEST_KEEPER_KEY = `0x${randomHex(32)}`;
 export const TEST_GUARDIAN_KEY = `0x${randomHex(32)}`;
 export const TEST_CRON_SECRET = randomHex(32);
 export const TEST_TELEGRAM_SECRET = randomHex(32);
+export const TEST_ORACLE_TOKEN = randomHex(32);
 
 /**
  * Every name in REQUIRED_ENV, filled with a generated value.
@@ -64,6 +65,10 @@ export function installEnv() {
     TELEGRAM_WEBHOOK_SECRET: TEST_TELEGRAM_SECRET,
     TELEGRAM_BOT_USERNAME: 'example_events_bot',
     CRON_SECRET: TEST_CRON_SECRET,
+    // SPEC-BLOCO-03 piece 5 (KEPTRA_ENV).
+    BRIDGE_V2_SHIP24_KEY: `apik_${randomHex(16)}`,
+    BRIDGE_V2_ORACLE_TOKEN: TEST_ORACLE_TOKEN,
+    BRIDGE_V2_ARBITER_EMAIL: 'arbiter@example.invalid',
   });
 }
 

@@ -22,9 +22,12 @@ import {
   giveawayIdFromLogs,
   planGas,
   rootIndexFromLogs,
+  signRedemption,
 } from '../../../lib/bridge-v2/chain.ts';
 
-export { ChainError, cleanSymbol, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs };
+// signRedemption is the real one: it signs off-chain and reaches no RPC, and the
+// signature is what the escrow checks (SPEC-BLOCO-03 H7).
+export { ChainError, cleanSymbol, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs, signRedemption };
 
 export const calls = [];
 
@@ -98,6 +101,9 @@ const DEFAULTS = () => ({
   readLifecyclePage: [],
   keeperAccount: { balance: 10n ** 18n, latestNonce: 0, pendingNonce: 0, maxFeePerGas: 100_000_000n },
   sendLifecycleCall: '0x'.padEnd(66, '5'),
+  // SPEC-BLOCO-03 piece 5: the keeper's exits (P11) and the bridge role's mark (13.1).
+  sendKeeperExit: '0x'.padEnd(66, '7'),
+  sendRecipientMark: '0x'.padEnd(66, '8'),
 });
 
 function plan(gasLimit) {
@@ -140,6 +146,8 @@ export const lifecycleHead = (...args) => answer('lifecycleHead', args);
 export const readLifecyclePage = (...args) => answer('readLifecyclePage', args);
 export const keeperAccount = (...args) => answer('keeperAccount', args);
 export const sendLifecycleCall = (...args) => answer('sendLifecycleCall', args);
+export const sendKeeperExit = (...args) => answer('sendKeeperExit', args);
+export const sendRecipientMark = (...args) => answer('sendRecipientMark', args);
 export const readGiveaway = (...args) => answer('readGiveaway', args);
 export const slotsRemaining = (...args) => answer('slotsRemaining', args);
 export const hasEntered = (...args) => answer('hasEntered', args);

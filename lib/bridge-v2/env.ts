@@ -123,6 +123,39 @@ export const OPTIONAL_ENV = [
 
 export type OptionalEnvName = (typeof OPTIONAL_ENV)[number];
 
+/**
+ * SPEC-BLOCO-03 piece 5 — required by the orders and by nothing else, so a
+ * deployment without them keeps the lottery and the accounts running (I9) while
+ * every order route and step refuses with "configuration incomplete".
+ */
+export const KEPTRA_ENV = [
+  // M1 and O4: the bridge's own key of the dedicated tracking-provider account,
+  // never the oracle's (KEPTRA_TRACKING_API_KEY lives in the CRE only).
+  'BRIDGE_V2_SHIP24_KEY',
+  // M9 and N7: the credential the oracle presents for the list of orders awaiting
+  // proof. The same value is the CRE secret KEPTRA_BRIDGE_TOKEN.
+  'BRIDGE_V2_ORACLE_TOKEN',
+  // P22: where the arbiter is told of a contest. An address, not a secret.
+  'BRIDGE_V2_ARBITER_EMAIL',
+] as const;
+
+export type KeptraEnvName = (typeof KEPTRA_ENV)[number];
+
+/** Reads one of KEPTRA_ENV, like requireEnv (F3, F4). */
+export function requireKeptraEnv(name: KeptraEnvName): string {
+  const value = process.env[name];
+  if (value === undefined || value.length === 0) throw new MissingEnvError([name]);
+  return value;
+}
+
+/** The KEPTRA_ENV names that are missing. */
+export function missingKeptraEnv(): string[] {
+  return KEPTRA_ENV.filter((name) => {
+    const value = process.env[name];
+    return value === undefined || value.length === 0;
+  });
+}
+
 /** Thrown when configuration is missing. Carries names only (F3). */
 export class MissingEnvError extends Error {
   readonly names: readonly string[];

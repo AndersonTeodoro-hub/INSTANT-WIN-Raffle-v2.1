@@ -12,6 +12,7 @@ import {
   reconcileSubmitted,
 } from '../../../../lib/bridge-v2/processor.js';
 import { advanceLifecycle } from '../../../../lib/bridge-v2/lifecycle.js';
+import { advanceOrders } from '../../../../lib/bridge-v2/keptraOrders.js';
 import {
   acquireRunLock,
   nextRunSequence,
@@ -34,7 +35,10 @@ const STAGES: Record<PipelinePhase, (log: Logger, deadline: RunDeadline) => Prom
   reconcileFunding,
   publishRoots: publishPendingRoots,
   processEntries: processEligibleEntries,
-  advanceLifecycle,
+  // SPEC-BLOCO-03 piece 5 (J5, P11, P12): the orders' exits by time are the
+  // keeper's too, so they run in the keeper's phase, after the lifecycle, each
+  // unit under a reservation of its own (keptraOrders.ts). Not a seventh phase.
+  advanceLifecycle: async (log, deadline) => (await advanceLifecycle(log, deadline)) + (await advanceOrders(log, deadline)),
   processPrizes,
 };
 

@@ -35,6 +35,23 @@ export const GIVEAWAY_MANAGER_V2 = '0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739' 
 export const USDC = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' as const;
 export const USDC_DECIMALS = 6 as const;
 
+/**
+ * SPEC-BLOCO-03 piece 5, Adenda P24: the escrow, the guarantee and the voucher of
+ * pieces 2 and 3 (commit 183a2b4). Literals, as H1 wants every contract address —
+ * and zero until the owner fills them in after the deploy. While any is zero
+ * every route and cron step of the orders refuses with "configuration incomplete"
+ * (keptraContractsConfigured in orders.ts), and the general rehearsal fails.
+ */
+export const KEPTRA_ESCROW: `0x${string}` = '0x0000000000000000000000000000000000000000';
+export const KEPTRA_GUARANTEE: `0x${string}` = '0x0000000000000000000000000000000000000000';
+export const KEPTRA_VOUCHER: `0x${string}` = '0x0000000000000000000000000000000000000000';
+/**
+ * The ERC721PrizeModule of GiveawayManagerV2 (Arbitrum One), the only module a
+ * voucher can enter a campaign through (11.3, H9). The fork suite reads it back
+ * from the core as registered and NFT.
+ */
+export const ERC721_PRIZE_MODULE = '0xafe9E198816DEa24e7f74e9D666c0F250aD688BC' as const;
+
 // -----------------------------------------------------------------------------
 // Creator-without-wallet campaign limits — mirrored from GiveawayManagerV2.sol
 // so a bad request fails with 400 before it costs a wasted revert (I2).
@@ -125,6 +142,9 @@ export const SPEND_CAPS = {
   email: { hour: 500, day: 5000 },
   telegram: { hour: 3000, day: 30000 },
   chain: { hour: 500, day: 5000 },
+  // SPEC-BLOCO-03 piece 5: one tracker created at the tracking provider (M9).
+  // The minimum paid plan counts 1 000 a month; this keeps a runaway loop inside it.
+  tracking: { hour: 30, day: 100 },
 } as const;
 
 export type SpendProvider = keyof typeof SPEND_CAPS;
@@ -614,6 +634,69 @@ export const RELAYED_TRANSACTIONS_PER_DAY = 20;
  */
 export const RECOVERY_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
+// -----------------------------------------------------------------------------
+// SPEC-BLOCO-03 piece 5 — the orders
+// -----------------------------------------------------------------------------
+/** KeptraEscrow.CONTEST_WINDOW and ARBITER_WINDOW, constants of the contract (read back in the fork suite). */
+export const ESCROW_CONTEST_WINDOW_SECONDS = 5 * 24 * 60 * 60;
+export const ESCROW_ARBITER_WINDOW_SECONDS = 5 * 24 * 60 * 60;
+/** 8.3: the recipient is told this long before the window closes. */
+export const WINDOW_CLOSING_NOTICE_SECONDS = 24 * 60 * 60;
+/**
+ * 10.3: the address, the tracking number and the evidence are erased this long
+ * after the order's final state. A day short of the thirty 10.3 allows, so an
+ * hourly pass that runs late is still inside it.
+ */
+export const ERASE_AFTER_CLOSE_DAYS = 29;
+/** H7 and I6: how long the bridge's redemption attestation is good for — one prepare and its submit. */
+export const REDEMPTION_ATTESTATION_TTL_SECONDS = 60 * 60;
+/** P17: one text per party, at most this long. */
+export const EVIDENCE_MAX_CHARS = 2_000;
+/** P17: how old the arbiter's signed request may be, and how far ahead of this clock. */
+export const ARBITER_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
+/** P19: the longest a field of an address may be. */
+export const ADDRESS_FIELD_MAX_CHARS = 200;
+/** P23-3: an offer or obligation names at most this many countries. */
+export const REGIONS_MAX = 60;
+/**
+ * M7 and B4 of piece 4: the oracle reads the first 13 orders of the list. The list
+ * holds only that many, rotated once per schedule slot of the workflow (15
+ * minutes), so every order is asked about within ceil(n / 13) slots.
+ */
+export const ORACLE_PENDING_PAGE = 13;
+export const ORACLE_ROTATION_SECONDS = 15 * 60;
+/**
+ * P1: the vouchers one relayed campaign may deposit. takeCustody moves each with
+ * safeTransferFrom (about 100 000 gas apiece), and the batch has to fit the
+ * relayer's ACCOUNT band. ponytail: a larger obligation runs several campaigns.
+ */
+export const VOUCHER_CAMPAIGN_MAX_ITEMS = 20;
+/** Orders per multicall page, two reads each (getOrder, getTerms). */
+export const ORDER_SCAN_PAGE = 50;
+
+/**
+ * P12: what one pass over the orders reserves before a unit — the order count and
+ * the latest block, one page of orders and their terms, the rows written, and the
+ * outcome of an order seen closing (its OrderClosed log) with its mark released.
+ */
+export const ORDER_SCAN_MS = 3 * RPC_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
+/** P11 and P12: one exit by time signed by the keeper — the account read, the quote, the broadcast, the receipt. */
+export const ORDER_EXIT_MS = RECEIPT_TIMEOUT_MS + 5 * RPC_TIMEOUT_MS;
+/** P11: one page of vouchers read for the ones the core can no longer deliver (ownership, the clocks, itemsOf). */
+export const VOUCHER_SCAN_MS = 3 * RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
+/**
+ * 13.1, P5, P14: one recipient marked — the payer's and the store's accounts and
+ * numbers, the mark reserved, the spend claimed, the bridge role's transaction
+ * and its receipt, the mark recorded.
+ */
+export const ORDER_MARK_MS = RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS + 8 * DB_TIMEOUT_MS;
+/** 8.3, P4, P22: one notice — the address to send to, the spend, the email, the record. */
+export const ORDER_NOTICE_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
+/** 10.3: the erasure of what outlived its orders — four deletes and the event. */
+export const ORDER_ERASURE_MS = 5 * DB_TIMEOUT_MS;
+/** 9.5.5: one tracker the provider did not take, asked again — the shipment, the address, the spend, the post, the row. */
+export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
+
 /**
  * G4 and §7/G4, checked rather than declared.
  *
@@ -654,7 +737,11 @@ export const RECOVERY_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
  * 24_000 for the role keys — and the two routes that budget themselves: 232_000
  * for a relayed submission's tail and 184_000 for one step of the creator submit.
  * The largest leaves 40_000 ms of margin, and every one fits the maintenance
- * pass's own budget (MAINTENANCE_BUDGET_MS, 272_000) as well.
+ * pass's own budget (MAINTENANCE_BUDGET_MS, 272_000) as well. SPEC-BLOCO-03
+ * piece 5 adds, in the pipeline, 62_000 for a page of the orders scan, 80_000
+ * for one exit by the keeper, 38_000 for a page of vouchers, 134_000 for one
+ * recipient mark and 40_000 for one notice; and in the maintenance pass 40_000
+ * for the erasure and 40_000 for one tracker asked again.
  *
  * Adenda C1 as F8 extends it: EVERY reservation a maintenance step passes to
  * hasTimeFor — in any file the maintenance route reaches — is in this map. The
@@ -695,6 +782,14 @@ export const EVERY_RESERVATION_MS: Record<string, number> = {
   roleKeysCheck: ROLE_KEYS_CHECK_MS,
   relaySend: RELAY_SEND_MS,
   creatorSubmitUnit: CREATOR_SUBMIT_UNIT_MS,
+  // SPEC-BLOCO-03 piece 5: the orders pass (under advanceLifecycle) and its two maintenance steps.
+  orderScan: ORDER_SCAN_MS,
+  orderExit: ORDER_EXIT_MS,
+  voucherScan: VOUCHER_SCAN_MS,
+  orderMark: ORDER_MARK_MS,
+  orderNotice: ORDER_NOTICE_MS,
+  orderErasure: ORDER_ERASURE_MS,
+  trackerRetry: TRACKER_RETRY_MS,
 };
 
 export const LARGEST_UNIT_MS = Math.max(...Object.values(EVERY_RESERVATION_MS));
@@ -787,6 +882,11 @@ export const GAS_BANDS = {
    * batch) with the account's creation in front of it; the floor is intrinsic.
    */
   ACCOUNT: { min: 21_000n, max: 3_000_000n },
+  /**
+   * SPEC-BLOCO-03 13.1: markVerifiedRecipient, the bridge role's one escrow call —
+   * a flag and an event. The floor is intrinsic; MANAGER's 40 000 would refuse it.
+   */
+  ESCROW_ROLE: { min: 21_000n, max: 500_000n },
 } as const;
 
 export type GasBand = (typeof GAS_BANDS)[keyof typeof GAS_BANDS];
@@ -1001,6 +1101,23 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // createCampaign is about four hundred seconds), so it declares the ceiling and
   // starts the irreversible part only with RELAY_SEND_MS of RUN_BUDGET_MS left.
   'api/bridge/v2/account/relay.ts': CRON_MAX_DURATION_SECONDS,
+  // SPEC-BLOCO-03 piece 5. Three RPC stages: a voucher's owner and clocks, its
+  // obligation, the terms' regions (an offer's regions alone for COMPRA). Ten
+  // database stages: the session read and slide, three rate-limit axes, the
+  // account read, the insert, the ops event, and the envelope's; one to spare.
+  'api/bridge/v2/order/address.ts': maxDurationSeconds(3, 10),
+  // Two RPC stages: the order, then its terms. Twelve database stages: the
+  // session read and slide, three rate-limit axes, both accounts, the evidence
+  // read, the insert, the re-read, the ops event, and the envelope's.
+  'api/bridge/v2/order/evidence.ts': maxDurationSeconds(2, 12),
+  // Three RPC stages: the order, its terms, then whether the hash is used.
+  // Twelve database stages: the session read and slide, three rate-limit axes,
+  // the account, the shipment and the address, the spend, the insert, the ops
+  // event and the envelope's. Two HTTP stages: the provider, and an alert.
+  'api/bridge/v2/store/tracking.ts': maxDurationSeconds(3, 12, 2),
+  // One RPC stage: the escrow's arbiter. Five database stages: two rate-limit
+  // axes, the evidence, the ops event, and the envelope's.
+  'api/bridge/v2/arbiter/evidence.ts': maxDurationSeconds(1, 5),
 };
 
 /**

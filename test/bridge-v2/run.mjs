@@ -40,6 +40,10 @@ const SUITES = [
   // pipeline, the recovery pass and migration 0012, with the chain doubled. The
   // on-chain half runs in ./fork, below.
   './suites/keptra.test.mjs',
+  // SPEC-BLOCO-03 piece 5: the orders — addresses, the tracking provider, the
+  // oracle's list, the relay's order actions, the orders pass, the notices, the
+  // evidence, and migration 0013, with the chain doubled. On-chain: ./fork.
+  './suites/orders.test.mjs',
 ];
 
 /**
@@ -75,6 +79,13 @@ const REQUIREMENTS = [
   'AE1', 'AE2', 'AE3', 'AE4', 'AE5', 'AE7', 'AE9', 'AE10', 'AE11',
   // SPEC-BLOCO-03 Adenda F, as AFn. F9 is comments and F11 asks for no code.
   'AF1', 'AF2', 'AF3', 'AF4', 'AF5', 'AF6', 'AF7', 'AF8', 'AF10', 'AF12',
+  // SPEC-BLOCO-03 piece 5: the rows of its matrix, Qn. Q22-Q25 (the ramp) left
+  // the build with Adenda P8-P10.
+  ...Array.from({ length: 21 }, (_unused, index) => `Q${index + 1}`),
+  'Q26', 'Q27', 'Q28', 'Q29', 'Q30', 'Q31', 'Q32',
+  // SPEC-BLOCO-03 Adenda P, as APn. P6 is the owner's test, P8-P10 took the ramp
+  // out, P23 is the owner's DNS, P25 and P26 go to the lot before the deploy.
+  'AP1', 'AP2', 'AP3', 'AP4', 'AP5', 'AP7', 'AP11', 'AP12', 'AP13', 'AP14', 'AP15', 'AP16', 'AP17', 'AP18', 'AP19', 'AP20', 'AP21', 'AP22', 'AP24',
 ];
 
 for (const path of SUITES) {

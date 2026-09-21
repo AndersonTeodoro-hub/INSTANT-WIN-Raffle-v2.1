@@ -104,6 +104,24 @@ export type OpsKind =
   | 'migration.sealed'
   | 'migration.failed'
   | 'migration.readiness'
+  // SPEC-BLOCO-03 piece 5: the orders. The order id and what happened — never an
+  // address, a tracking number, a post code or evidence (section 10, K4).
+  | 'orders.skipped'
+  | 'orders.sent'
+  | 'orders.confirmed'
+  | 'orders.unconfirmed'
+  | 'orders.failed'
+  | 'orders.deferred'
+  | 'order.address_bound'
+  | 'order.address_registered'
+  | 'order.notified'
+  | 'order.recipient_marked'
+  | 'order.tracking_registered'
+  | 'order.tracker_created'
+  | 'order.evidence_written'
+  | 'order.evidence_read'
+  | 'order.erased'
+  | 'order.refused'
   | 'alert';
 
 /**

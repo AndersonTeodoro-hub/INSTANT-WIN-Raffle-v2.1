@@ -7,12 +7,15 @@ import {
   parseCredentialId,
   parseGiveawayId,
   parseHexBytes,
+  parseIntInRange,
   parseUint256,
 } from '../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { runDeadline } from '../../../../lib/bridge-v2/runlock.js';
 import { ChainError } from '../../../../lib/bridge-v2/chain.js';
-import { prepareAction, RelayRefusal, submitAction, type Action } from '../../../../lib/bridge-v2/relay.js';
+import { prepareAction, RelayRefusal, submitAction, type Action, type OfferTerms } from '../../../../lib/bridge-v2/relay.js';
+import { OrderMode } from '../../../../lib/bridge-v2/abi.js';
+import { encodeRegions } from '../../../../lib/bridge-v2/orders.js';
 import type { AccountRole } from '../../../../lib/bridge-v2/keptra.js';
 
 /**
@@ -67,6 +70,8 @@ const route = handle('account/relay', async ({ request, log }) => {
         safeTxHash: prepared.hash,
         nonce: prepared.tx.nonce.toString(),
         deployed: prepared.state.deployed,
+        // SPEC-BLOCO-03 H7: the redemption attestation's deadline, which the submit sends back.
+        ...(prepared.redeemDeadline === null ? {} : { deadline: prepared.redeemDeadline.toString() }),
       });
     }
 
@@ -94,6 +99,7 @@ const route = handle('account/relay', async ({ request, log }) => {
       txHash: submitted.txHash,
       status: submitted.receipt === null ? 'PENDING' : submitted.receipt.status === 'success' ? 'CONFIRMED' : 'REVERTED',
       giveawayId: submitted.giveawayId === null ? null : submitted.giveawayId.toString(),
+      orderId: submitted.orderId === null ? null : submitted.orderId.toString(),
     });
   } catch (error) {
     if (error instanceof RelayRefusal) {
@@ -134,6 +140,23 @@ const REFUSALS: Record<string, string> = {
   guardian_incident: 'Recovery cannot be set up while its key is being replaced. Try again later.',
   relay_limit: 'Your account reached its limit of transactions for the last 24 hours. Try again later.',
   campaign_in_flight: 'This campaign was already sent. Wait for it to be confirmed.',
+  // SPEC-BLOCO-03 piece 5.
+  orders_not_configured: 'Orders are not available yet.',
+  unknown_action: 'Invalid action.',
+  no_offer: 'This offer is not available.',
+  no_address: 'Add a delivery address for this first.',
+  code_commit: 'The delivery code does not match how this is delivered.',
+  no_voucher: 'This voucher cannot be used from your account.',
+  voucher_expired: 'This voucher can no longer be redeemed.',
+  stale_attestation: 'This request expired. Prepare it again.',
+  no_order: 'No order of yours with that number.',
+  order_state: 'This cannot be done at this stage of the order.',
+  terms: 'Those conditions are not allowed.',
+  no_tracking: 'Register the tracking number first.',
+  code: 'That delivery code does not match this order.',
+  brand_blocked: 'Your brand cannot create obligations right now.',
+  no_obligation: 'No obligation of yours with that number.',
+  phone_required: 'Verify your phone first.',
 };
 
 /** The Action a body names, or null. A closed list, like the union it builds. */
@@ -160,9 +183,91 @@ function parseAction(body: Record<string, unknown>): Action | null {
     case 'revokeGuardian':
     case 'configure':
       return { kind: body.kind };
+    // SPEC-BLOCO-03 piece 5, P1.
+    case 'pay': {
+      const termsId = parseUint256(body.termsId);
+      const quantity = parseIntInRange(body.quantity, 1, 1_000_000);
+      const codeCommit = parseBytes32(body.codeCommit ?? ZERO_HASH);
+      return termsId === null || quantity === null || codeCommit === null ? null : { kind: 'pay', termsId, quantity, codeCommit };
+    }
+    case 'redeem': {
+      const voucherId = parseUint256(body.voucherId);
+      const codeCommit = parseBytes32(body.codeCommit ?? ZERO_HASH);
+      const deadline = body.deadline === undefined ? null : parseUint256(body.deadline);
+      if (voucherId === null || codeCommit === null || (body.deadline !== undefined && deadline === null)) return null;
+      return { kind: 'redeem', voucherId, codeCommit, deadline };
+    }
+    case 'cancelOrder':
+    case 'confirm':
+    case 'contest':
+    case 'ship':
+    case 'declareDelivered':
+    case 'declareRefusal': {
+      const orderId = parseUint256(body.orderId);
+      return orderId === null ? null : { kind: body.kind, orderId };
+    }
+    case 'deactivateOffer': {
+      const termsId = parseUint256(body.termsId);
+      return termsId === null ? null : { kind: 'deactivateOffer', termsId };
+    }
+    case 'submitCode': {
+      const orderId = parseUint256(body.orderId);
+      const code = parseBytes32(body.code);
+      return orderId === null || code === null ? null : { kind: 'submitCode', orderId, code };
+    }
+    case 'refund': {
+      const orderId = parseUint256(body.orderId);
+      const amount = parseUint256(body.amount);
+      return orderId === null || amount === null ? null : { kind: 'refund', orderId, amount };
+    }
+    case 'createOffer': {
+      const terms = parseTerms(body);
+      return terms === null ? null : { kind: 'createOffer', terms };
+    }
+    case 'createObligation': {
+      const terms = parseTerms({ ...body, refusalFeeBps: 0, payout: '0x0000000000000000000000000000000000000001' });
+      const units = parseIntInRange(body.units, 1, 1_000);
+      return terms === null || units === null ? null : { kind: 'createObligation', terms, units };
+    }
+    case 'createVoucherCampaign': {
+      const obligationId = parseUint256(body.obligationId);
+      const voucherIds = Array.isArray(body.voucherIds) && body.voucherIds.length <= 100 ? body.voucherIds.map(parseUint256) : null;
+      const durationSeconds = parseIntInRange(body.durationSeconds, 1, 10 ** 9);
+      const slotCap = parseIntInRange(body.slotCap, 1, 10 ** 9);
+      if (obligationId === null || voucherIds === null || voucherIds.some((id) => id === null) || durationSeconds === null || slotCap === null) return null;
+      return { kind: 'createVoucherCampaign', obligationId, voucherIds: voucherIds as bigint[], durationSeconds, slotCap };
+    }
     default:
       return null;
   }
+}
+
+const ZERO_HASH = `0x${'0'.repeat(64)}`;
+
+/** A 32-byte value (a commitment, a delivery code), or null. Zero is a value: "none" by carrier (9.2). */
+function parseBytes32(value: unknown): `0x${string}` | null {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value) ? (value.toLowerCase() as `0x${string}`) : null;
+}
+
+/** An amount in USDC base units that may be zero (shipping, return cost), or null. */
+function parseAmount(value: unknown): bigint | null {
+  return typeof value === 'string' && /^\d{1,29}$/.test(value) ? BigInt(value) : null;
+}
+
+/** Section 7 from a body. The relay checks the ceilings (relay.ts checkTerms); this only reads. */
+function parseTerms(body: Record<string, unknown>): OfferTerms | null {
+  const payout = parseAddress(body.payout);
+  const price = parseUint256(body.price);
+  const shipping = parseAmount(body.shipping);
+  const returnCost = parseAmount(body.returnCost);
+  const refusalFeeBps = parseIntInRange(body.refusalFeeBps, 0, 10_000);
+  const shipDays = parseIntInRange(body.shipDays, 1, 365);
+  const deliveryDays = parseIntInRange(body.deliveryDays, 1, 365);
+  const mode = body.mode === 'CARRIER' ? OrderMode.CARRIER : body.mode === 'OWN_MEANS' ? OrderMode.OWN_MEANS : null;
+  const regions = encodeRegions(body.regions);
+  if (payout === null || price === null || shipping === null || returnCost === null || refusalFeeBps === null) return null;
+  if (shipDays === null || deliveryDays === null || mode === null || regions === null) return null;
+  return { payout, price, shipping, returnCost, refusalFeeBps, shipDays, deliveryDays, mode, regions };
 }
 
 /**

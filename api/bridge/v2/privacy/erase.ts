@@ -6,6 +6,7 @@ import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
 import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
+import { eraseAddressesOf } from '../../../../lib/bridge-v2/orders.js';
 
 /**
  * POST /api/bridge/v2/privacy/erase
@@ -68,15 +69,25 @@ const route = handle('privacy/erase', async ({ request, log }) => {
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
+  // SPEC-BLOCO-03 10.3 and Adenda P18: the delivery addresses, with the tracking
+  // numbers and evidence that travel with them. Those of orders still open are
+  // erased after the order's final state, and the participant is told so.
+  const addresses = await eraseAddressesOf(session.participantId);
+
   const revoked = await revokeAllSessions(session.participantId);
 
-  await log.event('route.ok', { released, revoked });
+  await log.event('route.ok', { released, revoked, addresses_erased: addresses.erased, addresses_deferred: addresses.deferred });
   return ok(
     {
       erased: true,
       phoneReleased: released > 0,
       sessionsRevoked: revoked,
       retained: 'participation record, no longer linked to an identity',
+      addressesErased: addresses.erased,
+      addressesDeferred: addresses.deferred,
+      ...(addresses.deferred === 0
+        ? {}
+        : { deferredNote: 'The delivery address of an order still open is erased within 30 days of that order ending.' }),
     },
     { 'Set-Cookie': clearedCookie() },
   );

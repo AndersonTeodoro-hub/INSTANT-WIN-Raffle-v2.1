@@ -21,6 +21,7 @@ import {
   GUARDIAN_SCAN_MS,
   MAINTENANCE_BUDGET_MS,
   MIGRATION_ASSET_MS,
+  ORDER_ERASURE_MS,
   READINESS_WALLET_MS,
   RECOVERY_ADVANCE_MS,
   RECOVERY_CONFIRM_MS,
@@ -33,6 +34,7 @@ import {
   ROUTE_ERRORS_CHECK_MS,
   SPEND_CHECK_MS,
   SWEEP_WORST_CASE_MS,
+  TRACKER_RETRY_MS,
   VRF_CHECK_MS,
 } from '../../../../lib/bridge-v2/config.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
@@ -58,6 +60,9 @@ import { migrateAuthorizedWallets, seedRetirementReadiness } from '../../../../l
 import { expireAbandonedRecoveries, purgeRelayRecords, releaseRecoveryReservations } from '../../../../lib/bridge-v2/accounts.js';
 import { reconcileGuardians, reconcileRelayedCampaigns, recognizeDeployedAccounts } from '../../../../lib/bridge-v2/relay.js';
 import { expireUnfundedDrafts } from '../../../../lib/bridge-v2/creatorCampaigns.js';
+import { eraseOrderData, retryTrackers } from '../../../../lib/bridge-v2/keptraOrders.js';
+import { keptraContractsConfigured } from '../../../../lib/bridge-v2/orders.js';
+import { missingKeptraEnv } from '../../../../lib/bridge-v2/env.js';
 
 /**
  * GET or POST /api/bridge/v2/cron/maintenance
@@ -208,6 +213,15 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     // Adenda F2: a draft nobody funded closes seven days after it was made —
     // before the migration, which moves nothing while a draft is alive.
     const draftsExpired = !deadline.hasTimeFor(DRAFT_EXPIRY_MS) ? null : await safely(log, 'draft_expiry', () => expireUnfundedDrafts(log, deadline));
+    // SPEC-BLOCO-03 piece 5 — 10.3: addresses, tracking numbers and evidence
+    // erased after their order's final state; 9.5.5: a shipment the provider did
+    // not take, asked again. Both null while the orders are not configured (P24).
+    const ordersErased = !deadline.hasTimeFor(ORDER_ERASURE_MS) ? null : await safely(log, 'order_erasure', () => eraseOrderData(log, deadline));
+    const trackersCreated = !deadline.hasTimeFor(TRACKER_RETRY_MS) ? null : await safely(log, 'tracker_retry', () => retryTrackers(log, deadline));
+    // P24 and K8: half a configuration — the contracts named, a variable missing — is said, not worked around.
+    if (keptraContractsConfigured() && missingKeptraEnv().length > 0 && deadline.hasTimeFor(ALERT_MS)) {
+      await alert(log, 'orders configuration incomplete', { missing: missingKeptraEnv().join(',') });
+    }
 
     // H7: the remainder goes back to a funder, never to an address a request
     // could name (H2). WHICH funder is drawn per wallet rather than fixed —
@@ -430,6 +444,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
         migrationsSealed,
         seedRetirable,
       },
+      orders: { ordersErased, trackersCreated },
     };
 
     await log.event('route.ok', {

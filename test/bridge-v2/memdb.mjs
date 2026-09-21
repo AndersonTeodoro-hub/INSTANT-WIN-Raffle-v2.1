@@ -166,6 +166,14 @@ export const KEPTRA_TABLES = [
   'bridge_v2_guardian_incidents',
   'bridge_v2_phones',
   'bridge_v2_ops_events',
+  // SPEC-BLOCO-03 piece 5, migration 0013.
+  'bridge_v2_order_addresses',
+  'bridge_v2_orders',
+  'bridge_v2_order_shipments',
+  'bridge_v2_order_evidence',
+  'bridge_v2_order_notices',
+  'bridge_v2_recipient_marks',
+  'bridge_v2_finished_vouchers',
 ];
 
 export const KEPTRA_UNIQUE = {
@@ -180,4 +188,17 @@ export const KEPTRA_UNIQUE = {
     { columns: ['participant_id'], where: (row) => ['AWAITING_PHONE', 'PHONE_VERIFIED', 'CONFIRMED'].includes(row.status) },
     ['link_code_hash'],
   ],
+  // 0013: one address per order; one shipment per order and per tracking hash
+  // (I6); one text per party; one notice per kind; one decision per order and a
+  // number counted once per store among the live marks (P5).
+  bridge_v2_order_addresses: [{ columns: ['order_id'], where: (row) => row.order_id != null }],
+  bridge_v2_orders: [['order_id']],
+  bridge_v2_order_shipments: [['order_id'], ['tracking_hash']],
+  bridge_v2_order_evidence: [['order_id', 'party']],
+  bridge_v2_order_notices: [['order_id', 'kind']],
+  bridge_v2_recipient_marks: [
+    ['order_id'],
+    { columns: ['store_address', 'phone_hmac'], where: (row) => ['RESERVED', 'MARKED'].includes(row.status) },
+  ],
+  bridge_v2_finished_vouchers: [['voucher_id']],
 };
