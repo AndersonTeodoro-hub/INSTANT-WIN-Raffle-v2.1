@@ -53,7 +53,9 @@ CREATE INDEX IF NOT EXISTS bridge_v2_order_addresses_unbound
 -- -----------------------------------------------------------------------------
 -- Public facts of the escrow, rewritten by the orders pass each time it reads
 -- them (seen_block). outcome is OrderClosed's (13.1 and P5 need it; the Order
--- struct keeps none).
+-- struct keeps none). closed_at is written last, once the order's erasure date
+-- is set and its mark settled (Adenda R1): until then the pass reads the order
+-- again, and seen_block is where its search for OrderClosed goes on from.
 CREATE TABLE IF NOT EXISTS bridge_v2_orders (
   order_id       bigint      PRIMARY KEY CHECK (order_id > 0),
   terms_id       bigint      NOT NULL,
@@ -76,7 +78,7 @@ CREATE TABLE IF NOT EXISTS bridge_v2_orders (
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS bridge_v2_orders_open ON bridge_v2_orders (order_id) WHERE state < 5;
+CREATE INDEX IF NOT EXISTS bridge_v2_orders_open ON bridge_v2_orders (order_id) WHERE closed_at IS NULL;
 CREATE INDEX IF NOT EXISTS bridge_v2_orders_payer ON bridge_v2_orders (payer_address);
 CREATE INDEX IF NOT EXISTS bridge_v2_orders_store ON bridge_v2_orders (store_address);
 

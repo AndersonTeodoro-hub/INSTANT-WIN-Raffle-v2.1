@@ -239,5 +239,13 @@ export function publicClient() {
       if (resolved instanceof Error) throw resolved;
       return resolved;
     },
+    // SPEC-BLOCO-03 Adenda R2: escrowChain.ts reads OrderClosed through this.
+    getContractEvents: async (params) => {
+      calls.push({ name: 'getContractEvents', args: [params] });
+      const value = behaviour.getContractEvents ?? [];
+      const resolved = typeof value === 'function' ? await value(params) : value;
+      if (resolved instanceof Error) throw resolved;
+      return resolved;
+    },
   };
 }

@@ -121,7 +121,6 @@ export type OpsKind =
   | 'order.evidence_written'
   | 'order.evidence_read'
   | 'order.erased'
-  | 'order.refused'
   | 'alert';
 
 /**

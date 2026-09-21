@@ -4,12 +4,14 @@
  * 183a2b4 on the fork (test/bridge-v2/fork/orders.fork.mjs); here only what the
  * relay, the routes and the orders pass DO with the answers is under test.
  *
- * The pure half (orderIdFromLogs) is the real module's.
+ * The pure half (orderIdFromLogs) is the real module's. So is realOrderOutcome,
+ * which a test puts in place of orderOutcome to run the real search of the log
+ * against the chain double's getContractEvents (Adenda R2).
  */
 
-import { orderIdFromLogs } from '../../../lib/bridge-v2/escrowChain.ts';
+import { orderIdFromLogs, orderOutcome as realOrderOutcome } from '../../../lib/bridge-v2/escrowChain.ts';
 
-export { orderIdFromLogs };
+export { orderIdFromLogs, realOrderOutcome };
 
 export const calls = [];
 
@@ -23,7 +25,8 @@ const DEFAULTS = () => ({
   regionsOf: [],
   trackingHashUsed: false,
   escrowArbiter: ZERO,
-  orderOutcome: null,
+  // The whole range searched, and no OrderClosed in it.
+  orderOutcome: (_orderId, _from, to) => ({ outcome: null, searchedTo: to }),
   readObligation: new Error('no obligation'),
   voucherLastId: 0n,
   readVouchers: [],

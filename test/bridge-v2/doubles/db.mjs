@@ -43,6 +43,11 @@ export function on(key, handler) {
   handlers.set(key, typeof handler === 'function' ? handler : () => handler);
 }
 
+/** The handler programmed for `key`, so a test can wrap it (a failure injected in front of memdb). */
+export function handlerOf(key) {
+  return handlers.get(key);
+}
+
 /** What an unprogrammed operation returns. */
 export function setFallback(result) {
   fallback = result;

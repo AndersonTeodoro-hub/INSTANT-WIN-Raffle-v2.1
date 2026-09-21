@@ -8,21 +8,30 @@
  * SETTLEMENT_NOTICE_MS.
  *
  * One run:
- *   1. reads every order not yet final, and the new ones, into bridge_v2_orders,
- *      binding each new order to the address its recipient registered;
+ *   1. reads every order whose close is not yet recorded, and the new ones, into
+ *      bridge_v2_orders, binding each new order to the address its recipient
+ *      registered;
  *   2. fires the exits by time whose deadline passed (J5: "when the deadlines
  *      pass"), and voids the vouchers the core can no longer deliver (H8, H9,
  *      J1) — signed by the keeper, never from the shared ceiling (P11);
  *   3. sends the notices that are due, by email only (8.3, P3, P4, P22);
- *   4. marks recipients verified and distinct (13.1, P5), from the shared
+ *   4. closes, on this side, the orders seen in their final state: erasure date,
+ *      outcome, mark settled, and then the close recorded (10.3, P5, Adenda R1);
+ *   5. marks recipients verified and distinct (13.1, P5), from the shared
  *      ceiling (P14).
  *
  * P12 asks the exits and the 24-hour notice to happen within an hour of their
  * moment. The pipeline runs every minute and every phase leads a run within six
- * (PHASE_STARVATION_BOUND_RUNS), so the bound is minutes, not the hour.
+ * (PHASE_STARVATION_BOUND_RUNS), so the bound is minutes, not the hour. The
+ * closes come after the exits and the notices because their search of the log
+ * may take whatever time is left, and go on in the next pass (Adenda R2); and
+ * before the marks, so a mark a close releases frees its (store, number) pair
+ * for another order in the same pass (P5).
  *
- * It never throws, as advanceLifecycle never does: a failed read ends this pass
- * and alerts, and the phases behind it still run.
+ * Adenda R2: an order's failure is its own. It is logged and alerted, and every
+ * other order still gets its exit, its notices, its mark and its close. It never
+ * throws, as advanceLifecycle never does: a failed first read ends this pass and
+ * alerts, and the phases behind it still run.
  */
 
 import { alert } from './alert.js';
@@ -31,8 +40,10 @@ import { contractErrorName, OrderFlag, OrderOutcome, OrderState } from './abi.js
 import {
   ESCROW_ARBITER_WINDOW_SECONDS,
   KEPTRA_GUARANTEE,
+  ORDER_CLOSE_MS,
   ORDER_ERASURE_MS,
   ORDER_EXIT_MS,
+  ORDER_LOG_CHUNK_MS,
   ORDER_MARK_MS,
   ORDER_NOTICE_MS,
   ORDER_SCAN_MS,
@@ -51,6 +62,9 @@ import {
   voucherLastId,
   voucherReleasable,
   type OrdersHead,
+  type OrderView,
+  type OrderWithTerms,
+  type TermsView,
 } from './escrowChain.js';
 import {
   addressOfOrder,
@@ -120,6 +134,7 @@ export async function advanceOrders(log: Logger, deadline: RunDeadline): Promise
   for (const step of [
     () => fireExits(rows, head, log, deadline),
     () => sendNotices(rows, head, log, deadline),
+    () => closeOrders(rows, head, log, deadline),
     () => markRecipients(rows, log, deadline),
   ]) {
     try {
@@ -137,9 +152,14 @@ export async function advanceOrders(log: Logger, deadline: RunDeadline): Promise
 // -----------------------------------------------------------------------------
 
 /**
- * Every order not yet final and every new one, read from the chain and written
- * down. An order seen closing for the first time gets its outcome (13.1 needs
- * it), its erasure clock (10.3) and its mark settled (P5).
+ * Every order whose close is not yet recorded and every new one, read from the
+ * chain and written down as the chain shows it. The oldest come first: the known
+ * ones, then the new ones in id order.
+ *
+ * Adenda R2: an order that fails is logged and alerted, and the rest are read. A
+ * new order that fails leaves the new ones after it for the next pass, because
+ * lastKnownOrderId must never pass an order the index does not hold — or that
+ * order would never be read again.
  */
 async function syncOrders(log: Logger, deadline: RunDeadline): Promise<{ head: OrdersHead; rows: OrderRow[] }> {
   const head = await ordersHead();
@@ -148,51 +168,64 @@ async function syncOrders(log: Logger, deadline: RunDeadline): Promise<{ head: O
   for (let id = (await lastKnownOrderId()) + 1n; id < head.orderCount; id += 1n) ids.push(id);
 
   const rows: OrderRow[] = [];
-  for (let start = 0; start < ids.length; start += ORDER_SCAN_PAGE) {
-    // Out of time mid-scan: act on what was read. The oldest orders come first.
+  let discovering = true;
+  for (let start = 0; start < ids.length && discovering; start += ORDER_SCAN_PAGE) {
+    // Out of time mid-scan: act on what was read.
     if (start > 0 && !deadline.hasTimeFor(ORDER_SCAN_MS)) break;
-    for (const { order, terms } of await readOrders(ids.slice(start, start + ORDER_SCAN_PAGE))) {
+    let page: OrderWithTerms[];
+    try {
+      page = await readOrders(ids.slice(start, start + ORDER_SCAN_PAGE));
+    } catch (error) {
+      // A page the chain did not answer: act on what was read, and the next pass reads it.
+      await log.failure('orders.failed', error, { stage: 'scan' });
+      await alert(log, 'orders scan failed');
+      break;
+    }
+    for (const { order, terms } of page) {
       const previous = known.get(order.orderId);
-      let outcome = previous?.outcome ?? null;
-      let closedAt = previous?.closedAt ?? null;
-      const closing = order.state === OrderState.CLOSED && closedAt === null;
-      if (closing) {
-        // Only an order seen open has a block to search from; one that opened and
-        // closed between two runs was never marked, and its outcome is not needed.
-        const found = previous === undefined ? null : await orderOutcome(order.orderId, previous.seenBlock, head.block);
-        outcome = found?.outcome ?? null;
-        closedAt = new Date().toISOString();
+      if (previous === undefined && !discovering) break;
+      try {
+        rows.push(await syncOne(order, terms, previous, head, log));
+      } catch (error) {
+        const detail: Detail = { order_id: order.orderId.toString() };
+        await log.failure('orders.failed', error, { ...detail, stage: 'scan' });
+        await alert(log, 'order scan failed', detail);
+        if (previous === undefined) discovering = false;
       }
-      const row: OrderRow = {
-        orderId: order.orderId,
-        termsId: order.termsId,
-        voucherId: order.voucherId,
-        store: terms.store,
-        payer: order.payer,
-        mode: terms.mode,
-        prize: terms.prize,
-        shipDays: terms.shipDays,
-        deliveryDays: terms.deliveryDays,
-        state: order.state,
-        flags: order.flags,
-        paidAt: order.paidAt,
-        shippedAt: order.shippedAt,
-        windowEndsAt: order.windowEndsAt,
-        contestedAt: order.contestedAt,
-        seenBlock: head.block,
-        outcome,
-        closedAt,
-      };
-      if (previous === undefined) await bindRecipientAddress(row, log);
-      await saveOrder(row);
-      if (closing) {
-        await scheduleErasure(order.orderId, new Date(closedAt as string));
-        await settleMark(row);
-      }
-      rows.push(row);
     }
   }
   return { head, rows };
+}
+
+/**
+ * One order as the chain shows it now, written down. An order in its final state
+ * is written with its close still to record: it keeps the block its search for
+ * OrderClosed starts from, the last one it was seen open at (closeOrders).
+ */
+async function syncOne(order: OrderView, terms: TermsView, previous: OrderRow | undefined, head: OrdersHead, log: Logger): Promise<OrderRow> {
+  const row: OrderRow = {
+    orderId: order.orderId,
+    termsId: order.termsId,
+    voucherId: order.voucherId,
+    store: terms.store,
+    payer: order.payer,
+    mode: terms.mode,
+    prize: terms.prize,
+    shipDays: terms.shipDays,
+    deliveryDays: terms.deliveryDays,
+    state: order.state,
+    flags: order.flags,
+    paidAt: order.paidAt,
+    shippedAt: order.shippedAt,
+    windowEndsAt: order.windowEndsAt,
+    contestedAt: order.contestedAt,
+    seenBlock: order.state === OrderState.CLOSED && previous !== undefined ? previous.seenBlock : head.block,
+    outcome: null,
+    closedAt: null,
+  };
+  if (previous === undefined) await bindRecipientAddress(row, log);
+  await saveOrder(row);
+  return row;
 }
 
 /**
@@ -263,7 +296,15 @@ async function fireExits(rows: readonly OrderRow[], head: OrdersHead, log: Logge
     const exit = dueExit(row, head.now);
     if (exit !== null) due.push({ exit, id: row.orderId, itemIndex: 0n });
   }
-  if (deadline.hasTimeFor(VOUCHER_SCAN_MS)) due.push(...(await dueVouchers(head, deadline)));
+  if (deadline.hasTimeFor(VOUCHER_SCAN_MS)) {
+    try {
+      due.push(...(await dueVouchers(head, deadline)));
+    } catch (error) {
+      // Adenda R2: a voucher scan that fails leaves the orders' exits to go.
+      await log.failure('orders.failed', error, { stage: 'vouchers' });
+      await alert(log, 'voucher scan failed');
+    }
+  }
   if (due.length === 0) return 0;
 
   // §18 M4: one keeper transaction in flight at a time — the lifecycle's included.
@@ -401,14 +442,21 @@ async function sendNotices(rows: readonly OrderRow[], head: OrdersHead, log: Log
   let count = 0;
   for (const { row, kind } of due) {
     if (!deadline.hasTimeFor(ORDER_NOTICE_MS)) break;
-    const to = await recipientOf(row, kind);
-    if (to === null) continue;
-    if (!(await claimSpend('email', 1, log))) break;
-    const result = await sendNotice(to, row, kind);
-    if (!result.sent) continue;
-    await recordOrderNotice(row.orderId, kind);
-    await log.event('order.notified', { order_id: row.orderId.toString(), kind });
-    count += 1;
+    const detail: Detail = { order_id: row.orderId.toString(), kind };
+    try {
+      const to = await recipientOf(row, kind);
+      if (to === null) continue;
+      if (!(await claimSpend('email', 1, log))) break;
+      const result = await sendNotice(to, row, kind);
+      if (!result.sent) continue;
+      await recordOrderNotice(row.orderId, kind);
+      await log.event('order.notified', detail);
+      count += 1;
+    } catch (error) {
+      // Adenda R2: this notice is tried again next pass; the others go now.
+      await log.failure('orders.failed', error, { ...detail, stage: 'notice' });
+      await alert(log, 'order notice failed', detail);
+    }
   }
   return count;
 }
@@ -437,6 +485,50 @@ function sendNotice(to: string, row: OrderRow, kind: OrderNoticeKind): Promise<M
     case 'ARBITER_CONTEST':
       return sendArbiterContestEmail(to, row.orderId, row.contestedAt + BigInt(ESCROW_ARBITER_WINDOW_SECONDS));
   }
+}
+
+// -----------------------------------------------------------------------------
+// 4. the closes — 10.3, P5, Adenda R1
+// -----------------------------------------------------------------------------
+
+/**
+ * Adenda R1: an order the chain shows in its final state is closed on this side
+ * in steps that can each be done again — its erasure date set, its outcome read,
+ * its mark settled — and only then is the close recorded (closed_at). A close cut
+ * short by a failure, or by the clock in the middle of the log, is read again and
+ * finished by a later pass; it never stays final without its erasure date or
+ * with its mark unresolved.
+ */
+async function closeOrders(rows: readonly OrderRow[], head: OrdersHead, log: Logger, deadline: RunDeadline): Promise<number> {
+  let closed = 0;
+  for (const row of rows) {
+    if (row.state !== OrderState.CLOSED) continue;
+    if (!deadline.hasTimeFor(ORDER_CLOSE_MS)) break;
+    const detail: Detail = { order_id: row.orderId.toString() };
+    try {
+      if (await closeOne(row, head, deadline, detail, log)) closed += 1;
+    } catch (error) {
+      await log.failure('orders.failed', error, { ...detail, stage: 'close' });
+      await alert(log, 'order close failed', detail);
+    }
+  }
+  return closed;
+}
+
+async function closeOne(row: OrderRow, head: OrdersHead, deadline: RunDeadline, detail: Detail, log: Logger): Promise<boolean> {
+  // 10.3: the clock starts at the first attempt; a later one leaves a date already set.
+  await scheduleErasure(row.orderId, new Date());
+  const found = await orderOutcome(row.orderId, row.seenBlock, head.block, () => deadline.hasTimeFor(ORDER_LOG_CHUNK_MS));
+  if (found.outcome === null && found.searchedTo < head.block) {
+    // Adenda R2: out of time in the middle of the log. The next pass goes on from here.
+    await saveOrder({ ...row, seenBlock: found.searchedTo });
+    await log.event('orders.deferred', { ...detail, reason: 'close_search_unfinished' });
+    return false;
+  }
+  const final: OrderRow = { ...row, outcome: found.outcome, closedAt: new Date().toISOString() };
+  await settleMark(final);
+  await saveOrder(final);
+  return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -474,7 +566,7 @@ export async function retryTrackers(log: Logger, deadline: RunDeadline): Promise
 }
 
 // -----------------------------------------------------------------------------
-// 4. the recipient marks — 13.1, P5, P14
+// 5. the recipient marks — 13.1, P5, P14
 // -----------------------------------------------------------------------------
 
 /**
@@ -489,45 +581,52 @@ async function markRecipients(rows: readonly OrderRow[], log: Logger, deadline: 
     if (row.state === OrderState.CLOSED || (row.flags & OrderFlag.VERIFIED) !== 0) continue;
     if (!deadline.hasTimeFor(ORDER_MARK_MS)) break;
     const detail: Detail = { order_id: row.orderId.toString() };
-    const existing = await markOf(row.orderId);
-    if (existing !== null && existing.status !== 'RESERVED') continue;
-    if (existing === null) {
-      const payer = await accountBySafe(row.payer);
-      if (payer === null || payer.role !== 'PARTICIPANT') {
-        await skipMark(row.orderId, row.store);
-        continue;
-      }
-      const store = await accountBySafe(row.store);
-      if (store !== null && store.participantId === payer.participantId) {
-        await skipMark(row.orderId, row.store);
-        continue;
-      }
-      const phone = await livePhoneHash(payer.participantId);
-      if (phone === null) continue;
-      if (store !== null && (await livePhoneHash(store.participantId)) === phone) {
-        await skipMark(row.orderId, row.store);
-        continue;
-      }
-      if (!(await reserveMark(row.orderId, row.store, phone))) continue;
-    }
-    // P14: the marks count against the shared ceiling.
-    if (!(await claimSpend('chain', 1, log))) break;
     try {
-      const hash = await sendRecipientMark(row.orderId);
-      const receipt = await waitForReceipt(hash);
-      if (receipt?.status === 'success') {
-        await setMarkStatus(row.orderId, 'MARKED');
-        await log.event('order.recipient_marked', { ...detail, tx_hash: hash });
-        marked += 1;
-      } else if (receipt?.status === 'reverted') {
-        // The order closed in between, or the escrow does not name this key as its bridge (H5).
-        await alert(log, 'recipient mark reverted', detail);
-      }
-      // Reverted (the order closed in between) or not seen: the reservation stays,
-      // the index settles it at the final state (settleMark).
+      const result = await markOne(row, detail, log);
+      if (result === 'ceiling') break;
+      if (result === 'marked') marked += 1;
     } catch (error) {
+      // Adenda R2: this order is looked at again next pass; the others go now.
       await log.failure('orders.failed', error, { ...detail, stage: 'mark' });
+      await alert(log, 'order mark failed', detail);
     }
   }
   return marked;
+}
+
+async function markOne(row: OrderRow, detail: Detail, log: Logger): Promise<'marked' | 'ceiling' | 'not_marked'> {
+  const existing = await markOf(row.orderId);
+  if (existing !== null && existing.status !== 'RESERVED') return 'not_marked';
+  if (existing === null) {
+    const payer = await accountBySafe(row.payer);
+    if (payer === null || payer.role !== 'PARTICIPANT') {
+      await skipMark(row.orderId, row.store);
+      return 'not_marked';
+    }
+    const store = await accountBySafe(row.store);
+    if (store !== null && store.participantId === payer.participantId) {
+      await skipMark(row.orderId, row.store);
+      return 'not_marked';
+    }
+    const phone = await livePhoneHash(payer.participantId);
+    if (phone === null) return 'not_marked';
+    if (store !== null && (await livePhoneHash(store.participantId)) === phone) {
+      await skipMark(row.orderId, row.store);
+      return 'not_marked';
+    }
+    if (!(await reserveMark(row.orderId, row.store, phone))) return 'not_marked';
+  }
+  // P14: the marks count against the shared ceiling.
+  if (!(await claimSpend('chain', 1, log))) return 'ceiling';
+  const hash = await sendRecipientMark(row.orderId);
+  const receipt = await waitForReceipt(hash);
+  if (receipt?.status === 'success') {
+    await setMarkStatus(row.orderId, 'MARKED');
+    await log.event('order.recipient_marked', { ...detail, tx_hash: hash });
+    return 'marked';
+  }
+  // The order closed in between, or the escrow does not name this key as its bridge (H5).
+  if (receipt?.status === 'reverted') await alert(log, 'recipient mark reverted', detail);
+  // Reverted or not seen: the reservation stays, and the close settles it (settleMark).
+  return 'not_marked';
 }

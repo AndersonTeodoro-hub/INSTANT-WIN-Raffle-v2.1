@@ -12,6 +12,9 @@ import { orderHasAddress, ordersConfigured, ordersOfPayer, publicOrder } from '.
  * session's participant account, as the orders pass last read them — state,
  * deadlines and outcome — and whether each has its delivery address. Nothing of
  * the address itself, and nothing of anybody else's (M36).
+ *
+ * Adenda R4: not asked for by the spec, and kept as part of the boundary with
+ * piece 6, which reads it.
  */
 const route = handle('order/list', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');

@@ -17,7 +17,7 @@ import {
   KEPTRA_REPUTATION_ABI,
   KEPTRA_VOUCHER_ABI,
 } from './abi.js';
-import { ERC721_PRIZE_MODULE, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_VOUCHER } from './config.js';
+import { ERC721_PRIZE_MODULE, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_VOUCHER, ORDER_LOG_SPAN_BLOCKS } from './config.js';
 
 /** KeptraEscrow.Terms (section 7). */
 export interface TermsView {
@@ -154,27 +154,49 @@ export async function escrowArbiter(): Promise<`0x${string}`> {
 }
 
 /**
- * How an order ended, from its OrderClosed event, searched between the last block
- * the order was seen open and `toBlock`. The Order struct keeps no outcome, and
- * 13.1 (P5) needs to know whether the delivery counted. Null when the log is not
- * there, which the caller reads as "not known yet".
+ * How an order ended, from its OrderClosed event, searched from the last block
+ * the order was seen open up to `toBlock`. The Order struct keeps no outcome, and
+ * 13.1 (P5) needs to know whether the delivery counted.
+ *
+ * Adenda R2: at most ORDER_LOG_SPAN_BLOCKS per request, and a refused request is
+ * asked again over half the range, down to one block — so a provider that limits
+ * the range per request is read too. Before every request after the first,
+ * `hasTime` says whether the run can afford another; when it cannot, the search
+ * stops and `searchedTo` says how far it got, for the next pass to go on from.
+ * `outcome` is null with `searchedTo === toBlock` when the log is not there.
  */
 export async function orderOutcome(
   orderId: bigint,
   fromBlock: bigint,
   toBlock: bigint,
-): Promise<{ outcome: number; material: boolean } | null> {
-  const logs = await publicClient().getContractEvents({
-    address: KEPTRA_ESCROW,
-    abi: KEPTRA_ESCROW_ABI,
-    eventName: 'OrderClosed',
-    args: { orderId },
-    fromBlock,
-    toBlock,
-  });
-  const found = logs[0] as { args: { outcome?: number; materialFailure?: boolean } } | undefined;
-  if (found === undefined) return null;
-  return { outcome: Number(found.args.outcome), material: found.args.materialFailure === true };
+  hasTime: () => boolean,
+): Promise<{ outcome: number | null; searchedTo: bigint }> {
+  let span = ORDER_LOG_SPAN_BLOCKS;
+  let first = true;
+  for (let from = fromBlock; from <= toBlock; ) {
+    if (!first && !hasTime()) return { outcome: null, searchedTo: from - 1n };
+    first = false;
+    const to = from + span - 1n < toBlock ? from + span - 1n : toBlock;
+    let logs: readonly unknown[];
+    try {
+      logs = await publicClient().getContractEvents({
+        address: KEPTRA_ESCROW,
+        abi: KEPTRA_ESCROW_ABI,
+        eventName: 'OrderClosed',
+        args: { orderId },
+        fromBlock: from,
+        toBlock: to,
+      });
+    } catch (error) {
+      if (span === 1n) throw error;
+      span /= 2n;
+      continue;
+    }
+    const found = logs[0] as { args: { outcome?: number } } | undefined;
+    if (found !== undefined) return { outcome: Number(found.args.outcome), searchedTo: to };
+    from = to + 1n;
+  }
+  return { outcome: null, searchedTo: toBlock };
 }
 
 /** The order a relayed pay or redeem opened, from its receipt (the escrow assigned the id, E3). */
@@ -194,8 +216,6 @@ export function orderIdFromLogs(logs: readonly Log[]): bigint | null {
 export interface ObligationView {
   readonly brand: `0x${string}`;
   readonly termsId: bigint;
-  readonly units: number;
-  readonly openUnits: number;
 }
 
 export async function readObligation(obligationId: bigint): Promise<ObligationView> {
@@ -205,7 +225,7 @@ export async function readObligation(obligationId: bigint): Promise<ObligationVi
     functionName: 'getObligation',
     args: [obligationId],
   })) as unknown as Record<string, unknown>;
-  return { brand: o.brand as `0x${string}`, termsId: o.termsId as bigint, units: Number(o.units), openUnits: Number(o.openUnits) };
+  return { brand: o.brand as `0x${string}`, termsId: o.termsId as bigint };
 }
 
 /** One voucher as the bridge decides on it. `owner` is null for a voucher that no longer exists (burned when its unit settled). */

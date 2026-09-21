@@ -36,7 +36,7 @@ import { advanceOrders } from '../../../lib/bridge-v2/keptraOrders.ts';
 import { guardianAddress } from '../../../lib/bridge-v2/guardian.ts';
 import { funderAddress } from '../../../lib/bridge-v2/funders.ts';
 import { buildTree, proofFor } from '../../../lib/bridge-v2/merkle.ts';
-import { ERC721_PRIZE_MODULE, ESCROW_ARBITER_WINDOW_SECONDS, ESCROW_CONTEST_WINDOW_SECONDS, GIVEAWAY_MANAGER_V2, USDC } from '../../../lib/bridge-v2/config.ts';
+import { ERC721_PRIZE_MODULE, ESCROW_ARBITER_WINDOW_SECONDS, GIVEAWAY_MANAGER_V2, USDC } from '../../../lib/bridge-v2/config.ts';
 import { GIVEAWAY_MANAGER_V2_ABI, OrderFlag, OrderState } from '../../../lib/bridge-v2/abi.ts';
 import * as trackingRoute from '../../../api/bridge/v2/store/tracking.ts';
 import * as evidenceRoute from '../../../api/bridge/v2/order/evidence.ts';
@@ -75,7 +75,6 @@ const ABI = parseAbi([
   'function voucher() view returns (address)',
   'function escrow() view returns (address)',
   'function guarantee() view returns (address)',
-  'function CONTEST_WINDOW() view returns (uint256)',
   'function ARBITER_WINDOW() view returns (uint256)',
   'function feeBps() view returns (uint16)',
   'function attest((uint256 orderId, bool delivered)[])',
@@ -243,7 +242,6 @@ await test(['Q28', 'AP24'], 'fork: pieces 2 and 3 run from the creation code of 
   assert.equal(keccak256(FIXTURE.contracts.KeptraEscrow.creationCode), PIECE4_ESCROW_HASH);
   assert.equal(getAddress(await read(GUARANTEE, 'escrow')), ESCROW);
   assert.equal(getAddress(await read(ESCROW, 'guarantee')), GUARANTEE);
-  assert.equal(Number(await read(ESCROW, 'CONTEST_WINDOW')), ESCROW_CONTEST_WINDOW_SECONDS);
   assert.equal(Number(await read(ESCROW, 'ARBITER_WINDOW')), ESCROW_ARBITER_WINDOW_SECONDS);
   assert.equal(await read(GIVEAWAY_MANAGER_V2, 'isModuleRegistered', [ERC721_PRIZE_MODULE]), true);
   assert.equal(Number(await read(ERC721_PRIZE_MODULE, 'prizeKind')), 1);

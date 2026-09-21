@@ -4,7 +4,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
 import { OrderState } from '../../../../lib/bridge-v2/abi.js';
-import { addressOfOrder, ordersConfigured, ordersOfStore, publicOrder, shipmentOf } from '../../../../lib/bridge-v2/orders.js';
+import { addressOfOrder, ordersConfigured, ordersOfStore, publicOrder } from '../../../../lib/bridge-v2/orders.js';
 
 /**
  * POST /api/bridge/v2/store/orders -> the store's orders, with the addresses to ship to
@@ -37,12 +37,7 @@ const route = handle('store/orders', async ({ request, log }) => {
   const orders = [];
   for (const row of await ordersOfStore(account.safe)) {
     const open = row.state !== OrderState.CLOSED;
-    const shipment = open ? await shipmentOf(row.orderId) : null;
-    orders.push({
-      ...publicOrder(row),
-      address: open ? await addressOfOrder(row.orderId) : null,
-      trackingHash: shipment?.trackingHash ?? null,
-    });
+    orders.push({ ...publicOrder(row), address: open ? await addressOfOrder(row.orderId) : null });
   }
   await log.event('route.ok', { orders: orders.length });
   return ok({ orders });

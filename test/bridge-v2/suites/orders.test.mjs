@@ -6,7 +6,8 @@
  * Postgres. The on-chain half is test/bridge-v2/fork/orders.fork.mjs, against the
  * contracts of commit 183a2b4.
  *
- * Tags: Qn for the rows of the piece's matrix, APn for the decisions of Adenda P.
+ * Tags: Qn for the rows of the piece's matrix (test/bridge-v2/MATRIZ-PECA5-KEPTRA.md),
+ * and APn, AQn and ARn for the decisions of Adendas P, Q and R.
  */
 
 import { readFileSync } from 'node:fs';
@@ -235,7 +236,7 @@ async function relayed(passkey, body) {
 // P24 — the addresses are literals, zero until the owner fills them in
 // ===========================================================================
 
-await test(['AP24', 'Q32'], 'P24: the three contract addresses are literals in config.ts, zero today, and never an environment variable', () => {
+await test(['AP24', 'AQ1', 'Q32'], 'P24: the three contract addresses are literals in config.ts, zero today, and never an environment variable', () => {
   assert.deepEqual(Object.values(REAL_KEPTRA), [
     '0x0000000000000000000000000000000000000000',
     '0x0000000000000000000000000000000000000000',
@@ -250,7 +251,7 @@ await test(['AP24', 'Q32'], 'P24: the three contract addresses are literals in c
   }
 });
 
-await test(['AP24'], 'P24: while an address is zero every order route refuses, the relay refuses order actions, and the pass reads nothing — the general rehearsal reads keptraContractsConfigured', async () => {
+await test(['AP24', 'AQ1'], 'P24: while an address is zero every order route refuses, the relay refuses order actions, and the pass reads nothing — the general rehearsal reads keptraContractsConfigured', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   resetKeptraContracts();
@@ -271,7 +272,7 @@ await test(['AP24'], 'P24: while an address is zero every order route refuses, t
   assert.equal(orders.keptraContractsConfigured(), true);
 });
 
-await test(['AP24'], 'P24: KEPTRA_ENV missing refuses the orders the same way, and the maintenance pass says which names', async () => {
+await test(['AP24', 'AQ1'], 'P24: KEPTRA_ENV missing refuses the orders the same way, and the maintenance pass says which names', async () => {
   fresh();
   const saved = process.env.BRIDGE_V2_ORACLE_TOKEN;
   delete process.env.BRIDGE_V2_ORACLE_TOKEN;
@@ -295,7 +296,7 @@ await test(['AP24'], 'P24: KEPTRA_ENV missing refuses the orders the same way, a
 // section 10 — addresses: Q1 Q2 Q3, P15 P19 P20 P21
 // ===========================================================================
 
-await test(['Q1', 'AP19', 'AP20'], '10.2 and P19: an address is kept as ciphertext under its own label, with exactly the six fields, and nothing of it in clear', async () => {
+await test(['Q1', 'AP19', 'AP20', 'AQ5'], '10.2 and P19: an address is kept as ciphertext under its own label, with exactly the six fields, and nothing of it in clear', async () => {
   fresh();
   await person('participant-1', '0x2222222222222222222222222222222222222222');
   offer();
@@ -358,7 +359,7 @@ await test(['Q3', 'AP21'], 'H7 and 11.5: for a voucher, only one this account ho
   fresh();
   const winner = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const voucher = (extra) => ({ voucherId: 5n, owner: winner.participant, voided: false, claimedAt: T0 - 60n, giveawayId: 3n, obligationId: 2n, ...extra });
-  escrow.set({ readObligation: { brand: '0x7777777777777777777777777777777777777777', termsId: 9n, units: 1, openUnits: 1 }, regionsOf: (termsId) => (termsId === 9n ? ['PT'] : []) });
+  escrow.set({ readObligation: { brand: '0x7777777777777777777777777777777777777777', termsId: 9n }, regionsOf: (termsId) => (termsId === 9n ? ['PT'] : []) });
   for (const [extra, why] of [
     [{ owner: '0x1234567890123456789012345678901234567890' }, 'held by somebody else'],
     [{ voided: true }, 'voided'],
@@ -407,7 +408,7 @@ await test(['Q2', 'AP2'], '10.2 and P2: the address is read by the store the ord
 // 10.3, P18 — erasure: Q4 Q5
 // ===========================================================================
 
-await test(['Q4', 'AP17'], '10.3: at the final state an order’s address, tracking number and evidence get their erasure date, and at that date they are deleted — rows gone, not pseudonymised', async () => {
+await test(['Q4', 'AP17', 'AQ5'], '10.3: at the final state an order’s address, tracking number and evidence get their erasure date, and at that date they are deleted — rows gone, not pseudonymised', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
@@ -608,7 +609,7 @@ await test(['Q9', 'AP1'], 'N7 and B5, B6, B7: only TRANSPORTADORA orders still w
   assert.deepEqual(ids, ['1', '4']);
 });
 
-await test(['Q9'], 'B4: past 13 the list rotates by the oracle’s 15-minute slot — every order within ceil(n/13) slots — and two nodes asking within one slot read the same bytes', async () => {
+await test(['Q9', 'AQ5'], 'B4: past 13 the list rotates by the oracle’s 15-minute slot — every order within ceil(n/13) slots — and two nodes asking within one slot read the same bytes', async () => {
   await oracleRows(Array.from({ length: 30 }, (_unused, i) => ({ id: i + 1 })));
   const slot = (k) => Number(config.ORACLE_ROTATION_SECONDS) * (1_000 + k);
   const seen = new Set();
@@ -656,7 +657,7 @@ await test(['Q11', 'AP5'], 'P5: the same number counts once per store — a seco
   await pass();
   assert.deepEqual(chain.calls.filter((c) => c.name === 'sendRecipientMark').map((c) => c.args[0]), [1n]);
   // Order 1 closes to the recipient: it did not count, and order 2 becomes markable.
-  escrow.set({ orderOutcome: { outcome: 1, material: true } });
+  escrow.set({ orderOutcome: { outcome: 1, searchedTo: 1_000n } });
   chainShows([
     fx({ id: 1, state: OrderState.CLOSED, flags: OrderFlag.VERIFIED, payer: buyer.participant, store: shop.creator }),
     fx({ id: 2, payer: buyer.participant, store: shop.creator }),
@@ -672,7 +673,7 @@ await test(['Q11', 'AP5'], 'P5: a delivery that counted keeps its mark for good 
   const other = await person('store-2', '0x4444444444444444444444444444444444444444');
   chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator })]);
   await pass();
-  escrow.set({ orderOutcome: { outcome: 0, material: false } });
+  escrow.set({ orderOutcome: { outcome: 0, searchedTo: 1_000n } });
   chainShows([
     fx({ id: 1, state: OrderState.CLOSED, flags: OrderFlag.VERIFIED, payer: buyer.participant, store: shop.creator }),
     fx({ id: 2, payer: buyer.participant, store: shop.creator }),
@@ -722,7 +723,7 @@ await test(['Q11'], '13.1: a mark that reverts is alerted and stays reserved, so
   assert.equal(store.rows('bridge_v2_recipient_marks')[0].status, 'RELEASED');
 });
 
-await test(['Q11', 'AP14'], 'P14: the marks run in the pipeline, under the lock the root publication runs under, and the bridge role signs them at its pending nonce', () => {
+await test(['Q11', 'AP14', 'AQ5'], 'P14: the marks run in the pipeline, under the lock the root publication runs under, and the bridge role signs them at its pending nonce', () => {
   const process = read('api/bridge/v2/cron/process.ts');
   assert.match(process, /acquireRunLock\('cron\/process'\)/);
   assert.match(process, /advanceLifecycle: async \(log, deadline\) => \(await advanceLifecycle\(log, deadline\)\) \+ \(await advanceOrders\(log, deadline\)\)/);
@@ -762,14 +763,14 @@ async function redeemSetup() {
   const winner = await person('participant-1', '0x2222222222222222222222222222222222222222');
   escrow.set({
     readVouchers: [{ voucherId: 5n, owner: winner.participant, voided: false, claimedAt: T0 - 60n, giveawayId: 3n, obligationId: 2n }],
-    readObligation: { brand: '0x7777777777777777777777777777777777777777', termsId: 9n, units: 1, openUnits: 1 },
+    readObligation: { brand: '0x7777777777777777777777777777777777777777', termsId: 9n },
     readTerms: { store: '0x7777777777777777777777777777777777777777', price: 50_000_000n, payout: '0x7777777777777777777777777777777777777777', shipping: 5_000_000n, returnCost: 0n, refusalFeeBps: 0, shipDays: 5, deliveryDays: 10, mode: 0, prize: true, active: true },
     regionsOf: ['PT'],
   });
   return winner;
 }
 
-await test(['Q12', 'Q13', 'AP1'], 'H7: a redemption is prepared only with an address registered for that voucher, and carries the voucher’s approval to the guarantee and the attestation; the deadline returned is the one the submit must echo', async () => {
+await test(['Q12', 'Q13', 'AP1', 'AQ5'], 'H7: a redemption is prepared only with an address registered for that voucher, and carries the voucher’s approval to the guarantee and the attestation; the deadline returned is the one the submit must echo', async () => {
   const winner = await redeemSetup();
   assert.equal((await relay({ kind: 'redeem', voucherId: '5' })).body.error, 'Add a delivery address for this first.');
   await post(addressRoute, 'order/address', { ...ADDRESS, voucherId: '5' });
@@ -905,7 +906,7 @@ async function storeSetup() {
   return { buyer, shop };
 }
 
-await test(['Q13', 'AP1', 'AP2'], 'P1 and P2: the store acts from its creator account on orders whose terms name it — ship with the hash it registered, the delivery code checked against the commitment, the declarations, the refund', async () => {
+await test(['Q13', 'AP1', 'AP2', 'AQ5'], 'P1 and P2: the store acts from its creator account on orders whose terms name it — ship with the hash it registered, the delivery code checked against the commitment, the declarations, the refund', async () => {
   const { buyer, shop } = await storeSetup();
   const { roleFor } = await import('../../../lib/bridge-v2/relay.ts');
   for (const kind of ['createOffer', 'deactivateOffer', 'ship', 'submitCode', 'declareDelivered', 'declareRefusal', 'refund', 'createObligation', 'createVoucherCampaign']) {
@@ -977,12 +978,12 @@ await test(['Q13', 'AP1'], 'P1: an offer carries section 7 inside its ceilings a
   await assert.rejects(prepare('store-1', { kind: 'createObligation', terms: obligation, units: 2 }), /brand_blocked/);
 });
 
-await test(['Q13', 'AP1'], 'P1 and H9: a voucher campaign deposits loose vouchers of the brand’s own obligation into the ERC-721 module, the operator approval living only inside the transaction, at the declared value of every unit', async () => {
+await test(['Q13', 'AP1', 'AQ5'], 'P1 and H9: a voucher campaign deposits loose vouchers of the brand’s own obligation into the ERC-721 module, the operator approval living only inside the transaction, at the declared value of every unit', async () => {
   const { shop } = await storeSetup();
   withPhone('store-1', 'phone-store');
   const voucher = (id, extra = {}) => ({ voucherId: id, owner: shop.creator, voided: false, claimedAt: 0n, giveawayId: 0n, obligationId: 2n, ...extra });
   escrow.set({
-    readObligation: { brand: shop.creator, termsId: 9n, units: 2, openUnits: 2 },
+    readObligation: { brand: shop.creator, termsId: 9n },
     readVouchers: (ids) => ids.map((id) => voucher(id)),
     readTerms: { store: shop.creator, price: 50_000_000n, payout: shop.creator, shipping: 5_000_000n, returnCost: 0n, refusalFeeBps: 0, shipDays: 5, deliveryDays: 10, mode: 0, prize: true, active: true },
   });
@@ -1134,7 +1135,7 @@ await test(['Q16', 'AP4', 'AP22'], '8.3, P4, P22: the store on an opened order, 
   assert.deepEqual(dueNotices(row({ state: OrderState.SHIPPED }), T0), []);
 });
 
-await test(['Q16', 'Q17', 'Q18', 'AP3', 'AP4', 'AP22'], 'P3: every order notice goes by email only, once per kind, each after a claim on the email ceiling, with keptra.io links; P22 as answered: the brand is told on a redemption too', async () => {
+await test(['Q16', 'Q17', 'Q18', 'AP3', 'AP4', 'AP22', 'AQ4'], 'P3: every order notice goes by email only, once per kind, each after a claim on the email ceiling, with keptra.io links; P22 as answered: the brand is told on a redemption too', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
@@ -1198,7 +1199,7 @@ async function contestSetup() {
   return { buyer, shop };
 }
 
-await test(['Q19', 'AP17'], 'P17: while contested each party writes one text of at most 2 000 characters, kept encrypted; both read both, and the hash for decide() covers the two texts', async () => {
+await test(['Q19', 'AP17', 'AQ3'], 'P17: while contested each party writes one text of at most 2 000 characters, kept encrypted; both read both, and the hash for decide() covers the two texts', async () => {
   await contestSetup();
   asParticipant('participant-1');
   assert.equal((await post(evidenceRoute, 'order/evidence', { orderId: '1', text: 'x'.repeat(2_001) })).status, 400);
@@ -1218,7 +1219,7 @@ await test(['Q19', 'AP17'], 'P17: while contested each party writes one text of 
   assert.equal((await post(evidenceRoute, 'order/evidence', { orderId: '1' })).status, 409);
 });
 
-await test(['Q19', 'AP17'], 'P17: evidence is written only while the order is contested', async () => {
+await test(['Q19', 'AP17', 'AQ5'], 'P17: evidence is written only while the order is contested', async () => {
   const { buyer, shop } = await contestSetup();
   escrow.set({ readOrders: [fx({ id: 1, state: OrderState.WINDOW, windowEndsAt: T0 + DAY, payer: buyer.participant, store: shop.creator })] });
   asParticipant('participant-1');
@@ -1227,7 +1228,7 @@ await test(['Q19', 'AP17'], 'P17: evidence is written only while the order is co
   assert.equal(store.rows('bridge_v2_order_evidence').length, 0);
 });
 
-await test(['Q19', 'AP17', 'AP22'], 'P17 as answered: the arbiter reads both texts and the hash by signing a fresh challenge with the key the escrow names now; any other signer, or a stale challenge, reads nothing', async () => {
+await test(['Q19', 'AP17', 'AP22', 'AQ2'], 'P17 as answered: the arbiter reads both texts and the hash by signing a fresh challenge with the key the escrow names now; any other signer, or a stale challenge, reads nothing', async () => {
   await contestSetup();
   await orders.writeEvidence(1n, 'RECIPIENT', 'It never arrived.');
   const arbiterKey = generatePrivateKey();
@@ -1302,6 +1303,224 @@ await test(['Q29', 'AP13', 'H1'], 'P13: the list of what the bridge signs is clo
   // Selectors of the audited contracts (KeptraEscrow.sol, KeptraGuarantee.sol at 183a2b4).
   assert.equal(toFunctionSelector('expire(uint256)'), encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'expire', args: [1n] }).slice(0, 10));
   assert.equal(toFunctionSelector('voidVoucher(uint256,uint256)'), encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'voidVoucher', args: [1n, 0n] }).slice(0, 10));
+});
+
+// ===========================================================================
+// Adenda R — the audit of piece 5: AR1 AR2 AR3 AR4
+// ===========================================================================
+
+/** From now on, a write the predicate picks fails as a lost connection would; the others reach memdb. */
+function failWhen(key, when) {
+  const real = db.handlerOf(key);
+  db.on(key, (op) => (when(op) ? { data: null, error: { code: '08006', message: 'connection failure' } } : real(op)));
+}
+
+const alerted = (log, summary) => log.events.filter((e) => e.kind === 'alert' && e.detail.summary === summary).map((e) => e.detail.order_id ?? null);
+const exitsSent = () => chain.calls.filter((c) => c.name === 'sendKeeperExit').map((c) => c.args[1]);
+const marksSent = () => chain.calls.filter((c) => c.name === 'sendRecipientMark').map((c) => c.args[0]);
+const ERASABLE = ['bridge_v2_order_addresses', 'bridge_v2_order_shipments', 'bridge_v2_order_evidence'];
+
+/** Order 1, marked, with its address, shipment and evidence — then shown closed to the recipient: its mark is to be released. */
+async function closingSetup() {
+  const { buyer, shop } = await markSetup();
+  offer();
+  asParticipant('participant-1');
+  await post(addressRoute, 'order/address', { ...ADDRESS, termsId: '1' });
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator })]);
+  await pass();
+  await orders.registerShipment(1n, `0x${'a'.repeat(64)}`, 'AB123456789');
+  await orders.writeEvidence(1n, 'RECIPIENT', 'It never arrived.');
+  assert.equal(store.rows('bridge_v2_recipient_marks')[0].status, 'MARKED');
+  chainShows([fx({ id: 1, state: OrderState.CLOSED, flags: OrderFlag.VERIFIED, payer: buyer.participant, store: shop.creator })]);
+  return { buyer, shop };
+}
+
+/** What this side knows of order 1's close: recorded or not, the erasure dates, the mark. */
+function closeOfOne() {
+  const row = store.rows('bridge_v2_orders').find((r) => String(r.order_id) === '1');
+  return {
+    closedAt: row.closed_at ?? null,
+    outcome: row.outcome ?? null,
+    erasure: ERASABLE.map((table) => store.rows(table).find((r) => String(r.order_id) === '1')?.erase_after ?? null),
+    mark: store.rows('bridge_v2_recipient_marks').find((r) => String(r.order_id) === '1').status,
+  };
+}
+
+await test(['AR1', 'Q4', 'Q11', 'AP5', 'AP17'], 'R1 (M1): a close cut short at any of its writes is not recorded, so the next pass reads the order again and finishes it — the erasure date on its address, shipment and evidence, and its mark settled', async () => {
+  const cuts = [
+    ['bridge_v2_order_addresses:update', () => true],
+    ['bridge_v2_order_shipments:update', () => true],
+    ['bridge_v2_order_evidence:update', () => true],
+    ['bridge_v2_recipient_marks:update', () => true],
+    // The row that records the close, and only that one: the scan's write of the order goes through.
+    ['bridge_v2_orders:upsert', (op) => op.payload.closed_at !== null],
+  ];
+  for (const [key, when] of cuts) {
+    await closingSetup();
+    escrow.set({ orderOutcome: { outcome: 1, searchedTo: 1_000n } });
+    let armed = true;
+    failWhen(key, (op) => armed && when(op));
+    const first = await pass();
+    assert.deepEqual(alerted(first.log, 'order close failed'), ['1'], key);
+    const cut = closeOfOne();
+    assert.equal(cut.closedAt, null, `${key}: the close was recorded with work still to do`);
+    armed = false;
+    await pass();
+    const done = closeOfOne();
+    assert.ok(done.closedAt !== null, `${key}: the next pass did not finish the close`);
+    assert.equal(done.outcome, 1, key);
+    assert.ok(done.erasure.every((date) => date !== null), `${key}: an erasure date is missing (${done.erasure.join(', ')})`);
+    for (const date of done.erasure) {
+      const days = (Date.parse(date) - Date.now()) / 86_400_000;
+      assert.ok(days > 28.9 && days <= 29, `${key}: ${days} days`);
+    }
+    assert.equal(done.mark, 'RELEASED', `${key}: the mark of a delivery that did not count is not settled`);
+    // Recorded once: a third pass has nothing left to do for it.
+    escrow.calls.length = 0;
+    await pass();
+    assert.equal(escrow.calls.filter((c) => c.name === 'orderOutcome').length, 0, `${key}: a recorded close was read again`);
+  }
+});
+
+await test(['AR2', 'Q20', 'Q16', 'Q11', 'AP11', 'AP22'], 'R2 (B1): an order whose exit, notice or mark fails is logged and alerted on its own — the other orders get their exit, their notice and their mark in the same pass', async () => {
+  const { buyer, shop } = await markSetup();
+  const second = await person('participant-2', '0x5555555555555555555555555555555555555561');
+  const third = await person('participant-3', '0x5555555555555555555555555555555555555562');
+  withPhone('participant-2', 'phone-second');
+  withPhone('participant-3', 'phone-third');
+  chainShows([buyer, second, third].map((payer, index) => fx({ id: index + 1, payer: payer.participant, store: shop.creator, paidAt: T0 - 6n * DAY })));
+  chain.set({ sendKeeperExit: (_exit, id) => (id === 2n ? new Error('connection reset') : '0x'.padEnd(66, '7')) });
+  failWhen('bridge_v2_order_notices:insert', (op) => String(op.payload.order_id) === '2');
+  failWhen('bridge_v2_recipient_marks:insert', (op) => String(op.payload.order_id) === '2');
+  const { log } = await pass();
+  assert.deepEqual(exitsSent(), [1n, 2n, 3n]);
+  assert.equal(log.events.filter((e) => e.kind === 'orders.confirmed').length, 2);
+  assert.deepEqual(log.events.filter((e) => e.kind === 'alert' && e.detail.summary === 'order exit failed').map((e) => e.detail.id), ['2']);
+  assert.deepEqual(store.rows('bridge_v2_order_notices').map((r) => String(r.order_id)).sort(), ['1', '3']);
+  assert.deepEqual(alerted(log, 'order notice failed'), ['2']);
+  assert.deepEqual(marksSent(), [1n, 3n]);
+  assert.deepEqual(alerted(log, 'order mark failed'), ['2']);
+  assert.deepEqual(alerted(log, 'orders step failed'), [], 'a whole step stopped');
+});
+
+await test(['AR2', 'Q20', 'Q21'], 'R2 (B1): an order whose scan fails does not stop the pass — the others’ exits go, and a failed voucher scan stops none; a new order that fails holds the new ones after it for the next pass, which reads them all', async () => {
+  fresh();
+  const payer = '0x1234567890123456789012345678901234567890';
+  const shop = '0x0987654321098765432109876543210987654321';
+  chainShows([1, 2, 3].map((id) => fx({ id, payer, store: shop })));
+  await pass();
+  chain.reset();
+  chainShows([1, 2, 3, 4, 5].map((id) => fx({ id, payer, store: shop, paidAt: T0 - 6n * DAY })));
+  escrow.set({ voucherLastId: 1n, readVouchers: new Error('connection reset') });
+  // Order 2 is known, order 4 new: the scan cannot write either.
+  const failing = new Set(['2', '4']);
+  failWhen('bridge_v2_orders:upsert', (op) => failing.has(String(op.payload.order_id)));
+  const { log } = await pass();
+  assert.deepEqual(exitsSent(), [1n, 3n]);
+  assert.deepEqual(alerted(log, 'order scan failed'), ['2', '4']);
+  assert.equal(alerted(log, 'voucher scan failed').length, 1);
+  // Order 5 is not written past order 4: the index never skips an order it does not hold.
+  assert.deepEqual(store.rows('bridge_v2_orders').map((r) => String(r.order_id)).sort(), ['1', '2', '3']);
+  failing.clear();
+  chain.reset();
+  await pass();
+  assert.deepEqual(exitsSent(), [1n, 2n, 3n, 4n, 5n]);
+  assert.deepEqual(store.rows('bridge_v2_orders').map((r) => String(r.order_id)).sort(), ['1', '2', '3', '4', '5']);
+});
+
+/** A provider that refuses more than `limit` blocks per request, and holds order 1's OrderClosed at `closedIn`. */
+function limitedProvider(limit, closedIn, outcome = 1) {
+  chain.set({
+    getContractEvents: ({ fromBlock, toBlock, args }) => {
+      if (toBlock - fromBlock + 1n > limit) return new Error(`query exceeds max block range ${limit}`);
+      return args.orderId === 1n && fromBlock <= closedIn && closedIn <= toBlock ? [{ args: { orderId: 1n, outcome, materialFailure: false } }] : [];
+    },
+  });
+}
+const logReads = () => chain.calls.filter((c) => c.name === 'getContractEvents').map((c) => c.args[0]);
+
+await test(['AR2', 'Q11', 'AP5'], 'R2 (B1): the close is read from the log through a provider that limits the block range — a refused request is asked again over half the range, the accepted ones cover the range without a gap, and the outcome found settles the mark', async () => {
+  const { buyer, shop } = await closingSetup();
+  escrow.set({ orderOutcome: escrow.realOrderOutcome, ordersHead: { orderCount: 2n, now: T0, block: 60_000n } });
+  limitedProvider(1_000n, 42_000n);
+  const { log } = await pass();
+  const reads = logReads();
+  const accepted = reads.filter((p) => p.toBlock - p.fromBlock + 1n <= 1_000n);
+  assert.ok(reads.length > accepted.length, 'no request was refused');
+  assert.equal(accepted[0].fromBlock, 1_000n, 'the search does not start where the order was last seen open');
+  for (let i = 1; i < accepted.length; i += 1) assert.equal(accepted[i].fromBlock, accepted[i - 1].toBlock + 1n, 'a gap or an overlap in the blocks read');
+  assert.ok(accepted.at(-1).fromBlock <= 42_000n && 42_000n <= accepted.at(-1).toBlock, 'the search went past the log it found');
+  const closed = closeOfOne();
+  assert.ok(closed.closedAt !== null);
+  assert.equal(closed.outcome, 1);
+  assert.equal(closed.mark, 'RELEASED');
+  assert.deepEqual(alerted(log, 'order close failed'), []);
+  void buyer;
+  void shop;
+});
+
+await test(['AR2', 'AR1', 'Q11'], 'R2 (B1): out of time in the middle of the log, the search stops and keeps how far it got — the close stays to do — and the next pass goes on from that block, not from the start, and finishes it', async () => {
+  await closingSetup();
+  escrow.set({ orderOutcome: escrow.realOrderOutcome, ordersHead: { orderCount: 2n, now: T0, block: 20_000n } });
+  limitedProvider(1_000n, 15_000n);
+  // Time for five more reads of the log, then none.
+  const real = deadline();
+  let reads = 5;
+  const short = { ...real, hasTimeFor: (ms) => (ms === config.ORDER_LOG_CHUNK_MS ? reads-- > 0 : real.hasTimeFor(ms)) };
+  const log = recordingLogger();
+  await advanceOrders(log, short);
+  const cut = closeOfOne();
+  assert.equal(cut.closedAt, null);
+  assert.equal(cut.mark, 'MARKED', 'the mark was settled without the outcome');
+  const reached = store.rows('bridge_v2_orders')[0].seen_block;
+  assert.ok(BigInt(reached) > 1_000n && BigInt(reached) < 15_000n, `kept ${reached}`);
+  assert.ok(log.events.some((e) => e.kind === 'orders.deferred' && e.detail.reason === 'close_search_unfinished'));
+  chain.calls.length = 0;
+  await pass();
+  assert.equal(logReads()[0].fromBlock, BigInt(reached), 'the next pass started the search again from the start');
+  const done = closeOfOne();
+  assert.ok(done.closedAt !== null);
+  assert.equal(done.mark, 'RELEASED');
+});
+
+await test(['AR4'], 'R4: what no flow reads is gone — the contest window parameter, the log kind never emitted, the outcome’s material flag, the obligation’s unit counts and the tracking hash in the store’s list — and the recipient’s list stays, declared as the boundary with piece 6', async () => {
+  assert.equal('ESCROW_CONTEST_WINDOW_SECONDS' in config, false);
+  const code = (path) => read(path).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.ok(!code('lib/bridge-v2/log.ts').includes("'order.refused'"));
+  const escrowChain = code('lib/bridge-v2/escrowChain.ts');
+  assert.ok(!/material/.test(escrowChain), 'orderOutcome still returns the material flag');
+  assert.ok(!/\bunits\b|openUnits/.test(escrowChain), 'readObligation still returns the unit counts');
+  assert.match(read('api/bridge/v2/order/list.ts'), /boundary with\s+\*?\s*piece 6/);
+  // The store's list, with a shipment registered: the order and its address, and no hash.
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  offer();
+  asParticipant('participant-1');
+  await post(addressRoute, 'order/address', { ...ADDRESS, termsId: '1' });
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator })]);
+  await pass();
+  await orders.registerShipment(1n, `0x${'a'.repeat(64)}`, 'AB123456789');
+  asParticipant('store-1');
+  const listed = await (await post(storeOrdersRoute, 'store/orders', {})).json();
+  assert.equal(listed.orders.length, 1);
+  assert.deepEqual(listed.orders[0].address, ADDRESS);
+  assert.equal('trackingHash' in listed.orders[0], false);
+  assert.ok(!JSON.stringify(listed).includes('a'.repeat(64)));
+});
+
+await test(['AR3'], 'R3: this matrix is in the repository, names the spec version it was checked against (1.19) and the Adendas P, Q and R, and has a row for every Qn, APn, AQn and ARn a piece-5 test declares', () => {
+  const matrix = read('test/bridge-v2/MATRIZ-PECA5-KEPTRA.md');
+  assert.match(matrix, /linha 3: \*\*Versão 1\.19 — 21\/09\/2026\*\*/);
+  for (const heading of ['## 2. Adenda P', '## 3. Adenda Q', '## 4. Adenda R']) assert.ok(matrix.includes(heading), heading);
+  const declared = new Set();
+  for (const path of ['test/bridge-v2/suites/orders.test.mjs', 'test/bridge-v2/fork/orders.fork.mjs']) {
+    for (const [, list] of read(path).matchAll(/await test\(\s*\[([^\]]*)\]/g)) {
+      for (const tag of list.split(',').map((part) => part.trim().replace(/'/g, ''))) if (/^(Q|AP|AQ|AR)\d+$/.test(tag)) declared.add(tag);
+    }
+  }
+  assert.ok(declared.has('AR3') && declared.has('Q31') && declared.has('AQ5'), 'the tags were not all read');
+  for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
 });
 
 // ===========================================================================

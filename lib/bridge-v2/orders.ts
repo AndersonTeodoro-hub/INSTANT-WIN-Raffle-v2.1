@@ -360,20 +360,25 @@ export async function saveOrder(row: OrderRow): Promise<void> {
 }
 
 /** A filter of the orders index, as data: the builder's own type does not survive being passed around. */
-type OrderFilter = readonly ['eq' | 'lt', string, string | number] | readonly ['in', string, readonly number[]];
+type OrderFilter = readonly ['eq', string, string | number] | readonly ['in', string, readonly number[]] | readonly ['is', string, null];
 
 async function selectOrders(operation: string, filters: readonly OrderFilter[]): Promise<OrderRow[]> {
   let query = getDb().from('bridge_v2_orders').select(ORDER_COLUMNS);
   for (const [kind, column, value] of filters) {
-    query = kind === 'in' ? query.in(column, [...(value as readonly number[])]) : kind === 'eq' ? query.eq(column, value) : query.lt(column, value);
+    query = kind === 'in' ? query.in(column, [...(value as readonly number[])]) : kind === 'eq' ? query.eq(column, value as string | number) : query.is(column, null);
   }
   const rows = checked(operation, await query.order('order_id', { ascending: true }).abortSignal(timeout())) as OrderDbRow[] | null;
   return (rows ?? []).map(toOrderRow);
 }
 
-/** Every order not yet in its final state, oldest first. */
+/**
+ * Every order the pass still has work on, oldest first: not in its final state,
+ * or in it with the close not yet recorded (Adenda R1). closed_at is written
+ * last, once the erasure date is set and the mark settled, so a close cut short
+ * by a failure is read again and finished by a later pass.
+ */
 export function openOrders(): Promise<OrderRow[]> {
-  return selectOrders('order.open', [['lt', 'state', OrderState.CLOSED]]);
+  return selectOrders('order.open', [['is', 'closed_at', null]]);
 }
 
 export async function orderRow(orderId: bigint): Promise<OrderRow | null> {

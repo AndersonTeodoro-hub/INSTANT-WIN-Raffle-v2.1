@@ -86,6 +86,11 @@ const REQUIREMENTS = [
   // SPEC-BLOCO-03 Adenda P, as APn. P6 is the owner's test, P8-P10 took the ramp
   // out, P23 is the owner's DNS, P25 and P26 go to the lot before the deploy.
   'AP1', 'AP2', 'AP3', 'AP4', 'AP5', 'AP7', 'AP11', 'AP12', 'AP13', 'AP14', 'AP15', 'AP16', 'AP17', 'AP18', 'AP19', 'AP20', 'AP21', 'AP22', 'AP24',
+  // SPEC-BLOCO-03 Adenda Q, as AQn (Qn is taken by the matrix rows). Q6 and Q7 are
+  // the owner's steps before the deploy.
+  'AQ1', 'AQ2', 'AQ3', 'AQ4', 'AQ5',
+  // SPEC-BLOCO-03 Adenda R, as ARn. R5 and R6 ask for no code in this correction.
+  'AR1', 'AR2', 'AR3', 'AR4',
 ];
 
 for (const path of SUITES) {

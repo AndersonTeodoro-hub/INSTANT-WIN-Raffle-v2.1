@@ -637,8 +637,7 @@ export const RECOVERY_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 // -----------------------------------------------------------------------------
 // SPEC-BLOCO-03 piece 5 — the orders
 // -----------------------------------------------------------------------------
-/** KeptraEscrow.CONTEST_WINDOW and ARBITER_WINDOW, constants of the contract (read back in the fork suite). */
-export const ESCROW_CONTEST_WINDOW_SECONDS = 5 * 24 * 60 * 60;
+/** KeptraEscrow.ARBITER_WINDOW, a constant of the contract (read back in the fork suite). */
 export const ESCROW_ARBITER_WINDOW_SECONDS = 5 * 24 * 60 * 60;
 /** 8.3: the recipient is told this long before the window closes. */
 export const WINDOW_CLOSING_NOTICE_SECONDS = 24 * 60 * 60;
@@ -673,13 +672,26 @@ export const ORACLE_ROTATION_SECONDS = 15 * 60;
 export const VOUCHER_CAMPAIGN_MAX_ITEMS = 20;
 /** Orders per multicall page, two reads each (getOrder, getTerms). */
 export const ORDER_SCAN_PAGE = 50;
+/**
+ * Adenda R2: the widest block range one read of OrderClosed asks for. A provider
+ * that limits eth_getLogs below it refuses, and the read halves the range until
+ * one is accepted (escrowChain.ts orderOutcome), so no limit stops it.
+ */
+export const ORDER_LOG_SPAN_BLOCKS = 10_000n;
 
 /**
  * P12: what one pass over the orders reserves before a unit — the order count and
- * the latest block, one page of orders and their terms, the rows written, and the
- * outcome of an order seen closing (its OrderClosed log) with its mark released.
+ * the latest block, one page of orders and their terms, and the rows written.
  */
 export const ORDER_SCAN_MS = 3 * RPC_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
+/**
+ * Adenda R1: one order seen in its final state, closed on this side — its erasure
+ * date on three tables, the first read of its OrderClosed log, its mark settled
+ * (read and written), and the row that records the close.
+ */
+export const ORDER_CLOSE_MS = RPC_TIMEOUT_MS + 6 * DB_TIMEOUT_MS;
+/** Adenda R2: each further read of that log, and the row that keeps how far the search got. */
+export const ORDER_LOG_CHUNK_MS = RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
 /** P11 and P12: one exit by time signed by the keeper — the account read, the quote, the broadcast, the receipt. */
 export const ORDER_EXIT_MS = RECEIPT_TIMEOUT_MS + 5 * RPC_TIMEOUT_MS;
 /** P11: one page of vouchers read for the ones the core can no longer deliver (ownership, the clocks, itemsOf). */
@@ -740,7 +752,8 @@ export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
  * pass's own budget (MAINTENANCE_BUDGET_MS, 272_000) as well. SPEC-BLOCO-03
  * piece 5 adds, in the pipeline, 62_000 for a page of the orders scan, 80_000
  * for one exit by the keeper, 38_000 for a page of vouchers, 134_000 for one
- * recipient mark and 40_000 for one notice; and in the maintenance pass 40_000
+ * recipient mark, 40_000 for one notice, 58_000 for one order closed and 18_000
+ * for each further read of its log (Adenda R); and in the maintenance pass 40_000
  * for the erasure and 40_000 for one tracker asked again.
  *
  * Adenda C1 as F8 extends it: EVERY reservation a maintenance step passes to
@@ -788,6 +801,8 @@ export const EVERY_RESERVATION_MS: Record<string, number> = {
   voucherScan: VOUCHER_SCAN_MS,
   orderMark: ORDER_MARK_MS,
   orderNotice: ORDER_NOTICE_MS,
+  orderClose: ORDER_CLOSE_MS,
+  orderLogChunk: ORDER_LOG_CHUNK_MS,
   orderErasure: ORDER_ERASURE_MS,
   trackerRetry: TRACKER_RETRY_MS,
 };
