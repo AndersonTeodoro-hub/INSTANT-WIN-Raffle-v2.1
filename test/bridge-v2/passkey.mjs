@@ -35,6 +35,8 @@ function toDer(raw) {
 export async function createPasskey({ rpId = 'keptra.io', origin = 'https://keptra.io' } = {}) {
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
   const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+  // SPEC-BLOCO-03 piece 6: the public key as a browser's getPublicKey() hands it over (SPKI), for the page's own parsing.
+  const spki = await crypto.subtle.exportKey('spki', pair.publicKey);
   const x = BigInt(hex(raw.slice(1, 33)));
   const y = BigInt(hex(raw.slice(33, 65)));
   const credentialId = b64url(randomBytes(32));
@@ -62,5 +64,5 @@ export async function createPasskey({ rpId = 'keptra.io', origin = 'https://kept
     };
   }
 
-  return { x, y, credentialId, sign };
+  return { x, y, credentialId, sign, spki };
 }

@@ -1083,6 +1083,8 @@ export const KEPTRA_ESCROW_ABI = parseAbi([
   'function refund(uint256 orderId, uint96 amount)',
   'event OrderOpened(uint256 indexed orderId, uint256 indexed termsId, address indexed payer, uint96 paid, uint256 voucherId)',
   'event OrderClosed(uint256 indexed orderId, uint8 outcome, bool materialFailure)',
+  // SPEC-BLOCO-03 T5: the id of the offer the relay created, read from its receipt.
+  'event OfferCreated(uint256 indexed termsId, address indexed store, uint8 mode, uint96 price, uint96 shipping)',
   'error InvalidAddress()',
   'error InvalidParams()',
   'error InvalidAmount()',
@@ -1104,6 +1106,8 @@ export const KEPTRA_GUARANTEE_ABI = parseAbi([
   'function getObligation(uint256 obligationId) view returns (Obligation)',
   'function createObligation(uint96 declaredValue, uint96 shipping, uint96 returnCost, uint16 shipDays, uint16 deliveryDays, uint8 mode, bytes regions, uint32 units) returns (uint256)',
   'function totalDebtOf(address brand) view returns (uint256)',
+  // SPEC-BLOCO-03 T5: the obligation the relay created, and its terms, read from its receipt.
+  'event ObligationCreated(uint256 indexed obligationId, uint256 indexed termsId, address indexed brand, address source, uint32 units, uint96 bond, uint96 coverage, uint256 protectionFee, uint8 tier)',
   'error OpenDebt()',
   'error CoverageLimit()',
   'error SourceNotAuthorised()',
@@ -1119,9 +1123,13 @@ export const KEPTRA_VOUCHER_ABI = parseAbi([
   'function giveawayOf(uint256 tokenId) view returns (uint256)',
   'function obligationOf(uint256 tokenId) view returns (uint256)',
   'function lastId() view returns (uint256)',
+  // SPEC-BLOCO-03 T13: whether an account still holds a voucher, before its data is erased.
+  'function balanceOf(address owner) view returns (uint256)',
   'function releasable(uint256 tokenId, uint256 itemIndex) view returns (bool)',
   'function approve(address to, uint256 tokenId)',
   'function setApprovalForAll(address operator, bool approved)',
+  // SPEC-BLOCO-03 T5: the vouchers an obligation minted, read from the relay's receipt.
+  'event VoucherMinted(uint256 indexed tokenId, uint256 indexed obligationId, address indexed to)',
   'error TransferRestricted()',
   'error AlreadyVoided()',
 ]);

@@ -1,12 +1,56 @@
 import { clearedCookie, resolveSession, revokeAllSessions } from '../../../../lib/bridge-v2/session.js';
-import { handle, methodGuard, ok, refuse } from '../../../../lib/bridge-v2/http.js';
+import { handle, json, methodGuard, ok, refuse } from '../../../../lib/bridge-v2/http.js';
 import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.js';
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
-import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
-import { eraseAddressesOf } from '../../../../lib/bridge-v2/orders.js';
+import { DB_TIMEOUT_MS, ERASE_ADDRESSES_NOW_MAX, USDC } from '../../../../lib/bridge-v2/config.js';
+import { eraseAddressesOf, keptraContractsConfigured, ordersOfPayer, ordersOfStore } from '../../../../lib/bridge-v2/orders.js';
+import { accountsOf } from '../../../../lib/bridge-v2/accounts.js';
+import { erc20BalanceOf } from '../../../../lib/bridge-v2/chain.js';
+import { voucherBalanceOf } from '../../../../lib/bridge-v2/escrowChain.js';
+import { OrderState } from '../../../../lib/bridge-v2/abi.js';
+
+/**
+ * SPEC-BLOCO-03 T13: what still has to be resolved before a Keptra participant's
+ * data can be erased — USDC in either account, a voucher held by either, an order
+ * open as the recipient or as the store. Erasing the email would end the session
+ * that is the only way into those accounts through the platform, and leave the
+ * value where only a direct transaction could reach it (2.3 holds; the platform
+ * path would not). Null when nothing is left.
+ */
+async function whatIsLeft(participantId: string): Promise<{ usdc: bigint; vouchers: bigint; openOrders: number } | null> {
+  const accounts = await accountsOf(participantId);
+  if (accounts.length === 0) return null;
+  const contracts = keptraContractsConfigured();
+  const [usdc, vouchers] = await Promise.all([
+    Promise.all(accounts.map((account) => erc20BalanceOf(USDC, account.safe))),
+    contracts ? Promise.all(accounts.map((account) => voucherBalanceOf(account.safe))) : Promise.resolve([0n]),
+  ]);
+  let openOrders = 0;
+  if (contracts) {
+    const participant = accounts.find((account) => account.role === 'PARTICIPANT');
+    const creator = accounts.find((account) => account.role === 'CREATOR');
+    const rows = [...(participant ? await ordersOfPayer(participant.safe) : []), ...(creator ? await ordersOfStore(creator.safe) : [])];
+    openOrders = rows.filter((row) => row.state !== OrderState.CLOSED).length;
+  }
+  const left = { usdc: usdc.reduce((a, b) => a + b, 0n), vouchers: vouchers.reduce((a, b) => a + b, 0n), openOrders };
+  return left.usdc === 0n && left.vouchers === 0n && left.openOrders === 0 ? null : left;
+}
+
+/** The refusal's sentence: each thing still to resolve, named. */
+function leftSentence(left: { usdc: bigint; vouchers: bigint; openOrders: number }): string {
+  const parts: string[] = [];
+  if (left.usdc > 0n) {
+    const whole = left.usdc / 1_000_000n;
+    const cents = ((left.usdc % 1_000_000n) / 10_000n).toString().padStart(2, '0');
+    parts.push(`${whole}.${cents} USDC in your Keptra account`);
+  }
+  if (left.vouchers > 0n) parts.push(`${left.vouchers} voucher${left.vouchers === 1n ? '' : 's'}`);
+  if (left.openOrders > 0) parts.push(`${left.openOrders} open order${left.openOrders === 1 ? '' : 's'}`);
+  return `Your data cannot be erased yet: there is still ${parts.join(', ')}. Move the funds out, redeem or let the vouchers lapse, and let the orders finish first.`;
+}
 
 /**
  * POST /api/bridge/v2/privacy/erase
@@ -48,6 +92,20 @@ const route = handle('privacy/erase', async ({ request, log }) => {
     return refuse(429, 'Too many requests. Please wait and try again.', retryAfterHeaders(verdict));
   }
 
+  // SPEC-BLOCO-03 T13: refused while the Keptra accounts still hold something, and the answer says what.
+  const left = await whatIsLeft(session.participantId);
+  if (left !== null) {
+    await log.event('privacy.erase_refused', { usdc: left.usdc > 0n, vouchers: Number(left.vouchers), open_orders: left.openOrders });
+    return json(
+      {
+        ok: false,
+        error: leftSentence(left),
+        left: { usdc: left.usdc.toString(), vouchers: left.vouchers.toString(), openOrders: left.openOrders },
+      },
+      409,
+    );
+  }
+
   // Released first. C6 puts the number into its cooling period, so erasure does
   // not become a way to recycle a number between accounts on demand.
   const released = await releasePhone(session.participantId);
@@ -72,7 +130,7 @@ const route = handle('privacy/erase', async ({ request, log }) => {
   // SPEC-BLOCO-03 10.3 and Adenda P18: the delivery addresses, with the tracking
   // numbers and evidence that travel with them. Those of orders still open are
   // erased after the order's final state, and the participant is told so.
-  const addresses = await eraseAddressesOf(session.participantId);
+  const addresses = await eraseAddressesOf(session.participantId, ERASE_ADDRESSES_NOW_MAX);
 
   const revoked = await revokeAllSessions(session.participantId);
 

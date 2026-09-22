@@ -5,7 +5,8 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { parseHexBytes, parseUint256 } from '../../../../lib/bridge-v2/validate.js';
 import { ARBITER_SIGNATURE_MAX_AGE_MS } from '../../../../lib/bridge-v2/config.js';
 import { escrowArbiter } from '../../../../lib/bridge-v2/escrowChain.js';
-import { arbiterChallenge, evidenceDocument, evidenceOf, ordersConfigured } from '../../../../lib/bridge-v2/orders.js';
+import { arbiterChallenge, evidenceDocument, evidenceOf, orderRow, ordersConfigured } from '../../../../lib/bridge-v2/orders.js';
+import { descriptionOf } from '../../../../lib/bridge-v2/descriptions.js';
 
 /**
  * POST /api/bridge/v2/arbiter/evidence {orderId, issuedAt, signature} -> {recipient, store, document}
@@ -49,8 +50,15 @@ const route = handle('arbiter/evidence', async ({ request, log }) => {
   if (signer.toLowerCase() !== (await escrowArbiter()).toLowerCase()) return refuse(401, 'Unauthorized.');
 
   const evidence = await evidenceOf(orderId);
+  // SPEC-BLOCO-03 T4: the arbiter receives the product description with the evidence — what the order was for.
+  const row = await orderRow(orderId);
+  const description = row === null ? null : await descriptionOf(row.termsId);
   await log.event('order.evidence_read', { order_id: orderId.toString(), party: 'ARBITER' });
-  return ok({ ...evidence, document: evidenceDocument(evidence.recipient, evidence.store) });
+  return ok({
+    ...evidence,
+    document: evidenceDocument(evidence.recipient, evidence.store),
+    description: description === null ? null : { title: description.title, text: description.text },
+  });
 });
 
 export async function POST(request: Request): Promise<Response> {

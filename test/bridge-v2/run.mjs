@@ -44,6 +44,9 @@ const SUITES = [
   // oracle's list, the relay's order actions, the orders pass, the notices, the
   // evidence, and migration 0013, with the chain doubled. On-chain: ./fork.
   './suites/orders.test.mjs',
+  // SPEC-BLOCO-03 piece 6: the frontend's client modules against the real routes,
+  // the bridge's additions of Adenda T, and migration 0014 (T8: no browser).
+  './suites/frontend.test.mjs',
 ];
 
 /**
@@ -91,6 +94,12 @@ const REQUIREMENTS = [
   'AQ1', 'AQ2', 'AQ3', 'AQ4', 'AQ5',
   // SPEC-BLOCO-03 Adenda R, as ARn. R5 and R6 ask for no code in this correction.
   'AR1', 'AR2', 'AR3', 'AR4',
+  // SPEC-BLOCO-03 piece 6: the rows of its matrix, Un. T12 took U10, U11, U13 and
+  // U18 out of this build, and P8-P10 took U38 (the ramp).
+  ...Array.from({ length: 37 }, (_unused, index) => `U${index + 1}`).filter((tag) => !['U10', 'U11', 'U13', 'U18'].includes(tag)),
+  // SPEC-BLOCO-03 Adenda T, as ATn. T1 is the owner's registration, T10 and T11
+  // are the terminal (docs/keptra), T12 is what left, T19 and T20 are accepted rules.
+  'AT0', 'AT2', 'AT3', 'AT4', 'AT5', 'AT6', 'AT7', 'AT8', 'AT9', 'AT10', 'AT11', 'AT12', 'AT13', 'AT14', 'AT15', 'AT17', 'AT18', 'AT19', 'AT21',
 ];
 
 for (const path of SUITES) {

@@ -39,6 +39,24 @@ function toParticipant(row: ParticipantRow): Participant {
   };
 }
 
+/**
+ * SPEC-BLOCO-03 T3: the email a session's participant signed in with, for the
+ * account page to say who is signed in. Read by the session's own participant id
+ * only (D1); returned to nobody else.
+ */
+export async function emailOf(participantId: string): Promise<string | null> {
+  const row = checkedMaybe(
+    'participant.email',
+    await getDb()
+      .from('bridge_v2_participants')
+      .select('email_canonical')
+      .eq('id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as { email_canonical: string } | null;
+  return row?.email_canonical ?? null;
+}
+
 async function findByEmail(canonicalEmail: string): Promise<Participant | null> {
   const db = getDb();
   const row = checkedMaybe(

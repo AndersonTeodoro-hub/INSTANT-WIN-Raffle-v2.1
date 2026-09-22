@@ -13,7 +13,7 @@ import {
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { runDeadline } from '../../../../lib/bridge-v2/runlock.js';
 import { ChainError } from '../../../../lib/bridge-v2/chain.js';
-import { prepareAction, RelayRefusal, submitAction, type Action, type OfferTerms } from '../../../../lib/bridge-v2/relay.js';
+import { prepareAction, RelayRefusal, submitAction, summaryJson, type Action, type OfferTerms } from '../../../../lib/bridge-v2/relay.js';
 import { OrderMode } from '../../../../lib/bridge-v2/abi.js';
 import { encodeRegions } from '../../../../lib/bridge-v2/orders.js';
 import type { AccountRole } from '../../../../lib/bridge-v2/keptra.js';
@@ -70,6 +70,8 @@ const route = handle('account/relay', async ({ request, log }) => {
         safeTxHash: prepared.hash,
         nonce: prepared.tx.nonce.toString(),
         deployed: prepared.state.deployed,
+        // SPEC-BLOCO-03 C12 and T2: what the transaction does, computed here, shown by the page before the passkey.
+        summary: summaryJson(prepared.summary),
         // SPEC-BLOCO-03 H7: the redemption attestation's deadline, which the submit sends back.
         ...(prepared.redeemDeadline === null ? {} : { deadline: prepared.redeemDeadline.toString() }),
       });
@@ -100,6 +102,10 @@ const route = handle('account/relay', async ({ request, log }) => {
       status: submitted.receipt === null ? 'PENDING' : submitted.receipt.status === 'success' ? 'CONFIRMED' : 'REVERTED',
       giveawayId: submitted.giveawayId === null ? null : submitted.giveawayId.toString(),
       orderId: submitted.orderId === null ? null : submitted.orderId.toString(),
+      // SPEC-BLOCO-03 T5: the offer or the obligation this created, and the obligation's vouchers.
+      termsId: submitted.created?.termsId == null ? null : submitted.created.termsId.toString(),
+      obligationId: submitted.created?.obligationId == null ? null : submitted.created.obligationId.toString(),
+      voucherIds: (submitted.created?.voucherIds ?? []).map(String),
     });
   } catch (error) {
     if (error instanceof RelayRefusal) {
@@ -135,6 +141,7 @@ const REFUSALS: Record<string, string> = {
   configuration_incomplete: 'Your account needs to finish its setup first. Confirm it with your passkey.',
   already_configured: 'Your account is already set up.',
   destination_not_ready: 'That account is not set up yet and cannot receive anything.',
+  destination: 'Choose an address other than this account.',
   amount: 'That amount cannot be sent.',
   guardian_change_limit: 'Recovery settings were changed too often today. Try again tomorrow.',
   guardian_incident: 'Recovery cannot be set up while its key is being replaced. Try again later.',
@@ -173,6 +180,12 @@ function parseAction(body: Record<string, unknown>): Action | null {
       const to = parseAddress(body.to);
       const amount = parseUint256(body.amount);
       return giveawayId === null || to === null || amount === null ? null : { kind: 'transfer', giveawayId, to, amount };
+    }
+    case 'transferUsdc': {
+      // SPEC-BLOCO-03 T12 (U17): from either account (`role`), the amount stated (C7).
+      const to = parseAddress(body.to);
+      const amount = parseUint256(body.amount);
+      return to === null || amount === null ? null : { kind: 'transferUsdc', to, amount };
     }
     case 'addPasskey': {
       const credentialId = parseCredentialId(body.newCredentialId);

@@ -209,6 +209,34 @@ export function orderIdFromLogs(logs: readonly Log[]): bigint | null {
   return null;
 }
 
+/** SPEC-BLOCO-03 T5: the offer a relayed createOffer published, from its receipt. */
+export function offerIdFromLogs(logs: readonly Log[]): bigint | null {
+  const events = parseEventLogs({ abi: KEPTRA_ESCROW_ABI, eventName: 'OfferCreated', logs: logs as Log[] });
+  for (const event of events) {
+    if (event.address.toLowerCase() !== KEPTRA_ESCROW.toLowerCase()) continue;
+    return (event.args as { termsId: bigint }).termsId;
+  }
+  return null;
+}
+
+/** SPEC-BLOCO-03 T5: the obligation a relayed createObligation opened, and the terms it runs under. */
+export function obligationFromLogs(logs: readonly Log[]): { obligationId: bigint; termsId: bigint } | null {
+  const events = parseEventLogs({ abi: KEPTRA_GUARANTEE_ABI, eventName: 'ObligationCreated', logs: logs as Log[] });
+  for (const event of events) {
+    if (event.address.toLowerCase() !== KEPTRA_GUARANTEE.toLowerCase()) continue;
+    const args = event.args as { obligationId: bigint; termsId: bigint };
+    return { obligationId: args.obligationId, termsId: args.termsId };
+  }
+  return null;
+}
+
+/** SPEC-BLOCO-03 T5: the vouchers that obligation minted, in the order they were minted. */
+export function voucherIdsFromLogs(logs: readonly Log[]): bigint[] {
+  return parseEventLogs({ abi: KEPTRA_VOUCHER_ABI, eventName: 'VoucherMinted', logs: logs as Log[] })
+    .filter((event) => event.address.toLowerCase() === KEPTRA_VOUCHER.toLowerCase())
+    .map((event) => (event.args as { tokenId: bigint }).tokenId);
+}
+
 // -----------------------------------------------------------------------------
 // the guarantee and the voucher
 // -----------------------------------------------------------------------------
@@ -240,6 +268,11 @@ export interface VoucherView {
 
 export async function voucherLastId(): Promise<bigint> {
   return (await publicClient().readContract({ address: KEPTRA_VOUCHER, abi: KEPTRA_VOUCHER_ABI, functionName: 'lastId' })) as bigint;
+}
+
+/** SPEC-BLOCO-03 T13: how many vouchers an address holds (ERC-721 balanceOf). */
+export async function voucherBalanceOf(owner: `0x${string}`): Promise<bigint> {
+  return (await publicClient().readContract({ address: KEPTRA_VOUCHER, abi: KEPTRA_VOUCHER_ABI, functionName: 'balanceOf', args: [owner] })) as bigint;
 }
 
 /** Vouchers by id, five reads each in one multicall; ownerOf is allowed to fail, and a burned voucher reads as owner null. */

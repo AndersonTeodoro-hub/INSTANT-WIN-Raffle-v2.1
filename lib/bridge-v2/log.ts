@@ -119,6 +119,9 @@ export type OpsKind =
   | 'order.tracking_registered'
   | 'order.tracker_created'
   | 'order.evidence_written'
+  // SPEC-BLOCO-03 piece 6: a description written once (T4); an erasure refused while value is left (T13).
+  | 'offer.description_written'
+  | 'privacy.erase_refused'
   | 'order.evidence_read'
   | 'order.erased'
   | 'alert';

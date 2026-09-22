@@ -452,7 +452,7 @@ export async function eraseExpired(now: Date = new Date()): Promise<number> {
  * open go their 29 days after the final state, as every address does. Returns how
  * many were deferred, which the response tells the participant.
  */
-export async function eraseAddressesOf(participantId: string): Promise<{ erased: number; deferred: number }> {
+export async function eraseAddressesOf(participantId: string, limit = Number.POSITIVE_INFINITY): Promise<{ erased: number; deferred: number }> {
   const rows = checked(
     'order.erase_mine',
     await getDb().from('bridge_v2_order_addresses').select('id, order_id').eq('participant_id', participantId).abortSignal(timeout()),
@@ -460,6 +460,13 @@ export async function eraseAddressesOf(participantId: string): Promise<{ erased:
   let erased = 0;
   let deferred = 0;
   for (const row of rows ?? []) {
+    // SPEC-BLOCO-03 T13: the request erases at most `limit` now, so its route can
+    // declare a duration (F7); the rest carry their erasure date already (10.3,
+    // scheduleErasure and the unbound rows' own) and go with the hourly pass.
+    if (erased >= limit) {
+      deferred += 1;
+      continue;
+    }
     if (row.order_id != null) {
       const order = await orderRow(big(row.order_id));
       if (order === null || order.state !== OrderState.CLOSED) {

@@ -332,6 +332,23 @@ export async function passkeySigners(participantId: string): Promise<Set<string>
   return new Set((rows ?? []).map((row) => row.signer_address.toLowerCase()));
 }
 
+/**
+ * SPEC-BLOCO-03 T3: the credential ids of this participant's passkeys, for the
+ * page to name in navigator.credentials.get (allowCredentials). Ids only: the
+ * public keys stay here.
+ */
+export async function passkeyCredentialIds(participantId: string): Promise<string[]> {
+  const rows = checked(
+    'passkey.ids_mine',
+    await getDb()
+      .from('bridge_v2_passkeys')
+      .select('credential_id')
+      .eq('participant_id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) as { credential_id: string }[] | null;
+  return (rows ?? []).map((row) => row.credential_id);
+}
+
 /** C4: the platform account at this address, if the address is one. */
 export async function accountBySafe(safe: `0x${string}`): Promise<Account | null> {
   const row = checkedMaybe(
@@ -853,6 +870,25 @@ export async function touchMigration(id: string): Promise<void> {
       .eq('id', id)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
+}
+
+/**
+ * SPEC-BLOCO-03 T3 and 6.6: where the migration of one derived wallet stands, for
+ * the account page — authorised and waiting for the maintenance pass (and, A8,
+ * for the wallet's open rights to end), or sealed. Null: not authorised yet.
+ */
+export async function migrationStatus(walletIndex: number): Promise<'AUTHORIZED' | 'DONE' | null> {
+  const row = checkedMaybe(
+    'migration.status',
+    await getDb()
+      .from('bridge_v2_migrations')
+      .select('sealed_at')
+      .eq('wallet_index', walletIndex)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as { sealed_at: string | null } | null;
+  if (row === null) return null;
+  return row.sealed_at == null ? 'AUTHORIZED' : 'DONE';
 }
 
 /** M2: whether this derivation index has been sealed by a finished migration. */

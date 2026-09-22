@@ -1,6 +1,7 @@
 import { createConfig, http } from 'wagmi';
 import { arbitrum } from 'wagmi/chains';
 import { injected, walletConnect } from 'wagmi/connectors';
+import { ARBITRUM_RPC_URL } from './lib/rpc';
 
 // --- CONFIGURATION ---
 
@@ -13,22 +14,23 @@ if (!PROJECT_ID) {
  * Identidade que a wallet mostra ao utilizador na janela de aprovação.
  *
  * `url` TEM de ser o domínio a sério do site. Estava `instantwin.finance`, que
- * não é o domínio deste produto (é instntwin.com, o mesmo do og:image, do
- * ShareButton e do WinCard), e o WalletConnect avisava em toda a sessão:
+ * não é o domínio deste produto (hoje é keptra.io, SPEC-BLOCO-03 T9 — o mesmo
+ * do og:image, do ShareButton e do WinCard), e o WalletConnect avisava em toda a sessão:
  * "the configured metadata.url differs from the actual page url". Em produção
  * era isso que aparecia a quem estava a assinar.
  */
 const metadata = {
-  name: 'Instant Win',
-  description: 'Arbitrum Raffle Protocol',
-  url: 'https://instntwin.com',
+  // SPEC-BLOCO-03 T9: the app is Keptra, served at keptra.io; Instant Win is its raffle.
+  name: 'Keptra',
+  description: 'On-chain guarantee for brands, and the Instant Win raffle',
+  url: 'https://keptra.io',
   icons: ['https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png']
 };
 
 export const wagmiConfig = createConfig({
   chains: [arbitrum],
   transports: {
-    [arbitrum.id]: http('https://arb1.arbitrum.io/rpc'), 
+    [arbitrum.id]: http(ARBITRUM_RPC_URL),
   },
   connectors: [
     injected(),

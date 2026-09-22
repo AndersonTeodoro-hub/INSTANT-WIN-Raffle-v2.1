@@ -9,9 +9,15 @@
  * against the chain double's getContractEvents (Adenda R2).
  */
 
-import { orderIdFromLogs, orderOutcome as realOrderOutcome } from '../../../lib/bridge-v2/escrowChain.ts';
+import {
+  obligationFromLogs,
+  offerIdFromLogs,
+  orderIdFromLogs,
+  orderOutcome as realOrderOutcome,
+  voucherIdsFromLogs,
+} from '../../../lib/bridge-v2/escrowChain.ts';
 
-export { orderIdFromLogs, realOrderOutcome };
+export { obligationFromLogs, offerIdFromLogs, orderIdFromLogs, realOrderOutcome, voucherIdsFromLogs };
 
 export const calls = [];
 
@@ -29,6 +35,7 @@ const DEFAULTS = () => ({
   orderOutcome: (_orderId, _from, to) => ({ outcome: null, searchedTo: to }),
   readObligation: new Error('no obligation'),
   voucherLastId: 0n,
+  voucherBalanceOf: 0n,
   readVouchers: [],
   campaignItems: [],
   voucherReleasable: false,
@@ -63,6 +70,7 @@ export const escrowArbiter = (...args) => answer('escrowArbiter', args);
 export const orderOutcome = (...args) => answer('orderOutcome', args);
 export const readObligation = (...args) => answer('readObligation', args);
 export const voucherLastId = (...args) => answer('voucherLastId', args);
+export const voucherBalanceOf = (...args) => answer('voucherBalanceOf', args);
 export const readVouchers = (...args) => answer('readVouchers', args);
 export const campaignItems = (...args) => answer('campaignItems', args);
 export const voucherReleasable = (...args) => answer('voucherReleasable', args);

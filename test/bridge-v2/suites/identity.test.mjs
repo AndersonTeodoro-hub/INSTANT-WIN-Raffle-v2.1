@@ -754,11 +754,12 @@ await test(['L10'], 'a campaign with an identity previews with its banner, its n
     '<meta property="og:image:height" content="630">',
     '<meta name="twitter:card" content="summary_large_image">',
     `<meta name="twitter:image" content="${BANNER_URL}">`,
-    '<link rel="canonical" href="https://instntwin.com/events/2">',
+    // SPEC-BLOCO-03 T9: the app is at keptra.io.
+    '<link rel="canonical" href="https://keptra.io/events/2">',
   ]) {
     assert.ok(html.includes(tag), `missing: ${tag}`);
   }
-  assert.ok(html.includes('href="https://instntwin.com/events/2?app=1"'), 'a person who lands here has no way into the app');
+  assert.ok(html.includes('href="https://keptra.io/events/2?app=1"'), 'a person who lands here has no way into the app');
   assert.ok(!html.includes('<Drop>'), 'unescaped creator text reached the document');
   assert.ok(!html.includes('og-image.png'), 'the platform image is still in a campaign preview');
   for (const duplicate of ['twitter:title', 'twitter:description', 'twitter:image:alt']) {

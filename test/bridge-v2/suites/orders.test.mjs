@@ -440,7 +440,9 @@ await test(['Q4', 'AP17', 'AQ5'], '10.3: at the final state an order’s address
   assert.equal(await eraseOrderData(log, deadline(false)), null);
 });
 
-await test(['Q5', 'AP18'], 'P18: an erasure request deletes the addresses no open order needs now, defers the open order’s to its final state plus 30 days, and says so; the export carries them', async () => {
+// SPEC-BLOCO-03 T13 prevails over P18 (Adenda T, "prevalece sobre o texto anterior"): an erasure
+// with an order still open is refused and says what is left; once the order ends, the addresses go.
+await test(['Q5', 'AP18', 'AT13'], 'P18 as T13 reads it: an erasure request with an order open is refused and names it; once the order is final the addresses are deleted; the export carries them', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
@@ -454,11 +456,19 @@ await test(['Q5', 'AP18'], 'P18: an erasure request deletes the addresses no ope
   const exported = await (await post(exportRoute, 'privacy/export', {})).json();
   assert.equal(exported.deliveryAddresses.length, 3);
   assert.deepEqual(exported.deliveryAddresses.find((a) => a.orderId === '1').address, ADDRESS);
+  const refused = await post(eraseRoute, 'privacy/erase', {});
+  assert.equal(refused.status, 409);
+  const said = await refused.json();
+  assert.match(said.error, /1 open order/);
+  assert.equal(said.left.openOrders, 1);
+  assert.equal(store.rows('bridge_v2_order_addresses').length, 3, 'a refused erasure erased nothing');
+  chainShows([fx({ id: 1, state: OrderState.CLOSED, payer: buyer.participant, store: shop.creator }), fx({ id: 2, state: OrderState.CLOSED, payer: buyer.participant, store: shop.creator })]);
+  await pass();
+  asParticipant('participant-1');
   const erased = await (await post(eraseRoute, 'privacy/erase', {})).json();
-  assert.equal(erased.addressesErased, 2, 'the closed order’s and the unused one');
-  assert.equal(erased.addressesDeferred, 1);
-  assert.match(erased.deferredNote, /within 30 days of that order ending/);
-  assert.deepEqual(store.rows('bridge_v2_order_addresses').map((r) => String(r.order_id)), ['1']);
+  assert.equal(erased.addressesErased, 3, 'both final orders’ addresses and the unused one');
+  assert.equal(erased.addressesDeferred, 0);
+  assert.deepEqual(store.rows('bridge_v2_order_addresses'), []);
 });
 
 // ===========================================================================

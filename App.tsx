@@ -18,6 +18,16 @@ import { Raffle } from './pages/Raffle';
 import { Username } from './pages/Username';
 import { useLang, translations } from './pages/landing.i18n';
 import { useAppCopy } from './pages/app.i18n';
+// SPEC-BLOCO-03 piece 6 — Keptra: the customer's and the business's screens, the pool, privacy.
+import { KeptraProvider } from './components/keptra/KeptraProvider';
+import { AccountPage } from './pages/keptra/AccountPage';
+import { OrdersPage } from './pages/keptra/OrdersPage';
+import { OrderPage } from './pages/keptra/OrderPage';
+import { OfferPage } from './pages/keptra/OfferPage';
+import { VoucherPage } from './pages/keptra/VoucherPage';
+import { BusinessPage } from './pages/keptra/BusinessPage';
+import { PoolPage } from './pages/keptra/PoolPage';
+import { PrivacyPage } from './pages/keptra/PrivacyPage';
 
 const queryClient = new QueryClient();
 
@@ -114,8 +124,22 @@ const App: React.FC = () => {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
+          <KeptraProvider>
           <Routes>
             <Route path="/" element={<Landing />} />
+
+            {/* Keptra (SPEC-BLOCO-03 piece 6). The notices link to /account, /orders/:id and /store/orders/:id (mail.ts). */}
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="/orders" element={<OrdersPage />} />
+            <Route path="/orders/:id" element={<OrderPage />} />
+            <Route path="/offers/:termsId" element={<OfferPage />} />
+            <Route path="/vouchers/:id" element={<VoucherPage />} />
+            <Route path="/business" element={<BusinessPage section="orders" />} />
+            <Route path="/business/offers" element={<BusinessPage section="offers" />} />
+            <Route path="/business/obligations" element={<BusinessPage section="obligations" />} />
+            <Route path="/store/orders/:id" element={<BusinessPage section="orders" />} />
+            <Route path="/pool" element={<PoolPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
 
             {/* Páginas públicas, sem wallet e sem layout do jogo — como a landing. */}
             <Route path="/roadmap" element={<Roadmap />} />
@@ -141,6 +165,7 @@ const App: React.FC = () => {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </KeptraProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </WagmiProvider>

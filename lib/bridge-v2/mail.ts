@@ -123,11 +123,12 @@ export async function sendCodeEmail(
  * is not imported instead — that is client code, it reads import.meta.env, and
  * this module runs in the function that holds the derivation seed (K2).
  *
- * The product domain is instntwin.com — the one constants.ts, index.html and
- * api/og/event.ts use. instantwin.finance is not this product's domain, and a
- * winner sent there was sent nowhere.
+ * SPEC-BLOCO-03 T9: the whole app is served at keptra.io — the domain the
+ * passkeys are bound to (A13, C9) — so every link a notice carries is keptra.io.
+ * instntwin.com redirects its pages there and keeps serving /api, so a link sent
+ * before the move still lands. instantwin.finance was never this product's domain.
  */
-const PUBLIC_BASE = 'https://instntwin.com';
+const PUBLIC_BASE = KEPTRA_BASE;
 
 /** What the notice needs to say, assembled by the caller that read the chain. */
 export interface SettlementNotice {

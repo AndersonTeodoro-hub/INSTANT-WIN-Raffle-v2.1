@@ -33,7 +33,8 @@ import type { PublicIdentity } from '../../lib/campaign-identity.js';
  * the envelope's JSON error would be the worst thing to hand a crawler.
  */
 
-const SITE = 'https://instntwin.com';
+// SPEC-BLOCO-03 T9: the app, and so every page a preview names, is at keptra.io.
+const SITE = 'https://keptra.io';
 
 /** Everything that is printed is escaped. The name and the message are the creator's. */
 const escape = (value: string) =>
@@ -52,16 +53,16 @@ const oneLine = (value: string, max: number) => {
 
 /** index.html's head, tag for tag. */
 const FALLBACK_TAGS = [
-  '<title>Instant Win — Provably Fair Raffle on Arbitrum</title>',
-  '<meta name="description" content="A provably fair on-chain raffle on Arbitrum One. 3 winners per 30-minute round, tickets from 1 USDC, drawn by Chainlink VRF. Winners claim their prize on-chain.">',
+  '<title>Keptra — On-chain guarantee for brands</title>',
+  '<meta name="description" content="Keptra holds the money of a purchase, or the bond behind a physical prize, in public contracts on Arbitrum One until delivery is proven. Home of Instant Win, the provably fair raffle.">',
   '<meta property="og:type" content="website">',
-  '<meta property="og:title" content="Instant Win — Provably Fair Raffle on Arbitrum">',
-  '<meta property="og:description" content="3 winners per 30-minute round, tickets from 1 USDC, drawn by Chainlink VRF. Winners claim on-chain. Live on Arbitrum One.">',
-  '<meta property="og:image" content="https://instntwin.com/og-image.png">',
+  '<meta property="og:title" content="Keptra — On-chain guarantee for brands">',
+  '<meta property="og:description" content="Payments and prize bonds held on-chain until delivery is proven, released by public rules. Home of Instant Win, the provably fair raffle on Arbitrum One.">',
+  '<meta property="og:image" content="https://keptra.io/og-image-keptra.png">',
   '<meta property="og:image:width" content="1200">',
   '<meta property="og:image:height" content="630">',
   '<meta name="twitter:card" content="summary_large_image">',
-  '<meta name="twitter:image" content="https://instntwin.com/og-image.png">',
+  '<meta name="twitter:image" content="https://keptra.io/og-image-keptra.png">',
   '<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">',
   '<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">',
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
@@ -77,7 +78,7 @@ function identityTags(identity: PublicIdentity, page: string): string[] {
     `<title>${name} — ${escape(identity.brand)}</title>`,
     `<meta name="description" content="${description}">`,
     '<meta property="og:type" content="website">',
-    '<meta property="og:site_name" content="Instant Win">',
+    '<meta property="og:site_name" content="Keptra">',
     `<meta property="og:url" content="${escape(page)}">`,
     `<meta property="og:title" content="${name}">`,
     `<meta property="og:description" content="${description}">`,
@@ -94,7 +95,7 @@ function identityTags(identity: PublicIdentity, page: string): string[] {
 
 function previewDocument(identity: PublicIdentity | null, giveawayId: string | null): string {
   const page = giveawayId === null ? `${SITE}/events` : `${SITE}/events/${giveawayId}`;
-  const title = identity === null ? 'Instant Win — Event Center' : identity.name;
+  const title = identity === null ? 'Keptra — Event Center' : identity.name;
   return [
     '<!DOCTYPE html>',
     '<html lang="en">',

@@ -15,7 +15,8 @@ import { useAppCopy } from '../pages/app.i18n';
 const LOG_CHUNK = 9_000n;
 const MAX_CHUNKS = 30;
 const ARBISCAN_TX = 'https://arbiscan.io/tx/';
-const SITE = 'https://instntwin.com';
+// SPEC-BLOCO-03 T9: the app is at keptra.io.
+const SITE = 'https://keptra.io';
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 

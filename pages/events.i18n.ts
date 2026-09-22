@@ -130,6 +130,20 @@ export interface EventsCopy {
       confirmed: string;
       invalidAddress: string;
     };
+    /** SPEC-BLOCO-03 piece 6: entering and claiming with a Keptra account (A4, 6.2.3, 6.2.5). */
+    keptra: {
+      passkeyNeeded: string;
+      setUpCta: string;
+      wrongOrigin: string;
+      confirmEntryBody: string;
+      confirmEntryCta: string;
+      claimBody: string;
+      claimCta: string;
+      claimed: string;
+      voucherBody: string;
+      voucherCta: string;
+      notice: string;
+    };
   };
   create: {
     metaTitle: string;
@@ -374,6 +388,19 @@ const en: EventsCopy = {
       confirmExplainer: "Check it carefully — this is exactly where your prize will be sent, and it can't be changed once confirmed.",
       confirmed: 'Confirmed. Your prize will be sent here.',
       invalidAddress: 'Enter a valid wallet address.',
+    },
+    keptra: {
+      passkeyNeeded: 'Entering needs your Keptra account and its passkey. Set it up first — it takes a minute — then come back to this page.',
+      setUpCta: 'Set up my Keptra account',
+      wrongOrigin: 'Passkeys work only on keptra.io. Open this page on keptra.io to continue.',
+      confirmEntryBody: 'Your place is ready. One step is left: confirm your entry with your passkey. Until you do, you are not entered.',
+      confirmEntryCta: 'Confirm my entry with my passkey',
+      claimBody: 'Claim it with your passkey. It stays in the contract until you do, and claims close 90 days after the draw.',
+      claimCta: 'Claim my prize with my passkey',
+      claimed: 'Claimed. The prize is in your Keptra account.',
+      voucherBody: 'Your prize is a voucher for a physical product. Redeem it with a delivery address within 30 days of claiming it.',
+      voucherCta: 'Redeem my voucher',
+      notice: 'You enter with your own Keptra account: your passkey signs the entry, and a prize stays in the contract until you claim it.',
     },
   },
   create: {
@@ -620,6 +647,19 @@ const pt: EventsCopy = {
       confirmed: 'Confirmado. O seu prémio será enviado para aqui.',
       invalidAddress: 'Introduza um endereço de carteira válido.',
     },
+    keptra: {
+      passkeyNeeded: 'Para participar precisa da sua conta Keptra e da respectiva passkey. Configure-a primeiro — demora um minuto — e volte a esta página.',
+      setUpCta: 'Configurar a minha conta Keptra',
+      wrongOrigin: 'As passkeys só funcionam em keptra.io. Abra esta página em keptra.io para continuar.',
+      confirmEntryBody: 'O seu lugar está pronto. Falta um passo: confirmar a entrada com a sua passkey. Até o fazer, não está inscrito.',
+      confirmEntryCta: 'Confirmar a entrada com a passkey',
+      claimBody: 'Reclame-o com a sua passkey. Fica no contrato até o fazer, e as reclamações fecham 90 dias depois do sorteio.',
+      claimCta: 'Reclamar o prémio com a passkey',
+      claimed: 'Reclamado. O prémio está na sua conta Keptra.',
+      voucherBody: 'O seu prémio é um voucher para um produto físico. Resgate-o com uma morada de entrega até 30 dias depois de o reclamar.',
+      voucherCta: 'Resgatar o voucher',
+      notice: 'Participa com a sua própria conta Keptra: a sua passkey assina a entrada, e um prémio fica no contrato até o reclamar.',
+    },
   },
   create: {
     metaTitle: 'Criar um sorteio — Instant Win',
@@ -864,6 +904,19 @@ const es: EventsCopy = {
       confirmExplainer: 'Revísala con cuidado — es exactamente adónde se enviará tu premio, y no se puede cambiar una vez confirmada.',
       confirmed: 'Confirmada. Tu premio se enviará aquí.',
       invalidAddress: 'Introduce una dirección de wallet válida.',
+    },
+    keptra: {
+      passkeyNeeded: 'Para participar necesitas tu cuenta Keptra y su passkey. Configúrala primero — lleva un minuto — y vuelve a esta página.',
+      setUpCta: 'Configurar mi cuenta Keptra',
+      wrongOrigin: 'Las passkeys solo funcionan en keptra.io. Abre esta página en keptra.io para continuar.',
+      confirmEntryBody: 'Tu plaza está lista. Falta un paso: confirmar tu entrada con tu passkey. Hasta que lo hagas, no estás inscrito.',
+      confirmEntryCta: 'Confirmar mi entrada con la passkey',
+      claimBody: 'Reclámalo con tu passkey. Se queda en el contrato hasta que lo hagas, y las reclamaciones cierran 90 días después del sorteo.',
+      claimCta: 'Reclamar mi premio con la passkey',
+      claimed: 'Reclamado. El premio está en tu cuenta Keptra.',
+      voucherBody: 'Tu premio es un vale para un producto físico. Canjéalo con una dirección de entrega en los 30 días siguientes a reclamarlo.',
+      voucherCta: 'Canjear mi vale',
+      notice: 'Participas con tu propia cuenta Keptra: tu passkey firma la entrada, y un premio se queda en el contrato hasta que lo reclames.',
     },
   },
   create: {

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { useKeptra } from '../components/keptra/KeptraProvider';
 import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { Check, Loader2, ExternalLink } from 'lucide-react';
@@ -243,12 +244,24 @@ function OutcomePanel({
   outcome,
   awaiting,
   selfCustody,
+  passkey,
+  giveawayId,
+  isNft,
 }: {
   outcome: EntryOutcome | null;
   awaiting: boolean;
   selfCustody: boolean;
+  /** SPEC-BLOCO-03 6.2.3: a Keptra account's prize, claimed with the passkey. */
+  passkey: boolean;
+  giveawayId: bigint;
+  isNft: boolean;
 }) {
   const c = useEventsCopy().detail.outcome;
+  const k = useEventsCopy().detail.keptra;
+  const { relay } = useKeptra();
+  const [claiming, setClaiming] = useState(false);
+  const [claimed, setClaimed] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
 
   if (awaiting) {
     return (
@@ -280,8 +293,36 @@ function OutcomePanel({
     <div className="rounded-xl border border-brand/30 bg-brand/[0.06] p-6">
       <h2 className="font-display text-3xl font-bold tracking-tight text-brand">{c.wonTitle}</h2>
       <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-200">
-        {selfCustody ? c.wonBodySelf : c.wonBody}
+        {passkey ? (claimed ? k.claimed : k.claimBody) : selfCustody ? c.wonBodySelf : c.wonBody}
       </p>
+      {passkey && !claimed && (
+        <div className="mt-4 space-y-2">
+          {claimError && <Banner message={claimError} />}
+          <Button
+            variant="success"
+            isLoading={claiming}
+            className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8"
+            onClick={async () => {
+              setClaiming(true);
+              setClaimError(null);
+              const result = await relay({ kind: 'claim', giveawayId: giveawayId.toString() });
+              setClaiming(false);
+              if (result.status === 'refused') setClaimError(result.error);
+              if (result.status === 'done') setClaimed(true);
+            }}
+          >
+            {k.claimCta}
+          </Button>
+        </div>
+      )}
+      {passkey && isNft && (
+        <div className="mt-4 rounded-lg border border-dark-border p-4">
+          <p className="text-sm text-gray-300">{k.voucherBody}</p>
+          <Link to="/orders" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline underline-offset-4">
+            {k.voucherCta}
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -296,10 +337,14 @@ function ParticipatePanel({
   onStatus: (s: EntryStatusResult) => void;
 }) {
   const c = useEventsCopy().detail.participate;
+  const k = useEventsCopy().detail.keptra;
+  const { relay, passkeyReady } = useKeptra();
   const [status, setStatus] = useState<EntryStatusResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [telegramUrl, setTelegramUrl] = useState<string | null>(null);
+  // SPEC-BLOCO-03 6.2.1: a participant with no Keptra account and no earlier wallet sets one up first.
+  const [needsAccount, setNeedsAccount] = useState(false);
 
   const refresh = async () => {
     const res = await entryStatus(giveawayId);
@@ -335,7 +380,9 @@ function ParticipatePanel({
     const res = await entryStart(giveawayId);
     setBusy(false);
     if (!res.ok) {
-      setError(res.error);
+      // entry/start: 'Create your passkey first.' — the account page walks them through it.
+      if (res.status === 409 && /passkey/i.test(res.error)) setNeedsAccount(true);
+      else setError(res.error);
       return;
     }
     if (res.url) {
@@ -359,8 +406,37 @@ function ParticipatePanel({
 
   const confirmed = status.status === 'CONFIRMED';
 
+  // A4: a Keptra entry is signed with the passkey once its root is published (ELIGIBLE).
+  const confirmWithPasskey = async () => {
+    setError(null);
+    setBusy(true);
+    const result = await relay({ kind: 'enter', giveawayId: giveawayId.toString() });
+    setBusy(false);
+    if (result.status === 'refused') setError(result.error);
+    refresh();
+  };
+
   return (
     <div className="space-y-4">
+      {needsAccount && (
+        <div className="rounded-lg border border-brand/30 bg-brand/[0.06] p-4">
+          <p className="text-sm text-gray-200">{k.passkeyNeeded}</p>
+          <Link to="/account" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline underline-offset-4">
+            {k.setUpCta}
+          </Link>
+        </div>
+      )}
+      {status.passkey === true && status.status === 'ELIGIBLE' && (
+        <div className="space-y-3 rounded-lg border border-brand/30 bg-brand/[0.06] p-4">
+          <p className="text-sm text-gray-200">{passkeyReady ? k.confirmEntryBody : k.wrongOrigin}</p>
+          {error && <Banner message={error} />}
+          {passkeyReady && (
+            <Button variant="connect" onClick={confirmWithPasskey} isLoading={busy} className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8">
+              {k.confirmEntryCta}
+            </Button>
+          )}
+        </div>
+      )}
       {status.status === 'NONE' ? (
         <>
           <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.intro}</p>
@@ -408,7 +484,7 @@ function ParticipatePanel({
           )}
         </>
       )}
-      <p className="max-w-[62ch] text-xs leading-relaxed text-gray-400">{c.walletGapNotice}</p>
+      <p className="max-w-[62ch] text-xs leading-relaxed text-gray-400">{status.passkey === true ? k.notice : c.walletGapNotice}</p>
     </div>
   );
 }
@@ -861,6 +937,9 @@ export const EventDetail: React.FC = () => {
                 outcome={outcome}
                 awaiting={awaitingOutcome}
                 selfCustody={entryStatusResult?.selfCustody === true}
+                passkey={entryStatusResult?.passkey === true}
+                giveawayId={giveawayId}
+                isNft={isNft}
               />
             )}
 

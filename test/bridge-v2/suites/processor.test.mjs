@@ -1241,7 +1241,8 @@ await test(['D7'], 'a settled campaign tells the winner what they won', async ()
   );
 });
 
-await test(['D7'], 'both notices link to the product domain, instntwin.com, and to no other', async () => {
+// SPEC-BLOCO-03 T9: the product domain is keptra.io now; instntwin.com only redirects there.
+await test(['D7', 'AT9'], 'both notices link to the product domain, keptra.io, and to no other', async () => {
   fresh();
   settledCampaign([
     outcomeRow(),
@@ -1257,8 +1258,8 @@ await test(['D7'], 'both notices link to the product domain, instntwin.com, and 
   const sent = mails();
   assert.equal(sent.length, 2, 'the winner and the loser were not both told');
   for (const mail of sent) {
-    assert.match(mail.text, /https:\/\/instntwin\.com\/events\/1\n/, `${mail.to} is not sent to instntwin.com`);
-    assert.ok(!/instantwin\.finance/.test(mail.text), `${mail.to} is still sent to instantwin.finance`);
+    assert.match(mail.text, /https:\/\/keptra\.io\/events\/1\n/, `${mail.to} is not sent to keptra.io`);
+    assert.ok(!/instantwin\.finance|instntwin\.com/.test(mail.text), `${mail.to} is still sent to another domain`);
   }
 });
 

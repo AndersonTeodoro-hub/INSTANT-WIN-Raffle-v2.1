@@ -330,14 +330,25 @@ await test(['KM43'], 'this piece deploys no contract: there is no Solidity in th
   assert.deepEqual(found, []);
 });
 
-await test(['KM46', 'AC14'], 'no new dependency: the manifest and the lockfile are main’s, read from git', () => {
+/**
+ * SPEC-BLOCO-03 T7, and the owner's answer of 22/09 in piece 6: the one dependency
+ * Adenda T declares — the QR library that was already in the tree — and no other.
+ */
+const ADENDA_T_DEPENDENCIES = { qrcode: '1.5.3' };
+
+await test(['KM46', 'AC14', 'AT7'], 'no new dependency but T7’s: the manifest and the lockfile are main’s, read from git, plus exactly the QR library Adenda T declares', () => {
   // C14: compared with main itself, not with a list written here.
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   const main = JSON.parse(git('show', 'main:package.json'));
   const branch = JSON.parse(read('package.json'));
-  assert.deepEqual(branch.dependencies, main.dependencies);
+  assert.deepEqual(branch.dependencies, { ...main.dependencies, ...ADENDA_T_DEPENDENCIES });
   assert.deepEqual(branch.devDependencies, main.devDependencies);
-  assert.equal(git('diff', '--name-only', 'main', '--', 'package.json', 'package-lock.json').trim(), '');
+  // The lockfile differs from main's only in the root's list of dependencies: the package itself was already locked.
+  const mainLock = JSON.parse(git('show', 'main:package-lock.json'));
+  const lock = JSON.parse(read('package-lock.json'));
+  assert.deepEqual(lock.packages[''].dependencies, { ...mainLock.packages[''].dependencies, ...ADENDA_T_DEPENDENCIES });
+  const withoutRoot = (value) => ({ ...value, packages: { ...value.packages, '': null } });
+  assert.deepEqual(withoutRoot(lock), withoutRoot(mainLock));
 });
 
 await test(['KM39', 'F1'], 'the guardian key is a root of its own, read by guardian.ts alone', () => {

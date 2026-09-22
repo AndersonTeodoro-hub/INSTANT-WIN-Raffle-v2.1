@@ -174,6 +174,8 @@ export const KEPTRA_TABLES = [
   'bridge_v2_order_notices',
   'bridge_v2_recipient_marks',
   'bridge_v2_finished_vouchers',
+  // SPEC-BLOCO-03 piece 6, migration 0014 (T4).
+  'bridge_v2_offer_descriptions',
 ];
 
 export const KEPTRA_UNIQUE = {
@@ -201,4 +203,6 @@ export const KEPTRA_UNIQUE = {
     { columns: ['store_address', 'phone_hmac'], where: (row) => ['RESERVED', 'MARKED'].includes(row.status) },
   ],
   bridge_v2_finished_vouchers: [['voucher_id']],
+  // 0014: one description per set of terms, written once (T4).
+  bridge_v2_offer_descriptions: [['terms_id']],
 };

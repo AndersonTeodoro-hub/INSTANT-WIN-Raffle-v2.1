@@ -658,6 +658,22 @@ export const ADDRESS_FIELD_MAX_CHARS = 200;
 /** P23-3: an offer or obligation names at most this many countries. */
 export const REGIONS_MAX = 60;
 /**
+ * SPEC-BLOCO-03 T3: how many pages of ORDER_SCAN_PAGE live vouchers account/vouchers
+ * reads for the ones the session's accounts hold. ponytail: three hundred live
+ * vouchers; past that the answer says it is incomplete — an index of holders in
+ * the database when the number of vouchers makes it matter.
+ */
+export const VOUCHER_LIST_MAX_PAGES = 6;
+/** 11.10: a claimed voucher is redeemed within thirty days (KeptraVoucher.REDEEM_WINDOW). */
+export const VOUCHER_REDEEM_WINDOW_SECONDS = 30 * 24 * 60 * 60;
+/**
+ * SPEC-BLOCO-03 T13: the delivery addresses one erasure request deletes on the
+ * spot (four database stages each). The rest already carry their erasure date
+ * (10.3) and go with the hourly pass, which is what lets privacy/erase — now a
+ * route that reads the chain — declare a duration inside the platform's ceiling.
+ */
+export const ERASE_ADDRESSES_NOW_MAX = 4;
+/**
  * M7 and B4 of piece 4: the oracle reads the first 13 orders of the list. The list
  * holds only that many, rotated once per schedule slot of the workflow (15
  * minutes), so every order is asked about within ceil(n / 13) slots.
@@ -1130,9 +1146,32 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // the account, the shipment and the address, the spend, the insert, the ops
   // event and the envelope's. Two HTTP stages: the provider, and an alert.
   'api/bridge/v2/store/tracking.ts': maxDurationSeconds(3, 12, 2),
-  // One RPC stage: the escrow's arbiter. Five database stages: two rate-limit
-  // axes, the evidence, the ops event, and the envelope's.
-  'api/bridge/v2/arbiter/evidence.ts': maxDurationSeconds(1, 5),
+  // One RPC stage: the escrow's arbiter. Seven database stages: two rate-limit
+  // axes, the evidence, the order row and its description (SPEC-BLOCO-03 T4),
+  // the ops event, and the envelope's.
+  'api/bridge/v2/arbiter/evidence.ts': maxDurationSeconds(1, 7),
+  // SPEC-BLOCO-03 piece 6. Two RPC stages: both accounts' state read together
+  // (two, readAccount). Twenty-one database stages: the session read and slide,
+  // three rate-limit axes, the email, the phone, the passkeys, the accounts, the
+  // live recovery, the participant, the creator (up to three), the two
+  // readAccount may write, the two migration reads, the ops event, and the
+  // envelope's.
+  'api/bridge/v2/account/status.ts': maxDurationSeconds(2, 21),
+  // T3. The voucher count, then at most VOUCHER_LIST_MAX_PAGES pages of vouchers.
+  // Nine database stages: the session read and slide, three rate-limit axes, the
+  // accounts, the finished vouchers, the ops event, and the envelope's.
+  'api/bridge/v2/account/vouchers.ts': maxDurationSeconds(1 + VOUCHER_LIST_MAX_PAGES, 9),
+  // T4. Two RPC stages: the terms, then the obligation named with them. Nine
+  // database stages: the session read and slide, three rate-limit axes, the
+  // creator account, the insert, the ops event, and the envelope's.
+  'api/bridge/v2/store/description.ts': maxDurationSeconds(2, 9),
+  // T13. One RPC stage: the USDC and voucher balances of both accounts, read
+  // together. Fourteen database stages outside the addresses: the session read
+  // and slide, three rate-limit axes, the accounts, the orders as recipient and
+  // as store, the phone released, the participant tombstoned, the addresses
+  // read, the sessions revoked, the ops event, and the envelope's; and four for
+  // each address erased on the spot (its order, two related tables, itself).
+  'api/bridge/v2/privacy/erase.ts': maxDurationSeconds(1, 14 + 4 * ERASE_ADDRESSES_NOW_MAX),
 };
 
 /**

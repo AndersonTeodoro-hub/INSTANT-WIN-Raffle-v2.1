@@ -106,11 +106,14 @@ import {
 } from './chain.js';
 import {
   brandParams,
+  obligationFromLogs,
+  offerIdFromLogs,
   orderIdFromLogs,
   readObligation,
   readOrder,
   readTerms,
   readVouchers,
+  voucherIdsFromLogs,
   type OrderWithTerms,
   type TermsView,
 } from './escrowChain.js';
@@ -182,6 +185,8 @@ export type Action =
   | { readonly kind: 'claim'; readonly giveawayId: bigint }
   /** C7: `amount` is what the owner asked to send, in the prize's own unit — never "the whole balance". */
   | { readonly kind: 'transfer'; readonly giveawayId: bigint; readonly to: `0x${string}`; readonly amount: bigint }
+  /** SPEC-BLOCO-03 T12 (U17): USDC out of either account, exactly the amount stated (C7). */
+  | { readonly kind: 'transferUsdc'; readonly to: `0x${string}`; readonly amount: bigint }
   | { readonly kind: 'createCampaign' }
   | { readonly kind: 'addPasskey'; readonly credentialId: string }
   | { readonly kind: 'cancelRecovery' }
@@ -225,6 +230,53 @@ export interface OfferTerms {
   readonly mode: number;
   /** I14: ISO-3166-1 alpha-2 pairs, as bytes (orders.encodeRegions). */
   readonly regions: Hex;
+}
+
+/**
+ * SPEC-BLOCO-03 C12 and T2: what one transaction does — the action, the amounts
+ * and the destination — computed here, while the calls are built, from the same
+ * reads the calls are built from. The page shows it before it asks for the
+ * passkey and computes none of it (T2: no third copy of a formula).
+ *
+ * An amount is what leaves the account; for claim and for a cancelled order it is
+ * what comes back into it, and the destination is then the account itself.
+ */
+export type SummaryAmount =
+  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: bigint }
+  | { readonly kind: 'NFT'; readonly token: `0x${string}`; readonly tokenIds: readonly bigint[] }
+  /** Prize items whose ids the claim itself decides (an NFT campaign's claim). */
+  | { readonly kind: 'ITEMS'; readonly token: `0x${string}`; readonly count: bigint };
+
+export type DestinationRole = 'ESCROW' | 'GUARANTEE' | 'GIVEAWAY' | 'THIS_ACCOUNT' | 'STORE' | 'RECIPIENT' | 'ADDRESS';
+
+export interface ActionSummary {
+  readonly action: Action['kind'];
+  readonly amounts: readonly SummaryAmount[];
+  readonly destination: { readonly address: `0x${string}`; readonly role: DestinationRole } | null;
+}
+
+const usdcAmount = (value: bigint): SummaryAmount => ({ kind: 'ERC20', token: USDC, value });
+const nothingMoves = (action: Action['kind']): ActionSummary => ({ action, amounts: [], destination: null });
+const summaryOf = (
+  action: Action['kind'],
+  amounts: readonly SummaryAmount[],
+  address: `0x${string}`,
+  role: DestinationRole,
+): ActionSummary => ({ action, amounts, destination: { address, role } });
+
+/** The summary as JSON: every amount and id a string, since a uint256 does not survive a JSON number. */
+export function summaryJson(summary: ActionSummary): Record<string, unknown> {
+  return {
+    action: summary.action,
+    amounts: summary.amounts.map((amount) =>
+      amount.kind === 'ERC20'
+        ? { kind: amount.kind, token: amount.token, value: amount.value.toString() }
+        : amount.kind === 'NFT'
+          ? { kind: amount.kind, token: amount.token, tokenIds: amount.tokenIds.map(String) }
+          : { kind: amount.kind, token: amount.token, count: amount.count.toString() },
+    ),
+    destination: summary.destination,
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -342,6 +394,8 @@ export interface Prepared {
   readonly campaign: CreatorCampaign | null;
   /** redeem: the attestation's deadline, which the submit echoes (H7). */
   readonly redeemDeadline: bigint | null;
+  /** C12 and T2: what the transaction does, for the page to show before the passkey. */
+  readonly summary: ActionSummary;
 }
 
 /**
@@ -353,7 +407,7 @@ async function actionCalls(
   account: Account,
   state: AccountState,
   action: Action,
-): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null; campaign?: CreatorCampaign; redeemDeadline?: bigint }> {
+): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null; summary: ActionSummary; campaign?: CreatorCampaign; redeemDeadline?: bigint }> {
   const safe = account.safe;
   if (RECIPIENT_ACTIONS.has(action.kind) || STORE_ACTIONS.has(action.kind)) {
     return { ...(await orderCalls(participantId, safe, action)), extraSigner: null };
@@ -380,12 +434,20 @@ async function actionCalls(
           },
         ],
         extraSigner: null,
+        summary: summaryOf('enter', [], GIVEAWAY_MANAGER_V2, 'GIVEAWAY'),
       };
     }
     case 'claim': {
       // 6.2.3 and F3: the prize stays in the contract until the winner claims it,
       // and only the winner can.
-      if ((await claimableFor(action.giveawayId, safe)) <= 0n) throw new RelayRefusal('nothing_to_claim');
+      const claimable = await claimableFor(action.giveawayId, safe);
+      if (claimable <= 0n) throw new RelayRefusal('nothing_to_claim');
+      // T2: the prize comes into this account — the token and its amount, or how many items.
+      const prize = await readGiveaway(action.giveawayId);
+      const amount: SummaryAmount =
+        prize.prizeKind === PrizeKind.NFT
+          ? { kind: 'ITEMS', token: prize.prizeModule, count: claimable }
+          : { kind: 'ERC20', token: prize.feeToken, value: claimable };
       return {
         calls: [
           {
@@ -394,6 +456,7 @@ async function actionCalls(
           },
         ],
         extraSigner: null,
+        summary: summaryOf('claim', [amount], safe, 'THIS_ACCOUNT'),
       };
     }
     case 'transfer': {
@@ -412,7 +475,11 @@ async function actionCalls(
         if (action.amount !== 1n) throw new RelayRefusal('amount');
         const delivery = await prizeDelivery(campaign, action.giveawayId, safe, action.to);
         if (delivery === null) throw new RelayRefusal('nothing_to_transfer');
-        return { calls: [{ to: delivery.to, data: delivery.data }], extraSigner: null };
+        return {
+          calls: [{ to: delivery.to, data: delivery.data }],
+          extraSigner: null,
+          summary: summaryOf('transfer', [{ kind: 'NFT', token: delivery.to, tokenIds: [delivery.amount] }], action.to, 'ADDRESS'),
+        };
       }
       if (action.amount <= 0n) throw new RelayRefusal('amount');
       if ((await erc20BalanceOf(campaign.feeToken, safe)) < action.amount) throw new RelayRefusal('amount');
@@ -424,6 +491,22 @@ async function actionCalls(
           },
         ],
         extraSigner: null,
+        summary: summaryOf('transfer', [{ kind: 'ERC20', token: campaign.feeToken, value: action.amount }], action.to, 'ADDRESS'),
+      };
+    }
+    case 'transferUsdc': {
+      // T12 (U17): USDC the account holds — a refund, a returned bond, a store's
+      // payout — to where its owner says, exactly the amount stated (C7). Never
+      // into a platform account that is not deployed and configured (C4), and
+      // never to the account itself.
+      if (action.to.toLowerCase() === safe.toLowerCase()) throw new RelayRefusal('destination');
+      const target = await accountBySafe(action.to);
+      if (target !== null && !(await readAccount(target)).usable) throw new RelayRefusal('destination_not_ready');
+      if (action.amount <= 0n || (await erc20BalanceOf(USDC, safe)) < action.amount) throw new RelayRefusal('amount');
+      return {
+        calls: [{ to: USDC, data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [action.to, action.amount] }) }],
+        extraSigner: null,
+        summary: summaryOf('transferUsdc', [usdcAmount(action.amount)], action.to, 'ADDRESS'),
       };
     }
     case 'createCampaign': {
@@ -481,6 +564,12 @@ async function actionCalls(
           },
         ],
         extraSigner: null,
+        summary: summaryOf(
+          'createCampaign',
+          [{ kind: 'ERC20', token: campaign.prizeToken, value: prizeNeeded }, ...(usdcNeeded === 0n ? [] : [usdcAmount(usdcNeeded)])],
+          GIVEAWAY_MANAGER_V2,
+          'GIVEAWAY',
+        ),
         campaign,
       };
     }
@@ -492,26 +581,26 @@ async function actionCalls(
         throw new RelayRefusal('already_owner');
       }
       if (state.owners.length >= 2) throw new RelayRefusal('owner_count');
-      return { calls: addOwnerCalls(safe, added.signer), extraSigner: added };
+      return { calls: addOwnerCalls(safe, added.signer), extraSigner: added, summary: nothingMoves('addPasskey') };
     }
     case 'cancelRecovery': {
       // 6.3.3 and R-2.
       if (state.recoveryExecuteAfter === 0n) throw new RelayRefusal('no_recovery');
-      return { calls: cancelRecoveryCalls(), extraSigner: null };
+      return { calls: cancelRecoveryCalls(), extraSigner: null, summary: nothingMoves('cancelRecovery') };
     }
     case 'revokeGuardian': {
       // R-3 as A6 corrects it.
       const current = state.guardians[0];
       if (current === undefined) throw new RelayRefusal('no_guardian');
-      return { calls: revokeGuardianCalls(current, state.recoveryExecuteAfter > 0n), extraSigner: null };
+      return { calls: revokeGuardianCalls(current, state.recoveryExecuteAfter > 0n), extraSigner: null, summary: nothingMoves('revokeGuardian') };
     }
     case 'configure': {
       // C2 (b), C4, A6: what the account lacks and nothing else. A missing
       // account or module is the whole configuration, which prepareAction puts
       // in front as the first transaction; a missing guardian is the current one
       // added back by the account itself (A6: "no próximo login").
-      if (configurationGap(state) !== 'guardian') return { calls: [], extraSigner: null };
-      return { calls: addGuardianCalls(guardianAddress()), extraSigner: null };
+      if (configurationGap(state) !== 'guardian') return { calls: [], extraSigner: null, summary: nothingMoves('configure') };
+      return { calls: addGuardianCalls(guardianAddress()), extraSigner: null, summary: nothingMoves('configure') };
     }
     default:
       throw new RelayRefusal('unknown_action');
@@ -582,7 +671,7 @@ async function orderCalls(
   participantId: string,
   safe: `0x${string}`,
   action: Action,
-): Promise<{ calls: SafeCall[]; redeemDeadline?: bigint }> {
+): Promise<{ calls: SafeCall[]; summary: ActionSummary; redeemDeadline?: bigint }> {
   // P24: no order action while the contracts are not configured.
   if (!keptraContractsConfigured()) throw new RelayRefusal('orders_not_configured');
   switch (action.kind) {
@@ -606,6 +695,7 @@ async function orderCalls(
           approve(USDC, KEPTRA_ESCROW, total),
           escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'pay', args: [action.termsId, action.quantity, action.codeCommit] })),
         ],
+        summary: summaryOf('pay', [usdcAmount(total)], KEPTRA_ESCROW, 'ESCROW'),
       };
     }
     case 'redeem': {
@@ -627,24 +717,35 @@ async function orderCalls(
           { to: KEPTRA_VOUCHER, data: encodeFunctionData({ abi: KEPTRA_VOUCHER_ABI, functionName: 'approve', args: [KEPTRA_GUARANTEE, action.voucherId] }) },
           escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'redeemVoucher', args: [action.voucherId, action.codeCommit, deadline, signature] })),
         ],
+        // The voucher goes into the guarantee's custody until the order ends.
+        summary: summaryOf('redeem', [{ kind: 'NFT', token: KEPTRA_VOUCHER, tokenIds: [action.voucherId] }], KEPTRA_GUARANTEE, 'GUARANTEE'),
         redeemDeadline: deadline,
       };
     }
     case 'cancelOrder': {
-      const { order } = await orderOf(action.orderId, safe, 'payer');
+      const { order, terms } = await orderOf(action.orderId, safe, 'payer');
       if (order.state !== OrderState.PAID) throw new RelayRefusal('order_state');
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'cancel', args: [action.orderId] }))] };
+      // T2: what comes back — the payment in COMPRA, the voucher in PRÉMIO (H6).
+      const back: SummaryAmount = terms.prize ? { kind: 'NFT', token: KEPTRA_VOUCHER, tokenIds: [order.voucherId] } : usdcAmount(order.paid);
+      return {
+        calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'cancel', args: [action.orderId] }))],
+        summary: summaryOf('cancelOrder', [back], safe, 'THIS_ACCOUNT'),
+      };
     }
     case 'confirm': {
-      const { order } = await orderOf(action.orderId, safe, 'payer');
+      const { order, terms } = await orderOf(action.orderId, safe, 'payer');
       const open = order.state === OrderState.SHIPPED || (order.state === OrderState.WINDOW && (order.flags & OrderFlag.REFUSAL) === 0);
       if (!open) throw new RelayRefusal('order_state');
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'confirm', args: [action.orderId] }))] };
+      // T2: confirming releases what the order holds to the store's payout; in PRÉMIO it holds nothing (the bond goes home).
+      return {
+        calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'confirm', args: [action.orderId] }))],
+        summary: summaryOf('confirm', terms.prize ? [] : [usdcAmount(order.paid)], terms.payout, 'STORE'),
+      };
     }
     case 'contest': {
       const { order } = await orderOf(action.orderId, safe, 'payer');
       if (order.state !== OrderState.WINDOW || (await nowSeconds()) > order.windowEndsAt) throw new RelayRefusal('order_state');
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'contest', args: [action.orderId] }))] };
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'contest', args: [action.orderId] }))], summary: nothingMoves('contest') };
     }
     case 'createOffer': {
       const t = action.terms;
@@ -662,6 +763,7 @@ async function orderCalls(
             }),
           ),
         ],
+        summary: nothingMoves('createOffer'),
       };
     }
     case 'deactivateOffer': {
@@ -672,7 +774,7 @@ async function orderCalls(
         throw new RelayRefusal('no_offer');
       }
       if (terms.store.toLowerCase() !== safe.toLowerCase() || terms.prize) throw new RelayRefusal('no_offer');
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'deactivateOffer', args: [action.termsId] }))] };
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'deactivateOffer', args: [action.termsId] }))], summary: nothingMoves('deactivateOffer') };
     }
     case 'ship': {
       const { order, terms } = await orderOf(action.orderId, safe, 'store');
@@ -684,7 +786,7 @@ async function orderCalls(
         if (shipment === null) throw new RelayRefusal('no_tracking');
         hash = shipment.trackingHash;
       }
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'ship', args: [action.orderId, hash] }))] };
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'ship', args: [action.orderId, hash] }))], summary: nothingMoves('ship') };
     }
     case 'submitCode': {
       const { order, terms } = await orderOf(action.orderId, safe, 'store');
@@ -693,32 +795,33 @@ async function orderCalls(
       if (keccak256(encodeAbiParameters([{ type: 'bytes32' }], [action.code])).toLowerCase() !== order.codeCommit.toLowerCase()) {
         throw new RelayRefusal('code');
       }
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'submitCode', args: [action.orderId, action.code] }))] };
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'submitCode', args: [action.orderId, action.code] }))], summary: nothingMoves('submitCode') };
     }
     case 'declareDelivered': {
       const { order, terms } = await orderOf(action.orderId, safe, 'store');
       if (order.state !== OrderState.SHIPPED || (await nowSeconds()) > order.shippedAt + BigInt(terms.deliveryDays) * DAY_SECONDS) {
         throw new RelayRefusal('order_state');
       }
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'declareDelivered', args: [action.orderId] }))] };
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'declareDelivered', args: [action.orderId] }))], summary: nothingMoves('declareDelivered') };
     }
     case 'declareRefusal': {
       const { order, terms } = await orderOf(action.orderId, safe, 'store');
       if (terms.mode !== OrderMode.OWN_MEANS || order.state !== OrderState.SHIPPED) throw new RelayRefusal('order_state');
-      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'declareRefusal', args: [action.orderId] }))] };
+      return { calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'declareRefusal', args: [action.orderId] }))], summary: nothingMoves('declareRefusal') };
     }
     case 'refund': {
       const { order, terms } = await orderOf(action.orderId, safe, 'store');
       if (order.state === OrderState.CLOSED || action.amount <= 0n || action.amount > MAX_UINT96) throw new RelayRefusal('amount');
       const call = escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'refund', args: [action.orderId, action.amount] }));
+      const summary = summaryOf('refund', [usdcAmount(action.amount)], order.payer, 'RECIPIENT');
       if (!terms.prize) {
         if (action.amount > order.paid) throw new RelayRefusal('amount');
-        return { calls: [call] };
+        return { calls: [call], summary };
       }
       // H6: in PRÉMIO the brand pays the refund from its own account, up to the unit's value.
       if (action.amount > terms.price + terms.shipping) throw new RelayRefusal('amount');
       await usdcAtLeast(safe, action.amount);
-      return { calls: [approve(USDC, KEPTRA_ESCROW, action.amount), call] };
+      return { calls: [approve(USDC, KEPTRA_ESCROW, action.amount), call], summary };
     }
     case 'createObligation': {
       const t = action.terms;
@@ -746,6 +849,8 @@ async function orderCalls(
             }),
           },
         ],
+        // T2: the bond and the fee together, as computed above — the page repeats none of it.
+        summary: summaryOf('createObligation', [usdcAmount(total)], KEPTRA_GUARANTEE, 'GUARANTEE'),
       };
     }
     case 'createVoucherCampaign': {
@@ -796,6 +901,12 @@ async function orderCalls(
           },
           operator(false),
         ],
+        summary: summaryOf(
+          'createVoucherCampaign',
+          [usdcAmount(cost), { kind: 'NFT', token: KEPTRA_VOUCHER, tokenIds: [...action.voucherIds] }],
+          GIVEAWAY_MANAGER_V2,
+          'GIVEAWAY',
+        ),
       };
     }
     default:
@@ -874,14 +985,14 @@ export async function prepareAction(
     throw new RelayRefusal('relay_limit');
   }
 
-  const { calls, extraSigner, campaign = null, redeemDeadline = null } = await actionCalls(participantId, account, state, action);
+  const { calls, extraSigner, summary, campaign = null, redeemDeadline = null } = await actionCalls(participantId, account, state, action);
   // F10: the closed list reads the calls before they are encoded, not a decoding of them.
   const all = [...(configuration ?? []), ...calls];
   const refusal = refusalFor(account.safe, all, state.nonce, configuration, guardianFor(state, action));
   if (refusal !== null) throw new RelayRefusal(refusal);
   const tx = safeTxFor(all, state.nonce);
 
-  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign, redeemDeadline };
+  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign, redeemDeadline, summary };
 }
 
 /** A browser assertion over the prepared hash, as the route received it. */
@@ -898,6 +1009,8 @@ export interface Submitted {
   readonly giveawayId: bigint | null;
   /** pay and redeem: the order the escrow opened, from the receipt. */
   readonly orderId: bigint | null;
+  /** T5: what createOffer or createObligation created, from the receipt — the terms, and the obligation and its vouchers. */
+  readonly created: { readonly termsId: bigint | null; readonly obligationId: bigint | null; readonly voucherIds: readonly bigint[] } | null;
 }
 
 /**
@@ -1015,7 +1128,7 @@ export async function submitAction(
   });
   if (sent === null) throw new RelayRefusal('relayer_unavailable');
   if (sent.receipt === null || sent.receipt.status !== 'success') {
-    return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null, orderId: null };
+    return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null, orderId: null, created: null };
   }
 
   if (account.deployedAt === null) {
@@ -1060,8 +1173,17 @@ export async function submitAction(
     }
   }
 
+  // T5: the id the store or the brand shares, read from the receipt as the order's is.
+  let created: Submitted['created'] = null;
+  if (action.kind === 'createOffer') {
+    created = { termsId: offerIdFromLogs(sent.receipt.logs), obligationId: null, voucherIds: [] };
+  } else if (action.kind === 'createObligation') {
+    const obligation = obligationFromLogs(sent.receipt.logs);
+    created = { termsId: obligation?.termsId ?? null, obligationId: obligation?.obligationId ?? null, voucherIds: voucherIdsFromLogs(sent.receipt.logs) };
+  }
+
   await log.event('account.relayed', { action: action.kind, deployed: state.deployed });
-  return { txHash: sent.hash, receipt: sent.receipt, giveawayId, orderId };
+  return { txHash: sent.hash, receipt: sent.receipt, giveawayId, orderId, created };
 }
 
 // -----------------------------------------------------------------------------

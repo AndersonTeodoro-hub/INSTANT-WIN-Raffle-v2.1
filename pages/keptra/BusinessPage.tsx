@@ -1,0 +1,725 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useReadContract, useReadContracts } from 'wagmi';
+import { Copy, ExternalLink, PackagePlus, Truck } from 'lucide-react';
+import { KeptraShell } from '../../components/keptra/KeptraShell';
+import { useKeptra } from '../../components/keptra/KeptraProvider';
+import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
+import { useTerms, useTier } from '../../components/keptra/hooks';
+import { EvidencePanel } from './OrderPage';
+import {
+  AddressLink,
+  Badge,
+  Button,
+  Card,
+  Empty,
+  Field,
+  Loading,
+  NotAvailable,
+  Notice,
+  PageTitle,
+  SectionTitle,
+  Stat,
+  inputClass,
+} from '../../components/keptra/ui';
+import {
+  accountVouchers,
+  myOffers,
+  registerTracking,
+  storeOrders,
+  writeDescription,
+  type AccountStatus,
+  type OfferListed,
+  type PostalAddress,
+  type PublicOrder,
+  type VoucherHeld,
+} from '../../lib/keptra/api';
+import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, OrderState, TIER_NAMES, keptraConfigured } from '../../lib/keptra/contracts';
+import { countryName, formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
+import { orderStatusText, storeActions, type StoreAction } from '../../lib/keptra/orders';
+import { codeToBytes32, normalizeDeliveryCode } from '../../lib/keptra/deliveryCode';
+import { DESCRIPTION_TEXT_MAX, DESCRIPTION_TITLE_MAX, checkDescription } from '../../lib/keptra-description';
+
+/*
+ * The business area (T0: apart from the customer's), for a store (COMPRA) and a
+ * brand (PRÉMIO) — the same creator account, one reputation (H32, P1, P2).
+ *
+ *   /business              the orders to ship, with their addresses (10.2), and every store action
+ *   /business/offers       publish an offer with its description (7, T4), share its link (T5)
+ *   /business/obligations  prize obligations and their vouchers, and voucher campaigns (11, 12.4)
+ *   /store/orders/:id      one order, where the store's notice links (mail.ts)
+ *
+ * T21: built for the computer first — the console shows the orders as a table
+ * with their deadlines and addresses side by side — and complete on a phone.
+ */
+
+type Section = 'orders' | 'offers' | 'obligations';
+
+export function BusinessPage({ section = 'orders' }: { section?: Section }) {
+  const { id } = useParams();
+  useEffect(() => {
+    document.title = 'Business · Keptra';
+  }, []);
+  const title = { orders: 'Orders to fulfil', offers: 'Offers', obligations: 'Prize obligations' }[section];
+  return (
+    <KeptraShell area="business">
+      <PageTitle eyebrow="Business console" title={id ? `Order #${id}` : title} />
+      {!keptraConfigured() ? (
+        <NotAvailable />
+      ) : (
+        <RequireAccount intro="Sign in with the email of your store or brand.">
+          {(status) => <BusinessBody section={section} status={status} focus={id ?? null} />}
+        </RequireAccount>
+      )}
+    </KeptraShell>
+  );
+}
+
+function BusinessBody({ section, status, focus }: { section: Section; status: AccountStatus; focus: string | null }) {
+  const account = status.accounts.find((item) => item.role === 'CREATOR');
+  if (account === undefined) return <Loading />;
+  if (!account.configured || account.address === null) return <AccountSetup role="CREATOR" status={status} />;
+  return (
+    <div className="space-y-8">
+      <BusinessHeader address={account.address} />
+      {section === 'orders' && <OrdersSection focus={focus} />}
+      {section === 'offers' && <OffersSection payout={account.address} />}
+      {section === 'obligations' && <ObligationsSection status={status} />}
+    </div>
+  );
+}
+
+/** 2.2.6, 13, T15: authorised or not, the tier, and any debt to the pool (H24). */
+function BusinessHeader({ address }: { address: `0x${string}` }) {
+  const reads = useReadContracts({
+    contracts: [
+      { address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'isStore', args: [address] },
+      { address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'totalDebtOf', args: [address] },
+    ],
+  });
+  const tier = useTier(address);
+  const [isStore, debt] = reads.data ?? [];
+  const authorised = isStore?.status === 'success' ? (isStore.result as boolean) : null;
+  return (
+    <Card>
+      <dl className="grid grid-cols-2 gap-6 md:grid-cols-4">
+        <Stat label="Business account" value={<AddressLink address={address} />} />
+        <Stat label="Tier" value={tier.tier === null ? '…' : TIER_NAMES[tier.tier]} hint={tier.delivered === null ? undefined : `${tier.delivered} verified deliveries`} />
+        <Stat label="Material failures" value={tier.materialFailures ?? '…'} />
+        <Stat label="Debt to the pool" value={debt?.status === 'success' ? formatUsdc(debt.result as bigint) : '…'} />
+      </dl>
+      {authorised === false && (
+        <div className="mt-5">
+          <Notice tone="warning" title="Not authorised yet">
+            Keptra authorises each store and brand before its first offer. Send this account address to Keptra: <span className="break-all font-mono">{address}</span>
+          </Notice>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// orders — T4, 9.1.1, 9.2, 9.3, 9.4, T12
+// ---------------------------------------------------------------------------
+
+type StoreOrder = PublicOrder & { address: PostalAddress | null };
+
+function OrdersSection({ focus }: { focus: string | null }) {
+  const [orders, setOrders] = useState<readonly StoreOrder[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    void storeOrders().then((result) => (result.ok ? setOrders(result.orders) : setError(result.error)));
+  }, []);
+  useEffect(load, [load]);
+  if (error) return <Notice tone="error">{error}</Notice>;
+  if (orders === null) return <Loading label="Loading your orders…" />;
+  const shown = focus === null ? orders : orders.filter((order) => order.orderId === focus);
+  if (shown.length === 0) return <Empty title={focus === null ? 'No orders yet.' : 'No order of yours with this number.'}>{focus === null && <p>Orders appear here a minute after a buyer pays or a winner redeems.</p>}</Empty>;
+  const open = shown.filter((order) => order.state !== OrderState.CLOSED);
+  const closed = shown.filter((order) => order.state === OrderState.CLOSED);
+  return (
+    <div className="space-y-8">
+      <section>
+        <SectionTitle aside={<span className="font-mono text-sm text-gray-500">{open.length}</span>}>Open</SectionTitle>
+        {open.length === 0 ? <Empty title="Nothing to fulfil right now." /> : <div className="space-y-4">{open.map((order) => <StoreOrderCard key={order.orderId} order={order} onChange={load} />)}</div>}
+      </section>
+      {closed.length > 0 && (
+        <section>
+          <SectionTitle>Finished</SectionTitle>
+          <ul className="divide-y divide-dark-border rounded-2xl border border-dark-border bg-dark-card">
+            {closed.map((order) => (
+              <li key={order.orderId} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
+                <span className="font-mono text-white">#{order.orderId}</span>
+                <span className="text-gray-300">{orderStatusText(order)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+const STORE_LABEL: Record<Exclude<StoreAction, 'evidence' | 'tracking' | 'submitCode' | 'refund'>, string> = {
+  ship: 'Declare shipped',
+  declareDelivered: 'Declare delivered',
+  declareRefusal: 'Declare refused',
+};
+
+function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () => void }) {
+  const { relay } = useKeptra();
+  const [tracked, setTracked] = useState(false);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const now = Math.floor(Date.now() / 1000);
+  const actions = storeActions(order, now, tracked);
+
+  const run = async (label: string, work: () => Promise<{ ok: boolean; text?: string }>) => {
+    setBusy(label);
+    setMessage(null);
+    const result = await work();
+    setBusy(null);
+    setMessage(result.ok ? { tone: 'success', text: result.text ?? 'Done.' } : { tone: 'error', text: result.text ?? 'That did not work.' });
+    if (result.ok) onChange();
+  };
+  const relayed = (body: Record<string, unknown> & { kind: string }) => async () => {
+    const outcome = await relay(body);
+    if (outcome.status === 'done') return { ok: true, text: outcome.result.status === 'CONFIRMED' ? 'Done on-chain.' : 'Sent; confirming on-chain.' };
+    if (outcome.status === 'cancelled') return { ok: false, text: 'Nothing was signed.' };
+    return { ok: false, text: outcome.error };
+  };
+
+  return (
+    <Card as="article">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div>
+          <p className="font-mono text-sm text-gray-400">Order #{order.orderId}{order.prize ? ' · prize' : ''}</p>
+          <p className="mt-1 text-base text-white">{orderStatusText(order)}</p>
+          <p className="mt-3 text-xs text-gray-400">
+            {order.state === OrderState.PAID ? `Ship by ${formatUtc(order.shipBy)}` : order.deliverBy ? `Deliver by ${formatUtc(order.deliverBy)}` : ''}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">{order.mode === 'CARRIER' ? 'Carrier, tracked' : 'Own delivery, with the buyer’s code'}</p>
+        </div>
+        <div className="text-sm">
+          <p className="text-xs uppercase tracking-wider text-gray-500">Ship to</p>
+          {order.address ? (
+            <address className="mt-2 not-italic leading-relaxed text-gray-200">
+              {order.address.name}
+              <br />
+              {order.address.street}
+              <br />
+              {order.address.postCode} {order.address.city}
+              <br />
+              {countryName(order.address.country)}
+              {order.address.phone && (
+                <>
+                  <br />
+                  <span className="font-mono text-gray-400">{order.address.phone}</span>
+                </>
+              )}
+            </address>
+          ) : (
+            <p className="mt-2 text-gray-400">Not registered yet.</p>
+          )}
+        </div>
+        <div className="space-y-3">
+          {actions.includes('tracking') && (
+            <form
+              className="space-y-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void run('tracking', async () => {
+                  const result = await registerTracking(order.orderId, input);
+                  if (result.ok) {
+                    setTracked(true);
+                    setInput('');
+                  }
+                  return result.ok ? { ok: true, text: 'Tracking number registered. Now declare the order shipped.' } : { ok: false, text: result.error };
+                });
+              }}
+            >
+              <Field id={`track-${order.orderId}`} label="Tracking number">
+                <input id={`track-${order.orderId}`} className={`${inputClass} font-mono`} value={input} onChange={(event) => setInput(event.target.value)} />
+              </Field>
+              <Button type="submit" tone="secondary" busy={busy === 'tracking'}>
+                <Truck className="h-4 w-4" aria-hidden="true" /> Register tracking
+              </Button>
+            </form>
+          )}
+          {actions.includes('submitCode') && (
+            <form
+              className="space-y-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const code = normalizeDeliveryCode(input);
+                if (code === null) return setMessage({ tone: 'error', text: 'The delivery code is 20 letters and digits.' });
+                void run('submitCode', relayed({ kind: 'submitCode', orderId: order.orderId, code: codeToBytes32(code) }));
+              }}
+            >
+              <Field id={`code-${order.orderId}`} label="Buyer's delivery code" hint="Type it or scan the buyer's QR, on delivery.">
+                <input id={`code-${order.orderId}`} autoCapitalize="characters" className={`${inputClass} font-mono uppercase tracking-wider`} value={input} onChange={(event) => setInput(event.target.value)} />
+              </Field>
+              <Button type="submit" busy={busy === 'submitCode'}>
+                Submit code
+              </Button>
+            </form>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {(['ship', 'declareDelivered', 'declareRefusal'] as const)
+              .filter((kind) => actions.includes(kind))
+              .map((kind) => (
+                <Button key={kind} tone={kind === 'ship' ? 'primary' : 'secondary'} busy={busy === kind} onClick={() => void run(kind, relayed({ kind, orderId: order.orderId }))}>
+                  {STORE_LABEL[kind]}
+                </Button>
+              ))}
+          </div>
+          {actions.includes('refund') && <RefundForm orderId={order.orderId} run={(amount) => run('refund', relayed({ kind: 'refund', orderId: order.orderId, amount }))} busy={busy === 'refund'} />}
+          {message && <Notice tone={message.tone}>{message.text}</Notice>}
+        </div>
+      </div>
+      {actions.includes('evidence') && (
+        <div className="mt-6">
+          <EvidencePanel orderId={order.orderId} party="STORE" />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** T12: a voluntary refund, up to the whole amount — the relay checks the ceiling. */
+function RefundForm({ orderId, run, busy }: { orderId: string; run: (amount: string) => void; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  if (!open) return <Button tone="quiet" onClick={() => setOpen(true)}>Refund…</Button>;
+  return (
+    <form
+      className="space-y-2 rounded-xl border border-dark-border p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const value = parseUsdc(amount);
+        if (value === null || value === 0n) return setError('Enter an amount in USDC.');
+        setError(null);
+        run(value.toString());
+      }}
+    >
+      <Field id={`refund-${orderId}`} label="Refund in USDC" error={error}>
+        <input id={`refund-${orderId}`} inputMode="decimal" className={`${inputClass} font-mono`} value={amount} onChange={(event) => setAmount(event.target.value)} />
+      </Field>
+      <Button type="submit" tone="danger" busy={busy}>
+        Review refund
+      </Button>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// offers — section 7, T4, T5
+// ---------------------------------------------------------------------------
+
+/** Section 7's ceilings, read from the escrow — the form's limits are the contract's. */
+function useCeilings() {
+  const reads = useReadContracts({
+    contracts: [
+      { address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'MAX_REFUSAL_BPS' },
+      { address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'MAX_SHIP_DAYS' },
+      { address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'MAX_DELIVERY_DAYS' },
+    ],
+  });
+  const [refusal, ship, delivery] = reads.data ?? [];
+  return {
+    maxRefusalBps: refusal?.status === 'success' ? Number(refusal.result) : null,
+    maxShipDays: ship?.status === 'success' ? Number(ship.result) : null,
+    maxDeliveryDays: delivery?.status === 'success' ? Number(delivery.result) : null,
+  };
+}
+
+interface ConditionsDraft {
+  title: string;
+  text: string;
+  price: string;
+  shipping: string;
+  returnCost: string;
+  refusalPercent: string;
+  shipDays: string;
+  deliveryDays: string;
+  mode: 'CARRIER' | 'OWN_MEANS';
+  regions: string;
+  units: string;
+}
+
+const EMPTY_DRAFT: ConditionsDraft = { title: '', text: '', price: '', shipping: '', returnCost: '0', refusalPercent: '0', shipDays: '3', deliveryDays: '7', mode: 'CARRIER', regions: '', units: '1' };
+
+/** The draft as the relay's body, or the first thing wrong with it. The relay checks every ceiling again. */
+function conditionsBody(draft: ConditionsDraft, kind: 'offer' | 'obligation', ceilings: ReturnType<typeof useCeilings>): { body: Record<string, unknown> } | { error: string } {
+  const description = checkDescription({ title: draft.title, text: draft.text });
+  if (!description.ok) return { error: description.field === 'title' ? 'Give the product a title (one line).' : 'Describe the product.' };
+  const price = parseUsdc(draft.price);
+  const shipping = parseUsdc(draft.shipping);
+  const returnCost = parseUsdc(draft.returnCost || '0');
+  if (price === null || price === 0n) return { error: kind === 'offer' ? 'Enter the price per unit.' : 'Enter the declared value of one unit.' };
+  if (shipping === null) return { error: 'Enter the shipping cost (0 if free).' };
+  if (returnCost === null || returnCost > shipping) return { error: 'The return cost is at most the shipping cost.' };
+  const refusalBps = Math.round(Number(draft.refusalPercent || '0') * 100);
+  if (kind === 'offer' && (!Number.isFinite(refusalBps) || refusalBps < 0 || (ceilings.maxRefusalBps !== null && refusalBps > ceilings.maxRefusalBps))) {
+    return { error: `The refusal fee is between 0 and ${(ceilings.maxRefusalBps ?? 0) / 100}%.` };
+  }
+  const shipDays = Number(draft.shipDays);
+  const deliveryDays = Number(draft.deliveryDays);
+  if (!Number.isInteger(shipDays) || shipDays < 1 || (ceilings.maxShipDays !== null && shipDays > ceilings.maxShipDays)) return { error: `Ships within 1 to ${ceilings.maxShipDays ?? '…'} days.` };
+  if (!Number.isInteger(deliveryDays) || deliveryDays < 1 || (ceilings.maxDeliveryDays !== null && deliveryDays > ceilings.maxDeliveryDays)) return { error: `Arrives within 1 to ${ceilings.maxDeliveryDays ?? '…'} days.` };
+  const regions = draft.regions.toUpperCase().split(/[\s,;]+/).filter(Boolean);
+  if (regions.length === 0 || !regions.every((code) => /^[A-Z]{2}$/.test(code)) || new Set(regions).size !== regions.length) return { error: 'List the countries as two-letter codes, e.g. PT, ES, FR.' };
+  const body: Record<string, unknown> = {
+    price: price.toString(),
+    shipping: shipping.toString(),
+    returnCost: returnCost.toString(),
+    shipDays,
+    deliveryDays,
+    mode: draft.mode,
+    regions,
+  };
+  if (kind === 'offer') body.refusalFeeBps = refusalBps;
+  else {
+    const units = Number(draft.units);
+    if (!Number.isInteger(units) || units < 1 || units > 1000) return { error: 'Cover between 1 and 1000 units.' };
+    body.units = units;
+  }
+  return { body };
+}
+
+function ConditionsForm({ kind, draft, setDraft }: { kind: 'offer' | 'obligation'; draft: ConditionsDraft; setDraft: (draft: ConditionsDraft) => void }) {
+  const ceilings = useCeilings();
+  const set = (key: keyof ConditionsDraft) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDraft({ ...draft, [key]: event.target.value });
+  const id = (name: string) => `${kind}-${name}`;
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="md:col-span-2 xl:col-span-4">
+        <Field id={id('title')} label="Product title" hint={`One line, up to ${DESCRIPTION_TITLE_MAX} characters. It cannot be changed later.`}>
+          <input id={id('title')} maxLength={DESCRIPTION_TITLE_MAX} className={inputClass} value={draft.title} onChange={set('title')} />
+        </Field>
+      </div>
+      <div className="md:col-span-2 xl:col-span-4">
+        <Field id={id('text')} label="Product description" hint={`What the buyer receives. Up to ${DESCRIPTION_TEXT_MAX} characters; the arbiter reads it in a contest. It cannot be changed later.`}>
+          <textarea id={id('text')} maxLength={DESCRIPTION_TEXT_MAX} rows={5} className="w-full rounded-xl border border-dark-border bg-dark-input p-3 text-white" value={draft.text} onChange={set('text')} />
+        </Field>
+      </div>
+      <Field id={id('price')} label={kind === 'offer' ? 'Price per unit (USDC)' : 'Declared value per unit (USDC)'}>
+        <input id={id('price')} inputMode="decimal" className={`${inputClass} font-mono`} value={draft.price} onChange={set('price')} />
+      </Field>
+      <Field id={id('shipping')} label="Shipping per order (USDC)">
+        <input id={id('shipping')} inputMode="decimal" className={`${inputClass} font-mono`} value={draft.shipping} onChange={set('shipping')} />
+      </Field>
+      <Field id={id('return')} label="Return cost (USDC)" hint="At most the shipping cost.">
+        <input id={id('return')} inputMode="decimal" className={`${inputClass} font-mono`} value={draft.returnCost} onChange={set('returnCost')} />
+      </Field>
+      {kind === 'offer' ? (
+        <Field id={id('refusal')} label="Refusal fee (% of price)" hint={ceilings.maxRefusalBps === null ? undefined : `0 to ${ceilings.maxRefusalBps / 100}%.`}>
+          <input id={id('refusal')} inputMode="decimal" className={`${inputClass} font-mono`} value={draft.refusalPercent} onChange={set('refusalPercent')} />
+        </Field>
+      ) : (
+        <Field id={id('units')} label="Units covered" hint="One voucher per unit.">
+          <input id={id('units')} inputMode="numeric" className={`${inputClass} font-mono`} value={draft.units} onChange={set('units')} />
+        </Field>
+      )}
+      <Field id={id('ship')} label="Ships within (days)" hint={ceilings.maxShipDays === null ? undefined : `1 to ${ceilings.maxShipDays}.`}>
+        <input id={id('ship')} inputMode="numeric" className={`${inputClass} font-mono`} value={draft.shipDays} onChange={set('shipDays')} />
+      </Field>
+      <Field id={id('delivery')} label="Arrives within (days)" hint={ceilings.maxDeliveryDays === null ? undefined : `1 to ${ceilings.maxDeliveryDays} after shipping.`}>
+        <input id={id('delivery')} inputMode="numeric" className={`${inputClass} font-mono`} value={draft.deliveryDays} onChange={set('deliveryDays')} />
+      </Field>
+      <Field id={id('mode')} label="Delivery">
+        <select id={id('mode')} className={inputClass} value={draft.mode} onChange={set('mode')}>
+          <option value="CARRIER">Carrier, with tracking</option>
+          <option value="OWN_MEANS">Own delivery, with a code</option>
+        </select>
+      </Field>
+      <Field id={id('regions')} label="Delivers to" hint="Two-letter country codes: PT, ES, FR…">
+        <input id={id('regions')} className={`${inputClass} font-mono uppercase`} value={draft.regions} onChange={set('regions')} />
+      </Field>
+    </div>
+  );
+}
+
+function OffersSection({ payout }: { payout: `0x${string}` }) {
+  const { relay } = useKeptra();
+  const ceilings = useCeilings();
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'warning'; text: React.ReactNode } | null>(null);
+  const [offers, setOffers] = useState<readonly OfferListed[] | null>(null);
+  const load = useCallback(() => void myOffers().then((result) => setOffers(result.ok ? result.offers.filter((o) => o.obligationId === null) : [])), []);
+  useEffect(load, [load]);
+
+  const publish = async () => {
+    const built = conditionsBody(draft, 'offer', ceilings);
+    if ('error' in built) return setMessage({ tone: 'error', text: built.error });
+    setBusy(true);
+    setMessage(null);
+    const outcome = await relay({ kind: 'createOffer', payout, ...built.body });
+    if (outcome.status !== 'done') {
+      setBusy(false);
+      return setMessage(outcome.status === 'refused' ? { tone: 'error', text: outcome.error } : null);
+    }
+    const termsId = outcome.result.termsId;
+    // T4: the description, written once, right after the offer exists (T5 gave its id).
+    const written = termsId ? await writeDescription({ termsId, title: draft.title, text: draft.text }) : null;
+    setBusy(false);
+    if (termsId && written?.ok) {
+      setDraft(EMPTY_DRAFT);
+      setMessage({ tone: 'success', text: <>Offer #{termsId} is published. Share its link: <ShareLink path={`/offers/${termsId}`} /></> });
+    } else {
+      setMessage({ tone: 'warning', text: `The offer was created${termsId ? ` (#${termsId})` : ''}, but its description was not saved. It cannot be bought until it has one — try publishing again.` });
+    }
+    load();
+  };
+
+  return (
+    <div className="grid gap-8 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <Card>
+        <SectionTitle>
+          <span className="flex items-center gap-2">
+            <PackagePlus className="h-5 w-5 text-brand" aria-hidden="true" /> New offer
+          </span>
+        </SectionTitle>
+        <p className="mb-5 text-sm text-gray-400">
+          Everything here is shown to the buyer before paying and written on-chain; it never changes for an order. Payments go to your business account ({payout.slice(0, 6)}…).
+        </p>
+        <ConditionsForm kind="offer" draft={draft} setDraft={setDraft} />
+        {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
+        <Button className="mt-5" busy={busy} onClick={() => void publish()}>
+          Review and publish
+        </Button>
+      </Card>
+      <section>
+        <SectionTitle>Your offers</SectionTitle>
+        {offers === null ? <Loading /> : offers.length === 0 ? <Empty title="No offer published yet." /> : <ul className="space-y-3">{offers.map((offer) => <OfferRow key={offer.termsId} offer={offer} onChange={load} />)}</ul>}
+      </section>
+    </div>
+  );
+}
+
+function ShareLink({ path }: { path: string }) {
+  const url = `https://keptra.io${path}`;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <Link to={path} className="break-all font-mono underline underline-offset-4">
+        {url}
+      </Link>
+      <button type="button" className="inline-flex min-h-[32px] items-center gap-1 text-xs text-gray-300 hover:text-white" onClick={() => void navigator.clipboard?.writeText(url)}>
+        <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Copy
+      </button>
+    </span>
+  );
+}
+
+function OfferRow({ offer, onChange }: { offer: OfferListed; onChange: () => void }) {
+  const { relay } = useKeptra();
+  const { terms } = useTerms(BigInt(offer.termsId));
+  const [busy, setBusy] = useState(false);
+  return (
+    <li className="rounded-2xl border border-dark-border bg-dark-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-xs text-gray-500">#{offer.termsId}</p>
+          <p className="break-words font-semibold text-white">{offer.title}</p>
+          <p className="mt-1 font-mono text-sm text-brand">{terms ? formatUsdc(terms.price) : '…'}</p>
+        </div>
+        {terms && <Badge tone={terms.active ? 'success' : 'neutral'}>{terms.active ? 'Live' : 'Taken down'}</Badge>}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+        <ShareLink path={`/offers/${offer.termsId}`} />
+        {terms?.active && (
+          <Button
+            tone="quiet"
+            busy={busy}
+            onClick={async () => {
+              setBusy(true);
+              await relay({ kind: 'deactivateOffer', termsId: offer.termsId });
+              setBusy(false);
+              onChange();
+            }}
+          >
+            Take down
+          </Button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// obligations — 11, 12.4, 13.2, H11, AQ5, P1
+// ---------------------------------------------------------------------------
+
+function ObligationsSection({ status }: { status: AccountStatus }) {
+  const { relay } = useKeptra();
+  const ceilings = useCeilings();
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'warning'; text: string } | null>(null);
+  const [offers, setOffers] = useState<readonly OfferListed[] | null>(null);
+  const [vouchers, setVouchers] = useState<readonly VoucherHeld[]>([]);
+  const load = useCallback(() => {
+    void myOffers().then((result) => setOffers(result.ok ? result.offers.filter((o) => o.obligationId !== null) : []));
+    void accountVouchers().then((result) => setVouchers(result.ok ? result.vouchers.filter((v) => v.role === 'CREATOR') : []));
+  }, []);
+  useEffect(load, [load]);
+
+  const create = async () => {
+    const built = conditionsBody(draft, 'obligation', ceilings);
+    if ('error' in built) return setMessage({ tone: 'error', text: built.error });
+    setBusy(true);
+    setMessage(null);
+    // T2: the bond and the protection fee are the bridge's figures, shown in the summary before the passkey.
+    const outcome = await relay({ kind: 'createObligation', ...built.body });
+    if (outcome.status !== 'done') {
+      setBusy(false);
+      return setMessage(outcome.status === 'refused' ? { tone: 'error', text: outcome.error } : null);
+    }
+    const { termsId, obligationId, voucherIds } = outcome.result;
+    const written = termsId && obligationId ? await writeDescription({ termsId, obligationId, title: draft.title, text: draft.text }) : null;
+    setBusy(false);
+    setMessage(
+      written?.ok
+        ? { tone: 'success', text: `Obligation #${obligationId} is covered, with ${voucherIds.length} voucher${voucherIds.length === 1 ? '' : 's'}. Put them in a campaign below.` }
+        : { tone: 'warning', text: `The obligation was created${obligationId ? ` (#${obligationId})` : ''}, but its description was not saved.` },
+    );
+    if (written?.ok) setDraft(EMPTY_DRAFT);
+    load();
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="grid gap-8 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <Card>
+          <SectionTitle>New prize obligation</SectionTitle>
+          <p className="mb-5 text-sm text-gray-400">
+            You deposit the bond your tier asks for; the Keptra guarantee pool covers the rest of each unit's value plus shipping, for a protection fee paid now. One voucher is
+            minted per unit. The exact bond and fee are shown before you sign.
+          </p>
+          <ConditionsForm kind="obligation" draft={draft} setDraft={setDraft} />
+          {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
+          <Button className="mt-5" busy={busy} onClick={() => void create()}>
+            Review and create
+          </Button>
+        </Card>
+        <section>
+          <SectionTitle>Your obligations</SectionTitle>
+          {offers === null ? <Loading /> : offers.length === 0 ? <Empty title="No obligation yet." /> : (
+            <ul className="space-y-3">
+              {offers.map((offer) => (
+                <li key={offer.termsId} className="rounded-2xl border border-dark-border bg-dark-card p-4">
+                  <p className="font-mono text-xs text-gray-500">Obligation #{offer.obligationId}</p>
+                  <p className="break-words font-semibold text-white">{offer.title}</p>
+                  <p className="mt-1 text-xs text-gray-400">{vouchers.filter((v) => v.obligationId === offer.obligationId).length} voucher(s) in your account</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+      <VoucherCampaign vouchers={vouchers} phoneVerified={status.phoneVerified} onCreated={load} />
+    </div>
+  );
+}
+
+/** P1, AQ5, H9: up to 20 loose vouchers of one obligation into an Event Center campaign; needs a verified phone. */
+function VoucherCampaign({ vouchers, phoneVerified, onCreated }: { vouchers: readonly VoucherHeld[]; phoneVerified: boolean; onCreated: () => void }) {
+  const { relay } = useKeptra();
+  const loose = useMemo(() => vouchers.filter((v) => v.giveawayId === null && v.claimedAt === null), [vouchers]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [days, setDays] = useState('7');
+  const [slots, setSlots] = useState('100');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: React.ReactNode } | null>(null);
+  const cap = useReadContract({ address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'paused' });
+  void cap;
+
+  const obligationOf = selected.length > 0 ? loose.find((v) => v.voucherId === selected[0])?.obligationId : null;
+  const toggle = (voucher: VoucherHeld) =>
+    setSelected((current) =>
+      current.includes(voucher.voucherId)
+        ? current.filter((id) => id !== voucher.voucherId)
+        : obligationOf && voucher.obligationId !== obligationOf
+          ? current
+          : current.length >= 20
+            ? current
+            : [...current, voucher.voucherId],
+    );
+
+  const create = async () => {
+    const duration = Number(days) * 86_400;
+    const slotCap = Number(slots);
+    if (selected.length === 0) return setMessage({ tone: 'error', text: 'Choose the vouchers to put in the campaign.' });
+    if (!Number.isInteger(Number(days)) || Number(days) < 1) return setMessage({ tone: 'error', text: 'The campaign runs at least one day.' });
+    if (!Number.isInteger(slotCap) || slotCap < 1) return setMessage({ tone: 'error', text: 'Set how many people can enter.' });
+    setBusy(true);
+    setMessage(null);
+    const outcome = await relay({ kind: 'createVoucherCampaign', obligationId: obligationOf, voucherIds: selected, durationSeconds: duration, slotCap });
+    setBusy(false);
+    if (outcome.status === 'refused') return setMessage({ tone: 'error', text: outcome.error });
+    if (outcome.status === 'done') {
+      setSelected([]);
+      setMessage({
+        tone: 'success',
+        text: outcome.result.giveawayId ? (
+          <>
+            Campaign created. <Link className="underline underline-offset-4" to={`/events/${outcome.result.giveawayId}`}>Open campaign #{outcome.result.giveawayId} <ExternalLink className="inline h-3.5 w-3.5" aria-hidden="true" /></Link>
+          </>
+        ) : (
+          'Campaign sent; confirming on-chain.'
+        ),
+      });
+      onCreated();
+    }
+  };
+
+  return (
+    <Card>
+      <SectionTitle>Put vouchers in a campaign</SectionTitle>
+      {!phoneVerified && (
+        <div className="mb-4">
+          <Notice tone="warning">A campaign needs a verified phone. Verify it by entering any Event Center campaign once (Telegram).</Notice>
+        </div>
+      )}
+      {loose.length === 0 ? (
+        <Empty title="No voucher to place.">
+          <p>Vouchers appear here after a prize obligation is created, and come back if a campaign ends without a winner.</p>
+        </Empty>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-gray-400">Up to 20 vouchers of one obligation. A voucher not placed in a campaign within 30 days of being minted can be voided, and its bond returns to you.</p>
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {loose.map((voucher) => {
+              const on = selected.includes(voucher.voucherId);
+              return (
+                <li key={voucher.voucherId}>
+                  <label className={`flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${on ? 'border-brand bg-brand/[0.06]' : 'border-dark-border'}`}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(voucher)} className="h-4 w-4 accent-amber-500" />
+                    <span className="font-mono">#{voucher.voucherId}</span>
+                    <span className="text-xs text-gray-500">obligation {voucher.obligationId}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Field id="camp-days" label="Runs for (days)">
+              <input id="camp-days" inputMode="numeric" className={`${inputClass} font-mono`} value={days} onChange={(event) => setDays(event.target.value)} />
+            </Field>
+            <Field id="camp-slots" label="Entries allowed">
+              <input id="camp-slots" inputMode="numeric" className={`${inputClass} font-mono`} value={slots} onChange={(event) => setSlots(event.target.value)} />
+            </Field>
+          </div>
+          {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
+          <Button className="mt-5" busy={busy} disabled={!phoneVerified} onClick={() => void create()}>
+            Review and create campaign
+          </Button>
+        </>
+      )}
+    </Card>
+  );
+}
