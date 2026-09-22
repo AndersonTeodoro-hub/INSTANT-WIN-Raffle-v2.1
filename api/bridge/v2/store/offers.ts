@@ -39,7 +39,6 @@ const route = handle('store/offers', async ({ request, log }) => {
     termsId: row.termsId.toString(),
     obligationId: row.obligationId === null ? null : row.obligationId.toString(),
     title: row.title,
-    createdAt: row.createdAt,
   }));
   await log.event('route.ok', { offers: offers.length });
   return ok({ offers });

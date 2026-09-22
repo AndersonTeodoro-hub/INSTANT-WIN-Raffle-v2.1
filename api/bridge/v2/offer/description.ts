@@ -6,7 +6,7 @@ import { descriptionOf } from '../../../../lib/bridge-v2/descriptions.js';
 import { keptraContractsConfigured } from '../../../../lib/bridge-v2/orders.js';
 
 /**
- * POST /api/bridge/v2/offer/description {termsId} -> {termsId, title, text, obligationId, createdAt}
+ * POST /api/bridge/v2/offer/description {termsId} -> {termsId, title, text, obligationId}
  *
  * SPEC-BLOCO-03 T4 and T5: the product description behind an offer's link (or a
  * voucher's obligation), read by anyone who opens it — there is no catalogue, the
@@ -41,7 +41,6 @@ const route = handle('offer/description', async ({ request, log }) => {
     title: description.title,
     text: description.text,
     obligationId: description.obligationId === null ? null : description.obligationId.toString(),
-    createdAt: description.createdAt,
   });
 });
 

@@ -5,7 +5,7 @@ import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { emailOf, getParticipant } from '../../../../lib/bridge-v2/participants.js';
 import { findCreatorByParticipant } from '../../../../lib/bridge-v2/creators.js';
 import { hasVerifiedPhone } from '../../../../lib/bridge-v2/phone.js';
-import { accountsOf, liveRecovery, migrationStatus, passkeyCredentialIds } from '../../../../lib/bridge-v2/accounts.js';
+import { accountsOf, migrationStatus, passkeyCredentialIds } from '../../../../lib/bridge-v2/accounts.js';
 import { guardianAddress } from '../../../../lib/bridge-v2/guardian.js';
 import { recoveryActive } from '../../../../lib/bridge-v2/keptra.js';
 import { readAccount } from '../../../../lib/bridge-v2/relay.js';
@@ -22,7 +22,7 @@ import { readAccount } from '../../../../lib/bridge-v2/relay.js';
  * - the accounts, with an address only once usable (C4 as D1 reads it), and
  *   "recovery active" against the chain's current guardian (A6, C6);
  * - a change of access pending on-chain — what cancelRecovery cancels (6.3.3,
- *   U12) — and the live request, if any;
+ *   U12);
  * - the passkeys' credential ids, for navigator.credentials.get;
  * - where the migration of each derived wallet stands (6.6, U14);
  * - whether the phone is verified (a voucher campaign needs it, AQ5).
@@ -44,12 +44,11 @@ const route = handle('account/status', async ({ request, log }) => {
   ]);
   if (!verdict.allowed) return refuse(429, 'Too many requests. Please wait and try again.', retryAfterHeaders(verdict));
 
-  const [email, phoneVerified, passkeys, accounts, recovery, participant, creator] = await Promise.all([
+  const [email, phoneVerified, passkeys, accounts, participant, creator] = await Promise.all([
     emailOf(session.participantId),
     hasVerifiedPhone(session.participantId),
     passkeyCredentialIds(session.participantId),
     accountsOf(session.participantId),
-    liveRecovery(session.participantId),
     getParticipant(session.participantId),
     findCreatorByParticipant(session.participantId),
   ]);
@@ -67,13 +66,11 @@ const route = handle('account/status', async ({ request, log }) => {
     accounts: views.map(({ account, state, usable }) => ({
       role: account.role,
       address: usable ? account.safe : null,
-      deployed: state.deployed,
       configured: usable,
       recoveryEnabled: recoveryActive(state, guardianAddress()),
       // 6.3.3: a change of access this account's passkey can still cancel, with when it would take effect.
       recoveryPendingUntil: state.recoveryExecuteAfter === 0n ? null : new Date(Number(state.recoveryExecuteAfter) * 1000).toISOString(),
     })),
-    recovery: recovery === null ? null : { status: recovery.status, executeAfter: recovery.executeAfter },
     migration: {
       PARTICIPANT: await migration(participant?.walletIndex),
       CREATOR: await migration(creator?.walletIndex),

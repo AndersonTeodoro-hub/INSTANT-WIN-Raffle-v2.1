@@ -13,9 +13,17 @@
  * with an order paid and one in its contest window, a brand's obligation with its
  * vouchers, the pool's provider — through the real relay, signed by software
  * passkeys, and writes the addresses the page must read into PREVIEW_GEN_DIR for
- * test/preview/vite.config.mjs. Then it serves /api/bridge/v2/* and one preview
- * route, /__preview/login?as=buyer|store|none, which picks whose session the
- * next requests carry (the routes' own resolveSession, doubled as the suites do).
+ * test/preview/vite.config.mjs. Then it serves /api/bridge/v2/* and three preview
+ * routes:
+ * - /__preview/login?as=buyer|store|none picks whose session the next requests
+ *   carry (the routes' own resolveSession, doubled as the suites do);
+ * - /__preview/sign {hash} signs with that person's software passkey — the page's
+ *   passkeys are keptra.io's, so on localhost the preview's webauthn.ts asks here
+ *   (SPEC-BLOCO-03 V1: the store's flow runs to its end in a real browser);
+ * - /__preview/fail?route=<path>&on=1|0 makes one bridge route answer 503, to see
+ *   a read that fails (V3).
+ * The orders pass runs every 15 s, as the cron does every minute, so what the
+ * chain did shows in the bridge's lists.
  */
 
 import { createServer } from 'node:http';
@@ -182,6 +190,20 @@ for (const path of ['account/status', 'account/vouchers', 'account/register', 'a
   ROUTES[path] = await import(`../../api/bridge/v2/${path}.ts`);
 }
 const PEOPLE = { buyer: 'buyer-1', store: 'store-1', none: null };
+const PASSKEYS = { 'buyer-1': buyer.passkey, 'store-1': shop.passkey };
+const failing = new Set();
+let passing = false;
+setInterval(async () => {
+  if (passing) return;
+  passing = true;
+  try {
+    await advanceOrders(log, runDeadline());
+  } catch (error) {
+    console.log(`[preview] orders pass: ${error.message}`);
+  } finally {
+    passing = false;
+  }
+}, 15_000);
 const port = Number(process.env.PREVIEW_API_PORT ?? 8787);
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
@@ -190,10 +212,26 @@ createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'text/plain' }).end(`session: ${who ?? 'none'}`);
     return;
   }
-  const route = ROUTES[url.pathname.replace('/api/bridge/v2/', '')];
-  if (!route || req.method !== 'POST') return res.writeHead(404).end();
+  if (url.pathname === '/__preview/fail') {
+    const name = url.searchParams.get('route') ?? '';
+    if (url.searchParams.get('on') === '1') failing.add(name);
+    else failing.delete(name);
+    res.writeHead(200, { 'content-type': 'text/plain' }).end(`failing: ${[...failing].join(', ') || 'none'}`);
+    return;
+  }
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
+  if (url.pathname === '/__preview/sign') {
+    const passkey = who === null ? undefined : PASSKEYS[who];
+    if (!passkey) return res.writeHead(409, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'no session' }));
+    const { hash } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(await passkey.sign(hash)));
+    return;
+  }
+  const name = url.pathname.replace('/api/bridge/v2/', '');
+  const route = ROUTES[name];
+  if (!route || req.method !== 'POST') return res.writeHead(404).end();
+  if (failing.has(name)) return res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: false, error: 'The service is unavailable right now. Try again shortly.' }));
   const response = await route.POST(new Request(`http://127.0.0.1${url.pathname}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7', 'user-agent': 'preview', cookie: 'iw_bridge_session=preview' }, body: Buffer.concat(chunks) }));
   res.writeHead(response.status, { 'content-type': 'application/json' }).end(Buffer.from(await response.arrayBuffer()));
 }).listen(port, '127.0.0.1', () => console.log(`[preview] bridge on http://127.0.0.1:${port}, fork ${fork.url}`));

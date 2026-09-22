@@ -13,10 +13,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  decodeFunctionData,
   encodeAbiParameters,
   encodeEventTopics,
   getAddress,
@@ -29,7 +28,7 @@ import * as db from '../doubles/db.mjs';
 import * as chain from '../doubles/chain.mjs';
 import * as kchain from '../doubles/keptraChain.mjs';
 import * as escrow from '../doubles/escrowChain.mjs';
-import { REAL_KEPTRA, setKeptraContracts } from '../doubles/config.mjs';
+import { PRIVACY_TEXT as BRIDGE_PRIVACY_TEXT, REAL_KEPTRA, REAL_PRIVACY_TEXT, setKeptraContracts, setPrivacyText } from '../doubles/config.mjs';
 import { KEPTRA_TABLES, KEPTRA_UNIQUE, memdb } from '../memdb.mjs';
 import { createPasskey } from '../passkey.mjs';
 import { applyMigration, attempt, asRole, bootEngine, createDatabase, sql } from '../pg.mjs';
@@ -47,6 +46,8 @@ import { QUIET_ZONE, qrSymbol } from '../../../lib/keptra/qr.ts';
 import * as format from '../../../lib/keptra/format.ts';
 import * as clientOrders from '../../../lib/keptra/orders.ts';
 import * as contracts from '../../../lib/keptra/contracts.ts';
+import * as reads from '../../../lib/keptra/reads.ts';
+import * as focus from '../../../lib/keptra/focus.ts';
 import { PRIVACY_TEXT, privacyPublished } from '../../../lib/keptra/privacy.ts';
 import { checkDescription } from '../../../lib/keptra-description.ts';
 
@@ -107,14 +108,15 @@ const ROUTES = {
 /** Every body the page sent, to prove what never leaves it (T6: the delivery code). */
 const sent = [];
 let cookie = SESSION_COOKIE;
-api.setFetch(async (input, init) => {
+const bridgeFetch = async (input, init) => {
   sent.push({ path: input, body: String(init.body ?? '') });
   const route = ROUTES[input.replace('/api/bridge/v2/', '')];
   if (!route) throw new Error(`[test] no route for ${input}`);
   const headers = { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7', 'user-agent': 'test-agent' };
   if (cookie !== null) headers.cookie = cookie;
   return route.POST(new Request(`https://keptra.invalid${input}`, { method: 'POST', headers, body: init.body }));
-});
+};
+api.setFetch(bridgeFetch);
 
 let store;
 const owners = new Map();
@@ -238,12 +240,11 @@ function deps(who, answers = []) {
   };
 }
 
-function offer(termsId = 1n, extra = {}) {
+function offer(extra = {}) {
   escrow.set({
     readTerms: { store: '0x7777777777777777777777777777777777777777', price: 10_000_000n, payout: '0x7777777777777777777777777777777777777777', shipping: 1_000_000n, returnCost: 0n, refusalFeeBps: 0, shipDays: 5, deliveryDays: 10, mode: 0, prize: false, active: true, ...extra },
     regionsOf: ['PT', 'ES'],
   });
-  void termsId;
 }
 
 function fx({ id, state = bridgeAbi.OrderState.PAID, flags = 0, payer, store: storeSafe, mode = 0, prize = false, windowEndsAt = 0n, termsId = 1n, voucherId = 0n, codeCommit = ZERO_HASH, paid = 11_000_000n, shippedAt = 0n }) {
@@ -437,7 +438,7 @@ await test(['AT2', 'U16', 'U15'], 'T2: every action’s summary is the bridge’
   assert.match(detail, /relay\(\{ kind: 'claim', giveawayId/);
 });
 
-await test(['U28', 'AT2', 'AT5'], 'T2 and T5: a prize obligation — the bond and the fee are the bridge’s one figure in the summary, and the obligation, its terms and its vouchers come back from the receipt', async () => {
+await test(['U28', 'AT2', 'AT5', 'AU6'], 'T2, T5 and U6: a prize obligation — the bond and the fee are the bridge’s one figure in the summary, and the obligation, its terms and its vouchers come back from the receipt', async () => {
   fresh();
   const brand = await person('brand-1', '0x3333333333333333333333333333333333333333');
   asParticipant('brand-1');
@@ -477,7 +478,7 @@ await test(['U26', 'AT5'], 'T5: an offer published through the page comes back w
 // U17 — USDC out of either account (T12)
 // ===========================================================================
 
-await test(['U17'], 'T12 (U17): USDC leaves the business account too, exactly the amount typed; never to the account itself, never past the balance, never into a platform account not set up', async () => {
+await test(['U17', 'AU2'], 'T12 (U17) and Adenda U2: USDC leaves the business account too, exactly the amount typed; never to the account itself, never past the balance, never into a platform account not set up', async () => {
   fresh();
   const brand = await person('brand-1', '0x3333333333333333333333333333333333333333');
   const other = await person('other-1', '0x4444444444444444444444444444444444444444');
@@ -604,7 +605,7 @@ await test(['U23'], 'H7 (U23): a redemption through the page — the bridge sets
 // the delivery code — U22, AT6, AT7
 // ===========================================================================
 
-await test(['U22', 'AT6'], '9.2 and T6: the delivery code is 20 Crockford symbols (100 bits), typed back forgivingly, and its bytes32 and commitment are the contract’s formula; the relay accepts it and refuses another', async () => {
+await test(['U22', 'AT6', 'AU6'], '9.2, T6 and U6: the delivery code is 20 Crockford symbols (100 bits), typed back forgivingly, and its bytes32 and commitment are the contract’s formula; the relay accepts it and refuses another', async () => {
   assert.ok(code.CODE_BITS >= 96);
   let seed = 0;
   const generated = code.generateDeliveryCode((bytes) => bytes.map(() => (seed = (seed * 97 + 13) % 256)));
@@ -632,7 +633,7 @@ await test(['U22', 'AT6'], '9.2 and T6: the delivery code is 20 Crockford symbol
 await test(['U22', 'AT6'], 'H18 and T6: the code stays on the device — the payment carries only its commitment, the code is found again by the order’s commitment and never under another', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
-  offer(1n, { mode: 1 });
+  offer({ mode: 1 });
   asParticipant('participant-1');
   await api.registerAddress({ termsId: '1' }, ADDRESS);
   chain.set({ erc20BalanceOf: 100_000_000n });
@@ -664,10 +665,10 @@ await test(['U22', 'AT6', 'AT7'], 'T6 and T7: the QR carries the code and nothin
 // descriptions — U19, U26, U28, AT4
 // ===========================================================================
 
-await test(['AT4', 'U19', 'U26'], 'T4: the store writes the description of its own offer once; nobody else can, a second write is refused, anyone reads it, and the console lists it', async () => {
+await test(['AT4', 'U19', 'U26', 'AU6'], 'T4 and U6: the store writes the description of its own offer once; nobody else can, a second write is refused, anyone reads it, and the console lists it', async () => {
   fresh();
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
-  const other = await person('store-2', '0x4444444444444444444444444444444444444444');
+  await person('store-2', '0x4444444444444444444444444444444444444444');
   escrow.set({ readTerms: { ...fx({ id: 1, payer: shop.participant, store: shop.creator }).terms } });
   asParticipant('store-2');
   assert.match((await api.writeDescription({ termsId: '1', title: 'Headphones', text: 'Over-ear.' })).error, /No offer of yours/);
@@ -683,7 +684,6 @@ await test(['AT4', 'U19', 'U26'], 'T4: the store writes the description of its o
   cookie = SESSION_COOKIE;
   asParticipant('store-1');
   assert.deepEqual((await api.myOffers()).offers.map((o) => [o.termsId, o.title]), [['1', 'Wireless headphones']]);
-  void other;
   assert.deepEqual(checkDescription({ title: 'Line‮break', text: 'x' }), { ok: false, field: 'title' });
   assert.deepEqual(checkDescription({ title: 'Ok', text: 'y'.repeat(2001) }), { ok: false, field: 'text' });
   assert.deepEqual(checkDescription({ title: 'See https://evil.example', text: 'x' }), { ok: false, field: 'title' });
@@ -727,7 +727,7 @@ await test(['AT4'], 'T4: the arbiter receives the product description with the e
 // erasure — U31, AT13
 // ===========================================================================
 
-await test(['AT13', 'U31'], 'T13: erasure is refused while either account holds USDC, a voucher, or an order open as recipient or as store — and the answer names each; with nothing left it erases', async () => {
+await test(['AT13', 'U31', 'AU1'], 'T13 and U1: erasure is refused while either account holds USDC, a voucher, or an order open as recipient or as store — and the answer names each; with nothing left it erases', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
@@ -754,7 +754,7 @@ await test(['AT13', 'U31'], 'T13: erasure is refused while either account holds 
   assert.equal(erased.ok, true, JSON.stringify(erased));
 });
 
-await test(['AT13', 'U31'], 'T13 and P18: one request erases at most four addresses on the spot, so the route can declare its duration; the rest keep their dates and the answer says so; the export carries the addresses', async () => {
+await test(['AT13', 'U31', 'AU6'], 'T13, P18 and U6: one request erases at most four addresses on the spot, so the route can declare its duration; the rest keep their dates and the answer says so; the export carries the addresses', async () => {
   fresh();
   await person('participant-1', '0x2222222222222222222222222222222222222222');
   for (let i = 0; i < 6; i += 1) store.insert('bridge_v2_order_addresses', { id: `a-${i}`, participant_id: 'participant-1', terms_id: 1, voucher_id: null, order_id: null, address_enc: 'v1.a.b' });
@@ -904,7 +904,7 @@ const CLIENT_FILES = () => {
   return out;
 };
 
-await test(['U2', 'AT9'], 'T9: the app is Keptra at keptra.io — the pages of instntwin.com redirect there and its /api stays; no client file and no notice names the old domain; the title, the manifest and the previews say Keptra', () => {
+await test(['U2', 'AT9', 'AU4'], 'T9 and U4: the app is Keptra at keptra.io — the pages of instntwin.com redirect there and its /api stays; no client file and no notice names the old domain; the title, the manifest and the previews say Keptra', () => {
   const vercel = JSON.parse(read('vercel.json'));
   for (const host of ['instntwin.com', 'www.instntwin.com']) {
     const rule = vercel.redirects.find((r) => r.has?.[0]?.value === host);
@@ -942,7 +942,7 @@ await test(['U4', 'AT0'], 'section 0: nothing the pages say calls Keptra insuran
   }
 });
 
-await test(['AT17'], 'T17: the new screens are in English; what changed in the Event Center is in all three languages, key for key', async () => {
+await test(['AT17', 'AU3'], 'T17 and U3: the new screens are in English; what changed in the Event Center is in all three languages, key for key', async () => {
   for (const name of readdirSync(`${root}pages/keptra`)) assert.ok(!/useLang|i18n/.test(codeOf(`pages/keptra/${name}`)), `${name} is translated`);
   const source = read('pages/events.i18n.ts');
   // The three languages' blocks (string values); the interface's block holds types, not text.
@@ -971,7 +971,7 @@ await test(['U36'], 'A11 and A12: the flows of the earlier wallets stay — the 
   assert.match(detail, /c\.wonBodySelf/);
 });
 
-await test(['U37', 'AT7'], '19 and T7: the one dependency added is the QR library Adenda T declares; nothing else joins the manifest', () => {
+await test(['U37', 'AT7', 'AU5'], '19, T7 and U5: the one dependency added is the QR library Adenda T declares; nothing else joins the manifest', () => {
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   const main = JSON.parse(git('show', 'main:package.json'));
   const branch = JSON.parse(read('package.json'));
@@ -990,16 +990,324 @@ await test(['AT3'], 'T3: the bridge changed only where Adenda T allows it (and t
     'api/bridge/v2/privacy/erase.ts', 'lib/bridge-v2/orders.ts', // T13
     'lib/bridge-v2/mail.ts', 'api/og/event.ts', // T9
     'lib/bridge-v2/accounts.ts', 'lib/bridge-v2/participants.ts', 'lib/bridge-v2/config.ts', 'lib/bridge-v2/log.ts', // the reads and declarations those need
+    'api/bridge/v2/store/orders.ts', // Adenda V1: whether the tracking number is registered
+    'api/bridge/v2/order/address.ts', // Adenda V5 (B3): no address before the privacy page has its text
   ]);
   for (const path of [...changed, ...untracked]) assert.ok(allowed.has(path), `${path} changed outside Adenda T`);
 });
 
-await test(['AT10', 'AT11'], 'T10 and T11: the arbiter and the pool’s provider act from the terminal, with written instructions that name the real calls and hold no key', () => {
+await test(['AT10', 'AT11', 'AU6'], 'T10, T11 and U6: the arbiter and the pool’s provider act from the terminal, with written instructions that name the real calls and hold no key', () => {
   const arbiter = read('docs/keptra/ARBITER.md');
   for (const needle of ['arbiter/evidence', 'decide(uint256,bool,uint8,bytes32)', 'Keptra arbiter: read the evidence of order', 'NOT_AS_DESCRIBED']) assert.ok(arbiter.includes(needle), needle);
   const provider = read('docs/keptra/POOL-PROVIDER.md');
   for (const needle of ['deposit(uint256,address)', 'requestWithdraw(uint256)', 'cancelWithdraw(uint256)', 'processQueue(uint256)', 'defaultSource()']) assert.ok(provider.includes(needle), needle);
   for (const text of [arbiter, provider]) assert.ok(!/0x[0-9a-fA-F]{64}/.test(text), 'a 32-byte hex value in the instructions');
+});
+
+// ===========================================================================
+// Adenda V — the corrections of the audit of piece 6 (AVn)
+// ===========================================================================
+
+await test(['AV1', 'U27'], 'V1 (A1): once the tracking number is registered the store can always declare the shipment — after reloading the page, in another session, from the notice’s link, after an answer that never arrived; the console passes the bridge’s answer to storeActions (checked in the page’s source)', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  offer();
+  asParticipant('participant-1');
+  await api.registerAddress({ termsId: '1' }, ADDRESS);
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator })]);
+  await pass();
+  const now = Number(T0);
+  // What a freshly loaded console has: nothing of its own, only the bridge's list (store/orders) and the page's rule.
+  const consoleActions = async (orderId = '1') => {
+    const listed = await api.storeOrders();
+    assert.equal(listed.ok, true, JSON.stringify(listed));
+    const order = listed.orders.find((o) => o.orderId === orderId);
+    return clientOrders.storeActions(order, now, order.trackingRegistered);
+  };
+  asParticipant('store-1');
+  assert.deepEqual(await consoleActions(), ['tracking', 'refund']);
+  assert.equal((await api.registerTracking('1', 'AB123456789PT')).ok, true);
+  // The page is reloaded: the registration survives only in the bridge, and the console now offers to ship.
+  assert.deepEqual(await consoleActions(), ['ship', 'refund']);
+  // Another session of the same store — another device, or the notice's link to /store/orders/1.
+  db.on('bridge_v2_sessions:select', () => ({
+    data: { id: 'another-session', participant_id: 'store-1', idle_expires_at: new Date(Date.now() + 60_000).toISOString(), absolute_expires_at: new Date(Date.now() + 3_600_000).toISOString(), revoked_at: null },
+    error: null,
+  }));
+  assert.deepEqual(await consoleActions(), ['ship', 'refund']);
+  // The answer to the registration never arrived, so the store types the number again: the bridge refuses a second
+  // registration, and the order still ships.
+  const again = await api.registerTracking('1', 'AB123456789PT');
+  assert.equal(again.status, 409);
+  assert.deepEqual(await consoleActions(), ['ship', 'refund']);
+  const shipped = await runAction({ kind: 'ship', orderId: '1' }, deps(shop));
+  assert.equal(shipped.status, 'done', JSON.stringify(shipped));
+  const shipCall = kchain.calls.filter((c) => c.name === 'sendRelayed').at(-1);
+  const hash = store.rows('bridge_v2_order_shipments')[0].tracking_hash;
+  assert.ok(JSON.stringify(shipCall.args, (_key, value) => (typeof value === 'bigint' ? value.toString() : value)).toLowerCase().includes(hash.slice(2).toLowerCase()), 'ship() does not carry the registered hash');
+  // The console reads it from the bridge, and keeps no flag of its own.
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(page, /storeActions\(order, now, order\.trackingRegistered\)/);
+  assert.ok(!/setTracked|useState\(false\);\s*\n\s*const \[input/.test(page), 'the console still remembers the registration itself');
+});
+
+await test(['AV2', 'AT0'], 'V2 (A2), from the source and Tailwind’s own palette: every text colour the new screens use reaches 4.5:1 on the lightest ground they sit on (the input and card greys; black text on the brand amber)', async () => {
+  const { default: palette } = await import('tailwindcss/colors.js');
+  const config = (await import('../../../tailwind.config.js')).default.theme.extend.colors;
+  const hex = (token) => {
+    const [name, shade] = token.split('-');
+    if (name === 'white') return '#ffffff';
+    if (name === 'black') return '#000000';
+    if (config[name]) return typeof config[name] === 'string' ? config[name] : config[name][shade ?? 'DEFAULT'];
+    return palette[name]?.[shade];
+  };
+  const luminance = (color) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a, b) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const files = [...readdirSync(`${root}pages/keptra`).map((n) => `pages/keptra/${n}`), ...readdirSync(`${root}components/keptra`).map((n) => `components/keptra/${n}`)];
+  const seen = new Map();
+  for (const path of files) {
+    for (const m of codeOf(path).matchAll(/(?<![\w-])(?:(?:placeholder|disabled|aria-busy):)?text-((?:gray|red|green|amber|brand|success|white|black)(?:-\d{2,3})?)(?![\w/-])/g)) {
+      if (!seen.has(m[1])) seen.set(m[1], path);
+    }
+  }
+  assert.ok(seen.has('gray-400') && seen.has('white'), 'the scan found no text colours');
+  for (const [token, path] of seen) {
+    const color = hex(token);
+    assert.ok(color, `${token} (${path}) is not in the palette`);
+    if (token === 'black') {
+      assert.ok(ratio(color, config.brand.DEFAULT) >= 4.5, 'black on the brand amber');
+      continue;
+    }
+    const worst = Math.min(ratio(color, config.dark.input), ratio(color, config.dark.card));
+    assert.ok(worst >= 4.5, `${token} in ${path}: ${worst.toFixed(2)}:1`);
+  }
+  assert.ok(ratio(palette.gray[500], config.dark.card) < 4.5, 'the check would not catch gray-500, the colour the audit measured');
+});
+
+await test(['AV3'], 'V3 (A3): a read that fails comes out as a failed read with the bridge’s own sentence and a retry — never as an empty list; the same read, asked again once the bridge answers, is the list', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  offer();
+  asParticipant('participant-1');
+  await api.registerAddress({ termsId: '1' }, ADDRESS);
+  chainShows([fx({ id: 1, payer: buyer.participant, store: '0x7777777777777777777777777777777777777777' })]);
+  await pass();
+  asParticipant('participant-1');
+  const limited = () => db.on('rpc:bridge_v2_rate_limit_hit', () => ({ data: [{ allowed: false, retry_after_seconds: 30 }], error: null }));
+  const open = () => db.on('rpc:bridge_v2_rate_limit_hit', () => ({ data: [{ allowed: true, retry_after_seconds: 0 }], error: null }));
+  limited();
+  for (const [what, read] of [['order/list', api.myOrders], ['account/vouchers', api.accountVouchers], ['store/offers', api.myOffers], ['store/orders', api.storeOrders]]) {
+    const state = reads.fromBridge(await read());
+    assert.equal(state.status, 'failed', `${what} did not fail`);
+    assert.equal(state.error, 'Too many requests. Please wait and try again.', what);
+  }
+  open();
+  const again = reads.fromBridge(await api.myOrders());
+  assert.equal(again.status, 'ready');
+  assert.deepEqual(again.value.orders.map((o) => o.orderId), ['1']);
+  // A bridge that does not answer at all is a failed read too, in the page's own words.
+  api.setFetch(async () => {
+    throw new TypeError('fetch failed');
+  });
+  try {
+    const lost = reads.fromBridge(await api.myOrders());
+    assert.deepEqual(lost, { status: 'failed', error: 'The network did not answer. Check your connection and try again.' });
+  } finally {
+    api.setFetch(bridgeFetch);
+  }
+});
+
+await test(['AV3'], 'V3 (A3): a chain read that fails is a failed read — the whole query, or one call of a batch — while a call the contract reverted is the chain’s answer (an offer id the escrow never issued); the error objects are shaped as viem nests them', () => {
+  const ok = { status: 'success', result: 1n };
+  const revert = { status: 'failure', error: { name: 'ContractFunctionExecutionError', cause: { name: 'ContractFunctionRevertedError' } } };
+  const noAnswer = { status: 'failure', error: { name: 'ContractFunctionExecutionError', cause: { name: 'HttpRequestError', cause: { name: 'TypeError' } } } };
+  assert.equal(reads.chainFailed({ isLoading: false, isError: true }), true);
+  assert.equal(reads.chainFailed({ isLoading: false, isError: false, data: [ok, noAnswer] }), true);
+  assert.equal(reads.chainFailed({ isLoading: false, isError: false, data: [ok, ok] }), false);
+  assert.equal(reads.reverted(revert.error), true);
+  assert.equal(reads.reverted(noAnswer.error), false);
+  assert.equal(reads.reverted(null), false);
+  assert.deepEqual(reads.chainRead([{ isLoading: false, isError: false, data: [noAnswer] }], () => 1), { status: 'failed', error: reads.CHAIN_FAILED });
+  assert.deepEqual(reads.chainRead([{ isLoading: true, isError: false }], () => 1), reads.LOADING);
+  assert.deepEqual(reads.chainRead([{ isLoading: false, isError: false, data: [ok] }], () => 7), { status: 'ready', value: 7 });
+  // The offer page's rule: "no offer at this link" only on the revert, an error with "Try again" on anything else.
+  assert.match(codeOf('components/keptra/hooks.ts'), /const unknownId = terms\?\.status === 'failure' && reverted\(terms\.error\);\s*\n[\s\S]*failed: enabled && !unknownId && chainFailed\(result\)/);
+});
+
+await test(['AV3', 'AT0'], 'V3 (A3), reading the source of the new screens: no failed read is turned into an empty list or an unread fact — no “ok ? … : []”, no events .catch into an empty list, the offer page says “no offer” only when the read did not fail; every screen that reads has ReadError', () => {
+  const files = [...readdirSync(`${root}pages/keptra`).map((n) => `pages/keptra/${n}`), ...readdirSync(`${root}components/keptra`).map((n) => `components/keptra/${n}`)];
+  for (const path of files) {
+    const text = codeOf(path);
+    assert.ok(!/\.ok \?[^;]*: \[\]/.test(text), `${path} turns a refusal into an empty list`);
+    assert.ok(!/\.catch\(\(\) => set\w+\(\[\]\)\)/.test(text), `${path} turns a failed chain read into an empty list`);
+    assert.ok(!/could not be read\. Try again shortly/.test(text), `${path} says a read failed without a way to try again`);
+  }
+  for (const page of ['OfferPage', 'OrdersPage', 'OrderPage', 'VoucherPage', 'BusinessPage', 'PoolPage', 'AccountPage']) {
+    assert.match(codeOf(`pages/keptra/${page}.tsx`), /<ReadError/, `${page} has no error state for a failed read`);
+  }
+  assert.match(codeOf('pages/keptra/OfferPage.tsx'), /!loading && !failed && \(terms === null \|\| terms\.prize\)/);
+  assert.match(codeOf('components/keptra/SignIn.tsx'), /statusError/);
+  assert.match(codeOf('components/keptra/KeptraProvider.tsx'), /result\.status === 401/);
+});
+
+await test(['AV4', 'AT2'], 'V4 (A4): a token that is not USDC comes in the bridge’s summary with its own decimals and symbol, read from the token, and the sheet writes “1.50 WETH”; a token that does not state its decimals gets no figure at all; USDC is as before', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const WETH = '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1';
+  asParticipant('participant-1');
+  chain.set({ claimableFor: 1_500_000_000_000_000_000n, readGiveaway: { ...chain.behaviour.readGiveaway, feeToken: WETH }, erc20Meta: { symbol: 'WETH', decimals: 18 } });
+  const claim = await api.call('account/relay', { kind: 'claim', giveawayId: '9' });
+  assert.equal(claim.ok, true, JSON.stringify(claim));
+  assert.deepEqual(claim.summary.amounts, [{ kind: 'ERC20', token: WETH, value: '1500000000000000000', meta: { symbol: 'WETH', decimals: 18 } }]);
+  assert.deepEqual(chain.calls.filter((c) => c.name === 'erc20Meta').map((c) => c.args[0]), [WETH]);
+  assert.equal(format.summaryWords(claim.summary).amounts[0], '1.50 WETH');
+  chain.set({ erc20Meta: null });
+  const silent = await api.call('account/relay', { kind: 'claim', giveawayId: '9' });
+  assert.equal(silent.summary.amounts[0].meta, null);
+  const words = format.summaryWords(silent.summary).amounts[0];
+  assert.ok(!/\d{3,}/.test(words), `a figure was shown without the token's decimals: ${words}`);
+  assert.match(words, /cannot be shown/);
+  // USDC: config.ts's decimals, and no read of the token.
+  chain.set({ readGiveaway: { ...chain.behaviour.readGiveaway, feeToken: USDC }, claimableFor: 25_000_000n });
+  const calls = chain.calls.length;
+  const usdc = await api.call('account/relay', { kind: 'claim', giveawayId: '9' });
+  assert.deepEqual(usdc.summary.amounts, [{ kind: 'ERC20', token: USDC, value: '25000000' }]);
+  assert.equal(chain.calls.slice(calls).filter((c) => c.name === 'erc20Meta').length, 0);
+  assert.equal(format.summaryWords(usdc.summary).amounts[0], '25.00 USDC');
+});
+
+await test(['AV5'], 'V5 (B1): the signing sheet holds the focus — Tab past the last control goes to the first, Shift+Tab before the first to the last, focus from outside comes back in — and gives it back to the opener, which a busy button keeps (checked in the source)', () => {
+  const [a, b, c] = ['cancel', 'arbiscan', 'sign'].map((name) => ({ name }));
+  const controls = [a, b, c];
+  assert.equal(focus.trapTarget(controls, c, false), a);
+  assert.equal(focus.trapTarget(controls, a, true), c);
+  assert.equal(focus.trapTarget(controls, b, false), null, 'inside the sheet the browser moves on');
+  assert.equal(focus.trapTarget(controls, b, true), null);
+  assert.equal(focus.trapTarget(controls, { name: 'the page behind' }, false), a);
+  assert.equal(focus.trapTarget(controls, null, true), c);
+  assert.equal(focus.trapTarget([], a, false), null);
+  const provider = codeOf('components/keptra/KeptraProvider.tsx');
+  assert.match(provider, /trapTarget\(controls,/);
+  assert.match(provider, /opener\?\.focus\(\)/);
+  assert.match(provider, /tabIndex=\{-1\} aria-label="Cancel"/, 'the backdrop is in the tab order');
+  const ui = codeOf('components/keptra/ui.tsx');
+  assert.ok(!/disabled=\{rest\.disabled \|\| busy\}/.test(ui), 'a busy button is disabled and loses the focus');
+  assert.match(ui, /aria-disabled=\{busy \|\| undefined\}/);
+});
+
+await test(['AV5', 'AT14', 'U32'], 'V5 (B3): the bridge refuses a delivery address while the privacy page has no text — the owner’s text, empty today — and takes it once the page has one', async () => {
+  fresh();
+  await person('participant-1', '0x2222222222222222222222222222222222222222');
+  offer();
+  asParticipant('participant-1');
+  const published = BRIDGE_PRIVACY_TEXT;
+  setPrivacyText(REAL_PRIVACY_TEXT);
+  try {
+    assert.equal(REAL_PRIVACY_TEXT, PRIVACY_TEXT, 'the double does not hold the real text');
+    const refused = await api.registerAddress({ termsId: '1' }, ADDRESS);
+    assert.equal(refused.status, 503);
+    assert.match(refused.error, /privacy page is published/);
+    assert.equal(store.rows('bridge_v2_order_addresses').length, 0);
+  } finally {
+    setPrivacyText(published);
+  }
+  assert.equal((await api.registerAddress({ termsId: '1' }, ADDRESS)).ok, true);
+  assert.equal(store.rows('bridge_v2_order_addresses').length, 1);
+  assert.match(read('lib/bridge-v2/config.ts'), /export \{ PRIVACY_TEXT \} from '\.\.\/keptra\/privacy\.js';/, 'the bridge reads another copy of the text');
+});
+
+await test(['AV5', 'U24'], 'V5 (B7): each order’s next deadline is written the same on every width — ship-by while paid, the window while it runs, arrive-by after shipping, none once closed — and the list does not hide it on a phone (checked in the source)', () => {
+  const now = Number(T0);
+  const S = bridgeAbi.OrderState;
+  const base = { shipBy: String(T0 + 3n * DAY), deliverBy: String(T0 + 10n * DAY), windowEndsAt: String(T0 + 5n * DAY) };
+  assert.equal(clientOrders.nextDeadlineText({ ...base, state: S.PAID }, now), 'Next deadline in 3 days');
+  assert.equal(clientOrders.nextDeadlineText({ ...base, state: S.SHIPPED }, now), 'Next deadline in 10 days');
+  assert.equal(clientOrders.nextDeadlineText({ ...base, state: S.WINDOW }, now), 'Next deadline in 5 days');
+  assert.equal(clientOrders.nextDeadlineText({ ...base, state: S.SHIPPED, deliverBy: null }, now), null);
+  assert.equal(clientOrders.nextDeadlineText({ ...base, state: S.CLOSED }, now), null);
+  const list = codeOf('pages/keptra/OrdersPage.tsx');
+  const cell = list.match(/<span className="([^"]*)">\{deadline \?\? ''\}<\/span>/);
+  assert.ok(cell, 'the list does not show nextDeadlineText');
+  assert.ok(!/(^|\s)hidden(\s|$)/.test(cell[1]), `the deadline is hidden on a phone: ${cell[1]}`);
+});
+
+await test(['AV5', 'AT4'], 'V5 (B9): an offer whose description failed after it was published gets that description written — the retry writes it, an answer lost on the way shows as written — and the page then offers no second publication (checked in the source)', async () => {
+  fresh();
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  escrow.set({ readTerms: { ...fx({ id: 1, payer: shop.participant, store: shop.creator }).terms } });
+  asParticipant('store-1');
+  const entry = { termsId: '1', title: 'Desk lamp', text: 'Brushed brass.' };
+  // The first write never reaches the bridge.
+  api.setFetch(async () => {
+    throw new TypeError('fetch failed');
+  });
+  let first;
+  try {
+    first = await api.writeDescription(entry);
+  } finally {
+    api.setFetch(bridgeFetch);
+  }
+  assert.equal(first.ok, false);
+  assert.equal((await api.writeDescription(entry)).ok, true, 'the retry of that offer’s description was refused');
+  // Written, but its answer lost: a second retry is refused as already written, and the description is there to read.
+  const lostAnswer = await api.writeDescription(entry);
+  assert.equal(lostAnswer.status, 409);
+  assert.equal((await api.offerDescription('1')).ok, true);
+  assert.deepEqual((await api.myOffers()).offers.map((o) => o.termsId), ['1']);
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(page, /written\.status === 409 && \(await offerDescription\(termsId\)\)\.ok/);
+  assert.match(page, /\{unwritten \? \(\s*<div className="mt-5">\s*<DescriptionRetry what="Offer"/, 'the offer form can publish again while a description is missing');
+  assert.match(page, /\{unwritten \? \(\s*<div className="mt-5">\s*<DescriptionRetry\s+what="Obligation"/, 'the obligation form can create again while a description is missing');
+});
+
+await test(['AV5', 'U17'], 'V5 (B11): USDC is never sent to a contract of the platform — the escrow, the guarantee, the voucher, the reputation and the pool the chain names, the USDC contract, the draws’ core; when the chain cannot name the two, nothing is signed', async () => {
+  fresh();
+  await person('participant-1', '0x2222222222222222222222222222222222222222');
+  asParticipant('participant-1');
+  chain.set({ erc20BalanceOf: 5_000_000n });
+  const [reputation, pool] = ['0x00000000000000000000000000000000ee7a0001', '0x00000000000000000000000000000000ee7a0002'];
+  escrow.set({ keptraPeripherals: [reputation, pool] });
+  const { GIVEAWAY_MANAGER_V2 } = await import('../../../lib/bridge-v2/config.ts');
+  const send = (to) => api.call('account/relay', { kind: 'transferUsdc', to, amount: '1000000' });
+  for (const to of [ESCROW, GUARANTEE, VOUCHER, reputation, pool, USDC, GIVEAWAY_MANAGER_V2]) {
+    const refused = await send(to.toLowerCase());
+    assert.equal(refused.ok, false, `${to} was accepted`);
+    assert.match(refused.error, /contract of the platform/, to);
+  }
+  assert.equal((await send('0x9999999999999999999999999999999999999999')).ok, true);
+  escrow.set({ keptraPeripherals: new Error('node down') });
+  assert.match((await send('0x9999999999999999999999999999999999999999')).error, /cannot be checked right now/);
+});
+
+await test(['AV6'], 'V6: what the audit listed as excess is gone — the client’s ABI entries and re-exports, account/status’s recovery and deployed, the descriptions’ createdAt, the feeBps and paused reads, the captures and brand.mjs, the dead voids — and account/vouchers keeps complete (P6-11)', async () => {
+  fresh();
+  await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const names = (abi) => abi.map((item) => item.name);
+  assert.ok(!names(contracts.ESCROW_READ_ABI).some((n) => ['CONTEST_WINDOW', 'guarantee'].includes(n)));
+  assert.ok(!names(contracts.GUARANTEE_READ_ABI).includes('obligationCount'));
+  assert.ok(!names(contracts.POOL_READ_ABI).some((n) => ['freeWithdrawCapacity', 'convertToAssets', 'DebtRepaid'].includes(n)));
+  assert.ok(!('OrderMode' in contracts) && !('OrderOutcome' in contracts));
+  const status = await api.accountStatus();
+  assert.equal(status.ok, true);
+  assert.ok(!('recovery' in status), 'account/status still answers recovery');
+  assert.ok(status.accounts.every((account) => !('deployed' in account)), 'account/status still answers deployed');
+  escrow.set({ readTerms: { ...fx({ id: 1, payer: '0x2222222222222222222222222222222222222222', store: status.accounts.find((a) => a.role === 'CREATOR').address }).terms } });
+  assert.equal((await api.writeDescription({ termsId: '1', title: 'Lamp', text: 'Brass.' })).ok, true);
+  assert.ok(!('createdAt' in (await api.offerDescription('1'))));
+  assert.ok(!('createdAt' in (await api.myOffers()).offers[0]));
+  assert.ok('complete' in (await api.accountVouchers()), 'account/vouchers lost complete');
+  assert.ok(!/feeBps/.test(codeOf('pages/keptra/OfferPage.tsx')) && !/functionName: 'feeBps'/.test(codeOf('components/keptra/hooks.ts')));
+  assert.ok(!/functionName: 'paused'/.test(codeOf('pages/keptra/BusinessPage.tsx')));
+  assert.equal(existsSync(`${root}test/preview/screens`), false, 'the captures are still in the repository');
+  assert.equal(existsSync(`${root}test/preview/brand.mjs`), false);
+  assert.ok(!/void (?:termsId|other|decodeFunctionData);/.test(read('test/bridge-v2/suites/frontend.test.mjs')));
 });
 
 // ===========================================================================
@@ -1046,11 +1354,11 @@ if (engine !== null) {
 }
 
 // The matrix is in the repository, names the spec version, and has a row for every tag the suite declares.
-await test(['AT8'], 'the matrix of piece 6 is in the repository, names the spec version it was built against (1.22), and has a row for every Un and ATn a piece-6 test declares', async () => {
+await test(['AT8', 'AV6'], 'V6: the matrix of piece 6 is in the repository, declares the spec version in force (1.24), covers Adendas T, U and V, and has a row for every Un, ATn, AUn and AVn a piece-6 test declares', async () => {
   const matrix = read('test/bridge-v2/MATRIZ-PECA6-KEPTRA.md');
-  assert.match(matrix, /Versão 1\.22/);
+  assert.match(matrix, /Versão 1\.24/);
+  for (const adenda of ['Adenda T', 'Adenda U', 'Adenda V']) assert.ok(matrix.includes(adenda), `the matrix does not cover ${adenda}`);
   const { results } = await import('../harness.mjs');
-  const declared = new Set(results.filter((r) => r.suite === 'frontend').flatMap((r) => r.requirements).filter((tag) => /^(U\d+|AT\d+)$/.test(tag)));
+  const declared = new Set(results.filter((r) => r.suite === 'frontend').flatMap((r) => r.requirements).filter((tag) => /^(U\d+|AT\d+|AU\d+|AV\d+)$/.test(tag)));
   for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
-  void decodeFunctionData;
 });

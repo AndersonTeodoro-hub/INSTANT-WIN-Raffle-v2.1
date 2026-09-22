@@ -6,9 +6,10 @@ import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
 import { AddressForm } from '../../components/keptra/AddressForm';
-import { useDescription, useTerms } from '../../components/keptra/hooks';
-import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice } from '../../components/keptra/ui';
-import { accountVouchers, type AccountStatus, type VoucherHeld } from '../../lib/keptra/api';
+import { useBridgeRead, useDescription, useTerms } from '../../components/keptra/hooks';
+import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
+import { accountVouchers, type AccountStatus } from '../../lib/keptra/api';
+import { CHAIN_FAILED } from '../../lib/keptra/reads';
 import { KEPTRA_GUARANTEE, KEPTRA_GUARANTEE_ABI, keptraConfigured } from '../../lib/keptra/contracts';
 import { countryName, formatUsdc, formatUtc, timeLeft } from '../../lib/keptra/format';
 import { generateDeliveryCode, keepCode } from '../../lib/keptra/deliveryCode';
@@ -45,16 +46,11 @@ export function VoucherPage() {
 function VoucherBody({ voucherId, status }: { voucherId: string; status: AccountStatus }) {
   const { relay } = useKeptra();
   const navigate = useNavigate();
-  const [voucher, setVoucher] = useState<VoucherHeld | null | undefined>(undefined);
+  const held = useBridgeRead(accountVouchers, []);
+  const voucher = held.read.status === 'ready' ? (held.read.value.vouchers.find((item) => item.voucherId === voucherId && item.role === 'PARTICIPANT') ?? null) : undefined;
   const [addressSaved, setAddressSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void accountVouchers().then((result) =>
-      setVoucher(result.ok ? (result.vouchers.find((item) => item.voucherId === voucherId && item.role === 'PARTICIPANT') ?? null) : null),
-    );
-  }, [voucherId]);
 
   const obligation = useReadContract({
     address: KEPTRA_GUARANTEE,
@@ -64,10 +60,14 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
     query: { enabled: voucher != null },
   });
   const termsId = obligation.data ? (obligation.data as unknown as { termsId: bigint }).termsId : null;
-  const { terms, regions } = useTerms(termsId);
-  const { description } = useDescription(termsId === null ? null : termsId.toString());
+  const conditions = useTerms(termsId);
+  const { terms, regions } = conditions;
+  const describing = useDescription(termsId === null ? null : termsId.toString());
+  const { description } = describing;
   const account = status.accounts.find((item) => item.role === 'PARTICIPANT');
 
+  // V3: a list that failed is an error, not "this voucher is not in your account".
+  if (held.read.status === 'failed') return <ReadError what="Your vouchers" error={held.read.error} onRetry={held.retry} />;
   if (voucher === undefined) return <Loading label="Looking for your voucher…" />;
   if (voucher === null) {
     return (
@@ -79,6 +79,12 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
   if (voucher.claimedAt === null) return <Notice>Claim the prize in its campaign first; the voucher can be redeemed once it is in your account.</Notice>;
 
   const now = Math.floor(Date.now() / 1000);
+  // The prize's conditions are two chain reads: the obligation, then its terms.
+  const conditionsFailed = obligation.isError || conditions.failed;
+  const retryConditions = () => {
+    if (obligation.isError) void obligation.refetch();
+    else conditions.retry();
+  };
   const expired = voucher.redeemBy !== null && Number(voucher.redeemBy) < now;
 
   const redeem = async () => {
@@ -105,10 +111,19 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
         </div>
         <Card>
           <h2 className="font-display text-2xl font-bold tracking-tight">About the prize</h2>
-          <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-gray-200">
-            {description?.text ?? 'The brand has not published a description for this prize.'}
-          </p>
+          {description ? (
+            <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-gray-200">{description.text}</p>
+          ) : describing.missing ? (
+            <p className="mt-3 text-base leading-relaxed text-gray-200">The brand has not published a description for this prize.</p>
+          ) : describing.failed !== null ? (
+            <div className="mt-3">
+              <ReadError what="The description" error={describing.failed} onRetry={describing.retry} />
+            </div>
+          ) : conditionsFailed ? null : (
+            <Loading />
+          )}
         </Card>
+        {conditionsFailed && <ReadError what="The prize's conditions" error={CHAIN_FAILED} onRetry={retryConditions} />}
         {terms && (
           <Card>
             <h2 className="font-display text-2xl font-bold tracking-tight">The conditions</h2>
@@ -124,7 +139,7 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
                 ]}
               />
             </div>
-            <p className="mt-4 text-xs text-gray-500">
+            <p className="mt-4 text-xs text-gray-400">
               If the brand fails to deliver, you are paid the declared value plus shipping — from the brand's bond first, then from the Keptra guarantee pool.
             </p>
           </Card>
@@ -142,6 +157,9 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
               <AccountSetup role="PARTICIPANT" status={status} />
             ) : addressSaved ? (
               <Notice tone="success">Address saved for this voucher.</Notice>
+            ) : terms === null ? (
+              // The countries come with the conditions: no form until they are read (V3 — never a form with no country to choose).
+              conditionsFailed ? <Notice>The address can be given once the prize's conditions are read.</Notice> : <Loading />
             ) : (
               <AddressForm purpose={{ voucherId }} regions={regions} onRegistered={() => setAddressSaved(true)} />
             )}

@@ -4,7 +4,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
 import { OrderState } from '../../../../lib/bridge-v2/abi.js';
-import { addressOfOrder, ordersConfigured, ordersOfStore, publicOrder } from '../../../../lib/bridge-v2/orders.js';
+import { addressOfOrder, ordersConfigured, ordersOfStore, publicOrder, shipmentOf } from '../../../../lib/bridge-v2/orders.js';
 
 /**
  * POST /api/bridge/v2/store/orders -> the store's orders, with the addresses to ship to
@@ -14,6 +14,12 @@ import { addressOfOrder, ordersConfigured, ordersOfStore, publicOrder } from '..
  * account, which must be the store the terms name — the only orders listed are
  * the ones whose terms name it. The address comes with an order still open, the
  * only time the store has a use for it; a final order shows none.
+ *
+ * SPEC-BLOCO-03 V1 (A1): with an open order comes whether its tracking number is
+ * registered, so the store declares the shipment from any session — after a
+ * reload, from the notice's link, or after an answer that never arrived — and is
+ * never asked for a number the bridge already holds (store/tracking refuses a
+ * second one).
  */
 const route = handle('store/orders', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
@@ -37,7 +43,11 @@ const route = handle('store/orders', async ({ request, log }) => {
   const orders = [];
   for (const row of await ordersOfStore(account.safe)) {
     const open = row.state !== OrderState.CLOSED;
-    orders.push({ ...publicOrder(row), address: open ? await addressOfOrder(row.orderId) : null });
+    orders.push({
+      ...publicOrder(row),
+      address: open ? await addressOfOrder(row.orderId) : null,
+      trackingRegistered: open && (await shipmentOf(row.orderId)) !== null,
+    });
   }
   await log.event('route.ok', { orders: orders.length });
   return ok({ orders });

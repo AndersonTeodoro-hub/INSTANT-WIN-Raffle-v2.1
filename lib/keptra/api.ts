@@ -74,7 +74,6 @@ export interface AccountView {
   readonly role: Role;
   /** C4: null until the account exists on-chain with its configuration. */
   readonly address: `0x${string}` | null;
-  readonly deployed: boolean;
   readonly configured: boolean;
   readonly recoveryEnabled: boolean;
   /** 6.3.3: a change of access pending on-chain, and when it takes effect. */
@@ -86,7 +85,6 @@ export interface AccountStatus {
   readonly phoneVerified: boolean;
   readonly passkeys: readonly string[];
   readonly accounts: readonly AccountView[];
-  readonly recovery: { readonly status: string; readonly executeAfter: string | null } | null;
   readonly migration: { readonly PARTICIPANT: MigrationState; readonly CREATOR: MigrationState };
 }
 
@@ -159,7 +157,9 @@ export interface Evidence {
 export const orderEvidence = (orderId: string, text?: string) =>
   call<Evidence>('order/evidence', text === undefined ? { orderId } : { orderId, text });
 
-export const storeOrders = () => call<{ orders: readonly (PublicOrder & { address: PostalAddress | null })[] }>('store/orders');
+/** V1: `trackingRegistered` — the bridge holds this order's tracking number, so the store ships (store/orders). */
+export type StoreOrder = PublicOrder & { readonly address: PostalAddress | null; readonly trackingRegistered: boolean };
+export const storeOrders = () => call<{ orders: readonly StoreOrder[] }>('store/orders');
 export const registerTracking = (orderId: string, trackingNumber: string) =>
   call<{ trackingHash: string; tracked: boolean }>('store/tracking', { orderId, trackingNumber });
 
@@ -167,7 +167,6 @@ export interface OfferListed {
   readonly termsId: string;
   readonly obligationId: string | null;
   readonly title: string;
-  readonly createdAt: string;
 }
 export const myOffers = () => call<{ offers: readonly OfferListed[] }>('store/offers');
 
@@ -176,7 +175,6 @@ export interface Description {
   readonly title: string;
   readonly text: string;
   readonly obligationId: string | null;
-  readonly createdAt: string;
 }
 export const offerDescription = (termsId: string) => call<Description>('offer/description', { termsId });
 export const writeDescription = (entry: { termsId: string; obligationId?: string; title: string; text: string }) =>

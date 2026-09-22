@@ -8,6 +8,10 @@ import { shortAddress } from '../../lib/keptra/format';
  * ground, Big Shoulders for headings, IBM Plex Mono for every figure, Inter for
  * text (T0: the current system with the Keptra name) — and every state spelled
  * out: loading, empty, error (T0: no blank screen, no technical message).
+ *
+ * V2: every text colour here reaches 4.5:1 on the ground it sits on — gray-400 is
+ * the dimmest grey used for text (gray-500 measured about 4:1 on the cards), and a
+ * disabled control changes colour instead of fading.
  */
 
 export const ARBISCAN = 'https://arbiscan.io';
@@ -44,25 +48,34 @@ export function SectionTitle({ children, aside }: { children: React.ReactNode; a
 type ButtonTone = 'primary' | 'secondary' | 'danger' | 'quiet';
 
 const TONES: Record<ButtonTone, string> = {
-  primary: 'bg-brand text-black hover:bg-amber-400 disabled:bg-brand/40',
-  secondary: 'border border-dark-border bg-dark-input text-white hover:border-gray-500 disabled:text-gray-500',
-  danger: 'border border-red-500/40 text-red-300 hover:border-red-400 hover:text-red-200 disabled:opacity-50',
-  quiet: 'text-gray-300 underline underline-offset-4 hover:text-white disabled:opacity-50',
+  primary: 'bg-brand text-black hover:bg-amber-400 disabled:bg-dark-input disabled:text-gray-400',
+  secondary: 'border border-dark-border bg-dark-input text-white hover:border-gray-500 disabled:text-gray-400',
+  danger: 'border border-red-500/40 text-red-300 hover:border-red-400 hover:text-red-200 disabled:border-dark-border disabled:text-gray-400',
+  quiet: 'text-gray-300 underline underline-offset-4 hover:text-white disabled:text-gray-400',
 };
 
+/**
+ * While `busy` the button keeps its focus and ignores presses (aria-disabled, not
+ * disabled): a disabled button loses the focus, and V5 (B1) gives it back to the
+ * button that opened the signing sheet when the sheet closes.
+ */
 export const Button = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: ButtonTone; busy?: boolean }
->(function Button({ tone = 'primary', busy = false, className = '', children, ...rest }, ref) {
+>(function Button({ tone = 'primary', busy = false, className = '', children, onClick, ...rest }, ref) {
   const shape = tone === 'quiet' ? 'min-h-[44px] px-1' : 'min-h-[48px] rounded-xl px-5 font-semibold';
   return (
     <button
       ref={ref}
       type="button"
       {...rest}
-      disabled={rest.disabled || busy}
+      aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
-      className={`inline-flex items-center justify-center gap-2 text-sm transition-colors duration-150 disabled:cursor-not-allowed ${shape} ${TONES[tone]} ${className}`}
+      onClick={(event) => {
+        if (busy) return event.preventDefault();
+        onClick?.(event);
+      }}
+      className={`inline-flex items-center justify-center gap-2 text-sm transition-colors duration-150 disabled:cursor-not-allowed aria-busy:cursor-wait ${shape} ${TONES[tone]} ${className}`}
     >
       {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
       {children}
@@ -89,7 +102,7 @@ export function Loading({ label = 'Loading…' }: { label?: string }) {
 export function Empty({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-dark-border p-6 text-sm text-gray-400">
-      <Inbox className="h-5 w-5 text-gray-500" aria-hidden="true" />
+      <Inbox className="h-5 w-5 text-gray-400" aria-hidden="true" />
       <p className="font-medium text-gray-200">{title}</p>
       {children}
     </div>
@@ -120,7 +133,7 @@ export function Stat({ label, value, hint }: { label: string; value: React.React
     <div className="min-w-0">
       <dt className="text-xs text-gray-400">{label}</dt>
       <dd className="mt-1 break-words font-mono text-lg font-semibold tabular-nums text-white">{value}</dd>
-      {hint && <dd className="mt-1 text-xs text-gray-500">{hint}</dd>}
+      {hint && <dd className="mt-1 text-xs text-gray-400">{hint}</dd>}
     </div>
   );
 }
@@ -172,7 +185,7 @@ export function Field({ label, hint, error, children, id }: { label: string; hin
         {label}
       </label>
       {children}
-      {hint && !error && <p className="mt-1.5 text-xs text-gray-500">{hint}</p>}
+      {hint && !error && <p className="mt-1.5 text-xs text-gray-400">{hint}</p>}
       {error && (
         <p className="mt-1.5 text-xs text-red-300" role="alert">
           {error}
@@ -183,7 +196,23 @@ export function Field({ label, hint, error, children, id }: { label: string; hin
 }
 
 export const inputClass =
-  'w-full min-h-[48px] rounded-xl border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-500 focus:border-gray-400';
+  'w-full min-h-[48px] rounded-xl border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-400 focus:border-gray-400';
+
+/**
+ * V3 (A3): a read that failed — the chain's or the bridge's — shown as what it is,
+ * with the way to read it again. Never an empty list, never a sentence about what
+ * was not read. `error` is the bridge's own sentence, or reads.ts CHAIN_FAILED.
+ */
+export function ReadError({ what, error, onRetry }: { what: string; error: string; onRetry: () => void }) {
+  return (
+    <Notice tone="error" title={`${what} could not be read.`}>
+      <p>{error}</p>
+      <Button tone="secondary" className="mt-3" onClick={onRetry}>
+        Try again
+      </Button>
+    </Notice>
+  );
+}
 
 /** Q1 and U35: the contracts are not configured yet. */
 export function NotAvailable() {

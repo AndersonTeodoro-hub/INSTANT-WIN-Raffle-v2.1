@@ -114,7 +114,7 @@ export function AddressForm({
         </div>
       )}
       <div className="sm:col-span-2">
-        <p className="mb-3 text-xs text-gray-500">
+        <p className="mb-3 text-xs text-gray-400">
           Stored encrypted and read only by the store of this order. Never written on-chain, and erased within 30 days of the order ending.
         </p>
         <Button type="submit" busy={busy}>

@@ -108,9 +108,17 @@ function contractName(address: string): string | null {
   return null;
 }
 
+/**
+ * V4 (A4): USDC with its six decimals; any other token with the decimals and the
+ * symbol the bridge read from it (relay.ts withTokenMeta). A token that did not say
+ * gets no figure at all — a count of base units read as a price would be a number
+ * nobody read.
+ */
 export function amountText(amount: SummaryAmount): string {
   if (amount.kind === 'ERC20') {
-    return amount.token.toLowerCase() === USDC.toLowerCase() ? formatUsdc(amount.value) : `${amount.value} units of token ${shortAddress(amount.token)}`;
+    if (amount.token.toLowerCase() === USDC.toLowerCase()) return formatUsdc(amount.value);
+    if (amount.meta) return `${formatUnits(amount.value, amount.meta.decimals)} ${amount.meta.symbol}`;
+    return `an amount of token ${shortAddress(amount.token)} that cannot be shown: the token does not state its decimals`;
   }
   if (amount.kind === 'ITEMS') return `${amount.count} prize item${amount.count === '1' ? '' : 's'}`;
   const what = amount.token.toLowerCase() === KEPTRA_VOUCHER.toLowerCase() ? 'voucher' : 'item';

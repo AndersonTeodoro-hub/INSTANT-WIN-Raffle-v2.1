@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { usePublicClient, useReadContract, useReadContracts } from 'wagmi';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
-import { AddressLink, Card, Empty, Loading, NotAvailable, Notice, PageTitle, SectionTitle, Stat } from '../../components/keptra/ui';
+import { AddressLink, Card, Empty, Loading, NotAvailable, Notice, PageTitle, ReadError, SectionTitle, Stat } from '../../components/keptra/ui';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, keptraConfigured } from '../../lib/keptra/contracts';
 import { formatUsdc } from '../../lib/keptra/format';
+import { CHAIN_FAILED, LOADING, chainFailed, type Read } from '../../lib/keptra/reads';
 
 /*
  * /pool — the guarantee pool in public (12.7, 16.6): capital, active coverage,
@@ -13,6 +14,9 @@ import { formatUsdc } from '../../lib/keptra/format';
  * here needs an account.
  *
  * Language (section 0): a guarantee for brands — no insurance, no yield.
+ *
+ * V3: a figure or a list the chain did not give is an error with "Try again" —
+ * never "no provider" or "no debt" on a read that failed.
  */
 
 const pct = (bps: bigint | number | null | undefined) => (bps === null || bps === undefined ? '…' : `${(Number(bps) / 100).toFixed(2)}%`);
@@ -50,8 +54,10 @@ function PoolBody() {
   };
   const [poolShare, reserveShare, platformShare] = (split.data ?? []).map((item) => (item.status === 'success' ? (item.result as number) : null));
 
-  if (source.isLoading || (pool !== undefined && figures.isLoading)) return <Loading label="Reading the pool from the chain…" />;
-  if (pool === undefined || pool === '0x0000000000000000000000000000000000000000') return <Notice tone="error">The pool could not be read. Try again shortly.</Notice>;
+  if (source.isError) return <ReadError what="The pool" error={CHAIN_FAILED} onRetry={() => void source.refetch()} />;
+  if (source.isLoading || pool === undefined || figures.isLoading) return <Loading label="Reading the pool from the chain…" />;
+  if (pool === '0x0000000000000000000000000000000000000000') return <Notice>The guarantee names no pool yet.</Notice>;
+  const figuresFailed = chainFailed(figures) || chainFailed(split);
 
   const usdc = (name: (typeof names)[number]) => (value(name) === null ? '…' : formatUsdc(BigInt(value(name) as bigint)));
 
@@ -61,6 +67,16 @@ function PoolBody() {
         The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the pool, and
         the brand owes the pool what it paid. Its capital comes from providers Keptra authorises; today, one.
       </p>
+      {figuresFailed && (
+        <ReadError
+          what="Some of the pool's figures"
+          error={CHAIN_FAILED}
+          onRetry={() => {
+            void figures.refetch();
+            void split.refetch();
+          }}
+        />
+      )}
       <Card>
         <dl className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-6">
           <Stat label="Capital" value={usdc('totalAssets')} />
@@ -88,7 +104,7 @@ function PoolBody() {
         <Providers pool={pool} supply={value('totalSupply')} />
       </div>
       <Debts pool={pool} />
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-gray-400">
         Pool contract <AddressLink address={pool} /> · Guarantee contract <AddressLink address={KEPTRA_GUARANTEE} />
       </p>
     </div>
@@ -98,18 +114,21 @@ function PoolBody() {
 /** H2 and T11: the providers' shares, from the pool's ProviderSet events and their balances. */
 function Providers({ pool, supply }: { pool: `0x${string}`; supply: bigint | number | null }) {
   const client = usePublicClient();
-  const [providers, setProviders] = useState<`0x${string}`[] | null>(null);
+  const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!client) return;
+    setFound(LOADING);
     void client
       .getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'ProviderSet', fromBlock: 'earliest' })
       .then((logs) => {
         const allowed = new Map<string, boolean>();
         for (const log of logs) allowed.set((log.args as { provider: string }).provider, (log.args as { allowed: boolean }).allowed);
-        setProviders([...allowed].filter(([, on]) => on).map(([address]) => address as `0x${string}`));
+        setFound({ status: 'ready', value: [...allowed].filter(([, on]) => on).map(([address]) => address as `0x${string}`) });
       })
-      .catch(() => setProviders([]));
-  }, [client, pool]);
+      .catch(() => setFound({ status: 'failed', error: CHAIN_FAILED }));
+  }, [client, pool, attempt]);
+  const providers = found.status === 'ready' ? found.value : null;
   const balances = useReadContracts({
     contracts: (providers ?? []).map((provider) => ({ address: pool, abi: POOL_READ_ABI, functionName: 'balanceOf', args: [provider] })),
     query: { enabled: (providers ?? []).length > 0 },
@@ -117,7 +136,9 @@ function Providers({ pool, supply }: { pool: `0x${string}`; supply: bigint | num
   return (
     <Card>
       <SectionTitle>Providers</SectionTitle>
-      {providers === null ? (
+      {found.status === 'failed' ? (
+        <ReadError what="The providers" error={found.error} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : providers === null ? (
         <Loading />
       ) : providers.length === 0 ? (
         <p className="text-sm text-gray-400">No provider authorised yet.</p>
@@ -135,6 +156,11 @@ function Providers({ pool, supply }: { pool: `0x${string}`; supply: bigint | num
           })}
         </ul>
       )}
+      {chainFailed(balances) && (
+        <div className="mt-4">
+          <ReadError what="The providers' shares" error={CHAIN_FAILED} onRetry={() => void balances.refetch()} />
+        </div>
+      )}
     </Card>
   );
 }
@@ -142,14 +168,17 @@ function Providers({ pool, supply }: { pool: `0x${string}`; supply: bigint | num
 /** 12.2.3 and H24: what brands owe the pool, from the guarantee's DebtRecorded and the pool's own debtOf. */
 function Debts({ pool }: { pool: `0x${string}` }) {
   const client = usePublicClient();
-  const [brands, setBrands] = useState<`0x${string}`[] | null>(null);
+  const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!client) return;
+    setFound(LOADING);
     void client
       .getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'DebtRecorded', args: { source: pool }, fromBlock: 'earliest' })
-      .then((logs) => setBrands([...new Set(logs.map((log) => (log.args as { brand: `0x${string}` }).brand))]))
-      .catch(() => setBrands([]));
-  }, [client, pool]);
+      .then((logs) => setFound({ status: 'ready', value: [...new Set(logs.map((log) => (log.args as { brand: `0x${string}` }).brand))] }))
+      .catch(() => setFound({ status: 'failed', error: CHAIN_FAILED }));
+  }, [client, pool, attempt]);
+  const brands = found.status === 'ready' ? found.value : null;
   const debts = useReadContracts({
     contracts: (brands ?? []).map((brand) => ({ address: pool, abi: POOL_READ_ABI, functionName: 'debtOf', args: [brand] })),
     query: { enabled: (brands ?? []).length > 0 },
@@ -160,8 +189,12 @@ function Debts({ pool }: { pool: `0x${string}` }) {
   return (
     <Card>
       <SectionTitle>Brands' debts</SectionTitle>
-      {brands === null ? (
+      {found.status === 'failed' ? (
+        <ReadError what="The brands' debts" error={found.error} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : brands === null ? (
         <Loading />
+      ) : chainFailed(debts) ? (
+        <ReadError what="The brands' debts" error={CHAIN_FAILED} onRetry={() => void debts.refetch()} />
       ) : owing.length === 0 ? (
         <Empty title="No brand owes the pool anything." />
       ) : (
@@ -174,7 +207,7 @@ function Debts({ pool }: { pool: `0x${string}` }) {
           ))}
         </ul>
       )}
-      <p className="mt-4 text-xs text-gray-500">A brand with a debt creates no new obligation until it is repaid.</p>
+      <p className="mt-4 text-xs text-gray-400">A brand with a debt creates no new obligation until it is repaid.</p>
     </Card>
   );
 }

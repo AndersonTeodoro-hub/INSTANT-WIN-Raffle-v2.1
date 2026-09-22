@@ -100,6 +100,10 @@ const REQUIREMENTS = [
   // SPEC-BLOCO-03 Adenda T, as ATn. T1 is the owner's registration, T10 and T11
   // are the terminal (docs/keptra), T12 is what left, T19 and T20 are accepted rules.
   'AT0', 'AT2', 'AT3', 'AT4', 'AT5', 'AT6', 'AT7', 'AT8', 'AT9', 'AT10', 'AT11', 'AT12', 'AT13', 'AT14', 'AT15', 'AT17', 'AT18', 'AT19', 'AT21',
+  // SPEC-BLOCO-03 Adenda U, as AUn (Un is taken by the matrix rows). U7 is the owner's steps before the deploy.
+  'AU1', 'AU2', 'AU3', 'AU4', 'AU5', 'AU6',
+  // SPEC-BLOCO-03 Adenda V, as AVn. V7 lists what goes to the lot before the deploy.
+  'AV1', 'AV2', 'AV3', 'AV4', 'AV5', 'AV6',
 ];
 
 for (const path of SUITES) {

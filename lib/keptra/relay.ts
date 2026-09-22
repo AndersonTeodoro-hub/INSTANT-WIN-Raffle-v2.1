@@ -21,7 +21,8 @@ import { isCancelled } from './webauthn.js';
 export type RelayAction = { readonly kind: string; readonly role?: 'CREATOR' } & Record<string, unknown>;
 
 export type SummaryAmount =
-  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: string }
+  /** V4: `meta`, the decimals and symbol the bridge read from a token other than USDC; null when the token did not say. */
+  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: string; readonly meta?: { readonly decimals: number; readonly symbol: string } | null }
   | { readonly kind: 'NFT'; readonly token: `0x${string}`; readonly tokenIds: readonly string[] }
   | { readonly kind: 'ITEMS'; readonly token: `0x${string}`; readonly count: string };
 

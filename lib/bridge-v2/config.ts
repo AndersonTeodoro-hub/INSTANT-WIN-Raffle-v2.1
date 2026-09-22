@@ -45,6 +45,13 @@ export const USDC_DECIMALS = 6 as const;
 export const KEPTRA_ESCROW: `0x${string}` = '0x0000000000000000000000000000000000000000';
 export const KEPTRA_GUARANTEE: `0x${string}` = '0x0000000000000000000000000000000000000000';
 export const KEPTRA_VOUCHER: `0x${string}` = '0x0000000000000000000000000000000000000000';
+
+/**
+ * SPEC-BLOCO-03 V5 (B3), T14, 10.4: the privacy page's text, the owner's, from its
+ * one copy (lib/keptra/privacy.ts). While it is empty order/address refuses every
+ * address — the lock is the bridge's, not only the form's.
+ */
+export { PRIVACY_TEXT } from '../keptra/privacy.js';
 /**
  * The ERC721PrizeModule of GiveawayManagerV2 (Arbitrum One), the only module a
  * voucher can enter a campaign through (11.3, H9). The fork suite reads it back

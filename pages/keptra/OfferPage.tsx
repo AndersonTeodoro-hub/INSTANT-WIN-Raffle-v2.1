@@ -6,11 +6,12 @@ import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
 import { AddressForm } from '../../components/keptra/AddressForm';
 import { useDescription, useTerms, useTier, useUsdcBalance } from '../../components/keptra/hooks';
-import { AddressLink, Badge, Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice } from '../../components/keptra/ui';
+import { AddressLink, Badge, Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
 import { TIER_NAMES, keptraConfigured } from '../../lib/keptra/contracts';
 import { countryName, formatUsdc } from '../../lib/keptra/format';
 import { generateDeliveryCode, keepCode } from '../../lib/keptra/deliveryCode';
 import type { AccountStatus } from '../../lib/keptra/api';
+import { CHAIN_FAILED } from '../../lib/keptra/reads';
 
 /*
  * /offers/:termsId — the link a store shares (T5: there is no catalogue).
@@ -26,8 +27,9 @@ import type { AccountStatus } from '../../lib/keptra/api';
 export function OfferPage() {
   const { termsId: raw } = useParams();
   const termsId = useMemo(() => (raw && /^\d{1,30}$/.test(raw) ? BigInt(raw) : null), [raw]);
-  const { terms, regions, feeBps, paused, loading, error } = useTerms(termsId);
-  const { description, missing, loading: describing } = useDescription(termsId === null ? null : termsId.toString());
+  const { terms, regions, paused, loading, failed, retry } = useTerms(termsId);
+  const describing = useDescription(termsId === null ? null : termsId.toString());
+  const { description, missing } = describing;
   const tier = useTier(terms?.store ?? null);
 
   useEffect(() => {
@@ -51,13 +53,15 @@ export function OfferPage() {
 
   return (
     <KeptraShell>
-      {(loading || describing) && <Loading label="Reading the offer from the chain…" />}
-      {!loading && (error || terms === null || terms.prize) && (
+      {(loading || describing.loading) && <Loading label="Reading the offer from the chain…" />}
+      {/* V3: a read that failed says so; "no offer at this link" only when the chain said there is none. */}
+      {!loading && failed && <ReadError what="This offer" error={CHAIN_FAILED} onRetry={retry} />}
+      {!loading && !failed && (terms === null || terms.prize) && (
         <Empty title="There is no offer at this link.">
           <p>Check the link the store sent you. An offer that was taken down is not shown here.</p>
         </Empty>
       )}
-      {!loading && terms !== null && !terms.prize && (
+      {!loading && !failed && terms !== null && !terms.prize && (
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_26rem] xl:grid-cols-[minmax(0,1fr)_28rem]">
           <div className="min-w-0 space-y-8">
             <div>
@@ -75,11 +79,13 @@ export function OfferPage() {
               <h2 className="font-display text-2xl font-bold tracking-tight">About the product</h2>
               {description ? (
                 <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-gray-200">{description.text}</p>
-              ) : (
-                <p className="mt-3 text-sm text-gray-400">
-                  {missing ? 'The store has not published a description for this offer yet, so it cannot be bought.' : 'The description could not be read. Try again shortly.'}
-                </p>
-              )}
+              ) : missing ? (
+                <p className="mt-3 text-sm text-gray-400">The store has not published a description for this offer yet, so it cannot be bought.</p>
+              ) : describing.failed !== null ? (
+                <div className="mt-3">
+                  <ReadError what="The description" error={describing.failed} onRetry={describing.retry} />
+                </div>
+              ) : null}
             </Card>
 
             <Card>
@@ -111,7 +117,7 @@ export function OfferPage() {
                   ['Returned by rule', 'If it never ships or never arrives, the contract returns your money. Anyone can trigger it.'],
                 ].map(([title, body], index) => (
                   <li key={title} className="rounded-xl border border-dark-border p-4">
-                    <p className="font-mono text-xs text-gray-500">0{index + 1}</p>
+                    <p className="font-mono text-xs text-gray-400">0{index + 1}</p>
                     <p className="mt-1 font-semibold text-white">{title}</p>
                     <p className="mt-1 text-sm text-gray-400">{body}</p>
                   </li>
@@ -133,6 +139,11 @@ export function OfferPage() {
                   Store tier from its on-chain record: {tier.delivered ?? 0} verified deliveries, {tier.materialFailures ?? 0} material failures.
                 </p>
               )}
+              {tier.failed && (
+                <div className="mt-3">
+                  <ReadError what="The store's tier" error={CHAIN_FAILED} onRetry={tier.retry} />
+                </div>
+              )}
               <div className="mt-5">
                 {paused ? (
                   <Notice tone="warning">New payments are paused on Keptra right now. Orders already paid are not affected.</Notice>
@@ -140,7 +151,7 @@ export function OfferPage() {
                   <Notice>This offer cannot be bought right now.</Notice>
                 ) : (
                   <RequireAccount intro="Sign in to buy. Your payment is held by the Keptra escrow until delivery is proven.">
-                    {(status) => <Checkout termsId={termsId} terms={terms} regions={regions} feeBps={feeBps} status={status} />}
+                    {(status) => <Checkout termsId={termsId} terms={terms} regions={regions} status={status} />}
                   </RequireAccount>
                 )}
               </div>
@@ -156,24 +167,21 @@ function Checkout({
   termsId,
   terms,
   regions,
-  feeBps,
   status,
 }: {
   termsId: bigint;
   terms: NonNullable<ReturnType<typeof useTerms>['terms']>;
   regions: readonly string[];
-  feeBps: number | null;
   status: AccountStatus;
 }) {
   const { relay } = useKeptra();
   const navigate = useNavigate();
   const account = status.accounts.find((item) => item.role === 'PARTICIPANT');
-  const { balance } = useUsdcBalance(account?.address ?? null);
+  const usdc = useUsdcBalance(account?.address ?? null);
   const [quantity, setQuantity] = useState(1);
   const [addressSaved, setAddressSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  void feeBps;
 
   if (account === undefined) return <Loading />;
   if (!account.configured) return <AccountSetup role="PARTICIPANT" status={status} />;
@@ -216,9 +224,14 @@ function Checkout({
       <div className="rounded-xl border border-dark-border p-4 text-sm">
         <p className="flex justify-between gap-3">
           <span className="text-gray-400">Your USDC</span>
-          <span className="font-mono text-white">{balance === null ? '…' : formatUsdc(balance)}</span>
+          <span className="font-mono text-white">{usdc.balance !== null ? formatUsdc(usdc.balance) : usdc.failed ? 'Not read' : '…'}</span>
         </p>
-        <p className="mt-2 text-xs text-gray-500">
+        {usdc.failed && (
+          <div className="mt-3">
+            <ReadError what="Your USDC balance" error={CHAIN_FAILED} onRetry={() => void usdc.refetch()} />
+          </div>
+        )}
+        <p className="mt-2 text-xs text-gray-400">
           The exact total, price × quantity plus shipping, is computed by Keptra and shown before you sign. Send USDC on Arbitrum One to your account address (Account page)
           to pay.
         </p>
@@ -240,9 +253,9 @@ function Checkout({
         <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Review and pay
       </Button>
       {terms.mode === 1 && (
-        <p className="text-xs text-gray-500">This store delivers itself. A delivery code is created on this device; show it when the order arrives. It is never sent to anyone.</p>
+        <p className="text-xs text-gray-400">This store delivers itself. A delivery code is created on this device; show it when the order arrives. It is never sent to anyone.</p>
       )}
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-gray-400">
         By paying you accept the store's conditions above. <Link to="/privacy" className="underline underline-offset-4">Privacy</Link>
       </p>
     </div>

@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { RequireAccount } from '../../components/keptra/SignIn';
 import { QrCode } from '../../components/keptra/QrCode';
-import { useDescription, useOrderOnChain, useTerms } from '../../components/keptra/hooks';
-import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice } from '../../components/keptra/ui';
-import { myOrders, orderEvidence, type Evidence, type PublicOrder } from '../../lib/keptra/api';
+import { useBridgeRead, useDescription, useOrderOnChain, useTerms, type OrderRead } from '../../components/keptra/hooks';
+import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
+import { myOrders, orderEvidence, type Evidence } from '../../lib/keptra/api';
+import { CHAIN_FAILED } from '../../lib/keptra/reads';
 import { keptraConfigured, OrderState } from '../../lib/keptra/contracts';
 import { codeFor, groupCode } from '../../lib/keptra/deliveryCode';
 import { formatUsdc, formatUtc, timeLeft } from '../../lib/keptra/format';
@@ -50,20 +51,19 @@ const ACTION_LABEL: Record<Exclude<RecipientAction, 'evidence'>, string> = {
 
 function OrderBody({ orderId }: { orderId: string }) {
   const { relay } = useKeptra();
-  const [row, setRow] = useState<PublicOrder | null | undefined>(undefined);
+  const listed = useBridgeRead(myOrders, []);
+  const row = listed.read.status === 'ready' ? (listed.read.value.orders.find((order) => order.orderId === orderId) ?? null) : undefined;
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const chain = useOrderOnChain(BigInt(orderId));
-  const { terms } = useTerms(row ? BigInt(row.termsId) : null);
-  const { description } = useDescription(row?.termsId ?? null);
-
-  const load = useCallback(() => {
-    void myOrders().then((result) => setRow(result.ok ? (result.orders.find((order) => order.orderId === orderId) ?? null) : null));
-  }, [orderId]);
-  useEffect(load, [load]);
+  const terms = useTerms(row ? BigInt(row.termsId) : null);
+  const describing = useDescription(row?.termsId ?? null);
+  const { description } = describing;
 
   const code = useMemo(() => (chain.order ? codeFor(window.localStorage, chain.order.codeCommit) : null), [chain.order]);
 
+  // V3: an order list that failed is an error, not "no order of yours".
+  if (listed.read.status === 'failed') return <ReadError what="Your orders" error={listed.read.error} onRetry={listed.retry} />;
   if (row === undefined) return <Loading label="Loading the order…" />;
   if (row === null) {
     return (
@@ -89,9 +89,11 @@ function OrderBody({ orderId }: { orderId: string }) {
     if (outcome.status === 'done') {
       setMessage({ tone: 'success', text: outcome.result.status === 'CONFIRMED' ? 'Done. The order is updated on-chain.' : 'Sent. It is being confirmed on-chain.' });
       void chain.refetch();
-      load();
+      listed.reload();
     }
   };
+  // What only the chain holds (the amount held, the quantity): read, still reading, or not read (V3).
+  const onChain = (value: (order: OrderRead) => ReactNode) => (chain.order ? value(chain.order) : chain.failed ? 'Not read' : '…');
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -114,24 +116,42 @@ function OrderBody({ orderId }: { orderId: string }) {
           <div className="mt-4">
             <Facts
               rows={[
-                ['Held in escrow', chain.order ? <span className="font-mono">{row.prize ? 'Bond and coverage of the prize' : formatUsdc(chain.order.paid)}</span> : '…'],
-                ['Quantity', chain.order ? String(chain.order.quantity) : '…'],
+                ['Held in escrow', onChain((order) => <span className="font-mono">{row.prize ? 'Bond and coverage of the prize' : formatUsdc(order.paid)}</span>)],
+                ['Quantity', onChain((order) => String(order.quantity))],
                 ['Delivery', row.mode === 'CARRIER' ? 'By carrier, tracked by the Keptra oracle' : 'By the store, with your delivery code'],
                 ['Ships by', formatUtc(row.shipBy)],
                 ['Arrives by', row.deliverBy ? formatUtc(row.deliverBy) : 'Counted from shipping'],
-                ...(terms ? ([['Store payout address', terms.payout]] as [string, string][]) : []),
+                ['Store payout address', terms.terms ? terms.terms.payout : terms.failed ? 'Not read' : '…'],
               ]}
             />
           </div>
-          <p className="mt-4 text-xs text-gray-500">
+          {(chain.failed || terms.failed) && (
+            <div className="mt-4">
+              <ReadError
+                what="Part of this order"
+                error={CHAIN_FAILED}
+                onRetry={() => {
+                  if (chain.failed) void chain.refetch();
+                  if (terms.failed) terms.retry();
+                }}
+              />
+            </div>
+          )}
+          <p className="mt-4 text-xs text-gray-400">
             If a deadline passes without the store acting, Keptra's keeper triggers the refund within the hour; anyone can trigger it on-chain.
           </p>
         </Card>
 
-        {description && (
+        {(description || describing.failed) && (
           <Card>
             <h2 className="font-display text-2xl font-bold tracking-tight">What you ordered</h2>
-            <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-300">{description.text}</p>
+            {description ? (
+              <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-300">{description.text}</p>
+            ) : (
+              <div className="mt-3">
+                <ReadError what="The product description" error={describing.failed ?? ''} onRetry={describing.retry} />
+              </div>
+            )}
           </Card>
         )}
 
@@ -184,25 +204,25 @@ function OrderBody({ orderId }: { orderId: string }) {
 
 /** P17 and AQ3: one text from each party, up to 2 000 characters, written once while the order is contested. */
 export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: string; party?: 'RECIPIENT' | 'STORE' }) {
-  const [evidence, setEvidence] = useState<Evidence | null>(null);
+  const read = useBridgeRead(() => orderEvidence(orderId), [orderId]);
+  const [written, setWritten] = useState<Evidence | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void orderEvidence(orderId).then((result) => (result.ok ? setEvidence(result) : setError(result.error)));
-  }, [orderId]);
+  const evidence = written ?? (read.read.status === 'ready' ? read.read.value : null);
   const mine = party === 'RECIPIENT' ? evidence?.recipient : evidence?.store;
   const theirs = party === 'RECIPIENT' ? evidence?.store : evidence?.recipient;
   return (
     <Card>
       <h2 className="font-display text-2xl font-bold tracking-tight">Evidence for the arbiter</h2>
       <p className="mt-2 text-sm text-gray-400">Each side writes one statement. It is encrypted, read only by the two sides and the arbiter, and erased with the order's data.</p>
-      {evidence === null && !error && <Loading />}
+      {evidence === null && read.read.status === 'loading' && <Loading />}
+      {evidence === null && read.read.status === 'failed' && <ReadError what="The statements" error={read.read.error} onRetry={read.retry} />}
       {error && <Notice tone="error">{error}</Notice>}
       {evidence && (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
-            <p className="text-xs uppercase tracking-wider text-gray-500">Your statement</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400">Your statement</p>
             {mine ? (
               <p className="mt-2 whitespace-pre-line rounded-xl border border-dark-border p-3 text-sm text-gray-200">{mine}</p>
             ) : (
@@ -213,7 +233,7 @@ export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: strin
                   setBusy(true);
                   const result = await orderEvidence(orderId, text);
                   setBusy(false);
-                  if (result.ok) setEvidence(result);
+                  if (result.ok) setWritten(result);
                   else setError(result.error);
                 }}
               >
@@ -229,17 +249,17 @@ export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: strin
                   onChange={(event) => setText(event.target.value)}
                 />
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-gray-500">{text.length} / 2000</span>
+                  <span className="font-mono text-xs text-gray-400">{text.length} / 2000</span>
                   <Button type="submit" busy={busy} disabled={text.trim().length === 0}>
                     Send statement
                   </Button>
                 </div>
-                <p className="text-xs text-gray-500">It cannot be changed once sent.</p>
+                <p className="text-xs text-gray-400">It cannot be changed once sent.</p>
               </form>
             )}
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wider text-gray-500">{party === 'RECIPIENT' ? "The store's statement" : "The buyer's statement"}</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400">{party === 'RECIPIENT' ? "The store's statement" : "The buyer's statement"}</p>
             <p className="mt-2 whitespace-pre-line rounded-xl border border-dark-border p-3 text-sm text-gray-300">{theirs ?? 'Not written yet.'}</p>
           </div>
         </div>

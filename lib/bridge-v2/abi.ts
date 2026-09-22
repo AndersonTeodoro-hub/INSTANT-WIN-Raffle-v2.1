@@ -1106,6 +1106,8 @@ export const KEPTRA_GUARANTEE_ABI = parseAbi([
   'function getObligation(uint256 obligationId) view returns (Obligation)',
   'function createObligation(uint96 declaredValue, uint96 shipping, uint96 returnCost, uint16 shipDays, uint16 deliveryDays, uint8 mode, bytes regions, uint32 units) returns (uint256)',
   'function totalDebtOf(address brand) view returns (uint256)',
+  // SPEC-BLOCO-03 V5 (B11): the pool, a Keptra contract USDC is never sent to from an account.
+  'function defaultSource() view returns (address)',
   // SPEC-BLOCO-03 T5: the obligation the relay created, and its terms, read from its receipt.
   'event ObligationCreated(uint256 indexed obligationId, uint256 indexed termsId, address indexed brand, address source, uint32 units, uint96 bond, uint96 coverage, uint256 protectionFee, uint8 tier)',
   'error OpenDebt()',

@@ -31,6 +31,8 @@ const DEFAULTS = () => ({
   regionsOf: [],
   trackingHashUsed: false,
   escrowArbiter: ZERO,
+  // V5 (B11): the reputation and the pool, as the escrow and the guarantee name them.
+  keptraPeripherals: ['0x00000000000000000000000000000000ee7a0001', '0x00000000000000000000000000000000ee7a0002'],
   // The whole range searched, and no OrderClosed in it.
   orderOutcome: (_orderId, _from, to) => ({ outcome: null, searchedTo: to }),
   readObligation: new Error('no obligation'),
@@ -67,6 +69,7 @@ export const readTerms = (...args) => answer('readTerms', args);
 export const regionsOf = (...args) => answer('regionsOf', args);
 export const trackingHashUsed = (...args) => answer('trackingHashUsed', args);
 export const escrowArbiter = (...args) => answer('escrowArbiter', args);
+export const keptraPeripherals = (...args) => answer('keptraPeripherals', args);
 export const orderOutcome = (...args) => answer('orderOutcome', args);
 export const readObligation = (...args) => answer('readObligation', args);
 export const voucherLastId = (...args) => answer('voucherLastId', args);

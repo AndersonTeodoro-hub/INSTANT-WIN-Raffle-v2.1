@@ -6,9 +6,10 @@
  * Three modules are swapped, by resolved path, for the preview's own:
  * - lib/keptra/contracts.ts — the addresses of the contracts deployed on the fork;
  * - lib/rpc.ts — the fork's endpoint on 127.0.0.1 (T20: never a production node);
- * - lib/keptra/webauthn.ts's passkeyOrigin — true on localhost, so the summary sheet
- *   (C12) can be opened and photographed; nothing can be signed from here, since
- *   the passkeys are keptra.io's.
+ * - lib/keptra/webauthn.ts — passkeyOrigin true on localhost, so the summary sheet
+ *   (C12) opens; and signHash answered by the preview server's software passkey of
+ *   the session (/__preview/sign), since the page's passkeys are keptra.io's and
+ *   the store's flow has to run to its end (SPEC-BLOCO-03 V1).
  * /api goes to the preview's bridge.
  */
 import path from 'node:path';
@@ -19,10 +20,15 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace
 const gen = process.env.PREVIEW_GEN_DIR;
 const api = `http://127.0.0.1:${process.env.PREVIEW_API_PORT ?? 8787}`;
 
-const webauthn = readFileSync(path.join(root, 'lib/keptra/webauthn.ts'), 'utf8').replace(
-  'return origin === KEPTRA_ORIGIN && hasWebAuthn;',
-  'return hasWebAuthn || origin.length > 0; // PREVIEW ONLY: the sheet opens on localhost; nothing signs',
-);
+const webauthn = readFileSync(path.join(root, 'lib/keptra/webauthn.ts'), 'utf8')
+  .replace('return origin === KEPTRA_ORIGIN && hasWebAuthn;', 'return hasWebAuthn || origin.length > 0; // PREVIEW ONLY: the sheet opens on localhost')
+  .replace(
+    '  const credential = (await credentials.get({',
+    `  // PREVIEW ONLY: the preview server signs with the session's software passkey.
+  if (credentials === navigator.credentials) return (await fetch('/__preview/sign', { method: 'POST', body: JSON.stringify({ hash }) })).json();
+  const credential = (await credentials.get({`,
+  );
+if (!webauthn.includes('/__preview/sign')) throw new Error('the preview could not swap signHash');
 writeFileSync(path.join(gen, 'webauthn.ts'), webauthn);
 
 const SWAP = new Map([

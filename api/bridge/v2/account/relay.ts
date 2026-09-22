@@ -13,7 +13,7 @@ import {
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { runDeadline } from '../../../../lib/bridge-v2/runlock.js';
 import { ChainError } from '../../../../lib/bridge-v2/chain.js';
-import { prepareAction, RelayRefusal, submitAction, summaryJson, type Action, type OfferTerms } from '../../../../lib/bridge-v2/relay.js';
+import { prepareAction, RelayRefusal, submitAction, summaryJson, withTokenMeta, type Action, type OfferTerms } from '../../../../lib/bridge-v2/relay.js';
 import { OrderMode } from '../../../../lib/bridge-v2/abi.js';
 import { encodeRegions } from '../../../../lib/bridge-v2/orders.js';
 import type { AccountRole } from '../../../../lib/bridge-v2/keptra.js';
@@ -70,8 +70,9 @@ const route = handle('account/relay', async ({ request, log }) => {
         safeTxHash: prepared.hash,
         nonce: prepared.tx.nonce.toString(),
         deployed: prepared.state.deployed,
-        // SPEC-BLOCO-03 C12 and T2: what the transaction does, computed here, shown by the page before the passkey.
-        summary: summaryJson(prepared.summary),
+        // SPEC-BLOCO-03 C12 and T2: what the transaction does, computed here, shown by the page before the passkey;
+        // V4: a token other than USDC with its own decimals and symbol.
+        summary: summaryJson(await withTokenMeta(prepared.summary)),
         // SPEC-BLOCO-03 H7: the redemption attestation's deadline, which the submit sends back.
         ...(prepared.redeemDeadline === null ? {} : { deadline: prepared.redeemDeadline.toString() }),
       });
@@ -142,6 +143,9 @@ const REFUSALS: Record<string, string> = {
   already_configured: 'Your account is already set up.',
   destination_not_ready: 'That account is not set up yet and cannot receive anything.',
   destination: 'Choose an address other than this account.',
+  // SPEC-BLOCO-03 V5 (B11).
+  platform_destination: 'That address is a contract of the platform. USDC sent there would not come back; choose another address.',
+  destination_unchecked: 'The destination cannot be checked right now. Try again shortly.',
   amount: 'That amount cannot be sent.',
   guardian_change_limit: 'Recovery settings were changed too often today. Try again tomorrow.',
   guardian_incident: 'Recovery cannot be set up while its key is being replaced. Try again later.',

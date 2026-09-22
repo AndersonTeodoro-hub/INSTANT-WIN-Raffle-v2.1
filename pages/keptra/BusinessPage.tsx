@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useReadContract, useReadContracts } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { Copy, ExternalLink, PackagePlus, Truck } from 'lucide-react';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
-import { useTerms, useTier } from '../../components/keptra/hooks';
+import { useBridgeRead, useTerms, useTier } from '../../components/keptra/hooks';
 import { EvidencePanel } from './OrderPage';
 import {
   AddressLink,
@@ -18,6 +18,7 @@ import {
   NotAvailable,
   Notice,
   PageTitle,
+  ReadError,
   SectionTitle,
   Stat,
   inputClass,
@@ -25,15 +26,16 @@ import {
 import {
   accountVouchers,
   myOffers,
+  offerDescription,
   registerTracking,
   storeOrders,
   writeDescription,
   type AccountStatus,
   type OfferListed,
-  type PostalAddress,
-  type PublicOrder,
+  type StoreOrder,
   type VoucherHeld,
 } from '../../lib/keptra/api';
+import { CHAIN_FAILED, chainFailed } from '../../lib/keptra/reads';
 import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, OrderState, TIER_NAMES, keptraConfigured } from '../../lib/keptra/contracts';
 import { countryName, formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
 import { orderStatusText, storeActions, type StoreAction } from '../../lib/keptra/orders';
@@ -100,14 +102,29 @@ function BusinessHeader({ address }: { address: `0x${string}` }) {
   const tier = useTier(address);
   const [isStore, debt] = reads.data ?? [];
   const authorised = isStore?.status === 'success' ? (isStore.result as boolean) : null;
+  // V3: what the chain did not give is "Not read", with the way to read it again.
+  const failed = chainFailed(reads) || tier.failed;
+  const pending = failed ? 'Not read' : '…';
   return (
     <Card>
       <dl className="grid grid-cols-2 gap-6 md:grid-cols-4">
         <Stat label="Business account" value={<AddressLink address={address} />} />
-        <Stat label="Tier" value={tier.tier === null ? '…' : TIER_NAMES[tier.tier]} hint={tier.delivered === null ? undefined : `${tier.delivered} verified deliveries`} />
-        <Stat label="Material failures" value={tier.materialFailures ?? '…'} />
-        <Stat label="Debt to the pool" value={debt?.status === 'success' ? formatUsdc(debt.result as bigint) : '…'} />
+        <Stat label="Tier" value={tier.tier === null ? pending : TIER_NAMES[tier.tier]} hint={tier.delivered === null ? undefined : `${tier.delivered} verified deliveries`} />
+        <Stat label="Material failures" value={tier.materialFailures ?? pending} />
+        <Stat label="Debt to the pool" value={debt?.status === 'success' ? formatUsdc(debt.result as bigint) : pending} />
       </dl>
+      {failed && (
+        <div className="mt-5">
+          <ReadError
+            what="Part of your business record"
+            error={CHAIN_FAILED}
+            onRetry={() => {
+              void reads.refetch();
+              if (tier.failed) tier.retry();
+            }}
+          />
+        </div>
+      )}
       {authorised === false && (
         <div className="mt-5">
           <Notice tone="warning" title="Not authorised yet">
@@ -123,17 +140,12 @@ function BusinessHeader({ address }: { address: `0x${string}` }) {
 // orders — T4, 9.1.1, 9.2, 9.3, 9.4, T12
 // ---------------------------------------------------------------------------
 
-type StoreOrder = PublicOrder & { address: PostalAddress | null };
-
 function OrdersSection({ focus }: { focus: string | null }) {
-  const [orders, setOrders] = useState<readonly StoreOrder[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => {
-    void storeOrders().then((result) => (result.ok ? setOrders(result.orders) : setError(result.error)));
-  }, []);
-  useEffect(load, [load]);
-  if (error) return <Notice tone="error">{error}</Notice>;
-  if (orders === null) return <Loading label="Loading your orders…" />;
+  const listed = useBridgeRead(storeOrders, []);
+  if (listed.read.status === 'failed') return <ReadError what="Your orders" error={listed.read.error} onRetry={listed.retry} />;
+  if (listed.read.status === 'loading') return <Loading label="Loading your orders…" />;
+  const load = listed.reload;
+  const orders = listed.read.value.orders;
   const shown = focus === null ? orders : orders.filter((order) => order.orderId === focus);
   if (shown.length === 0) return <Empty title={focus === null ? 'No orders yet.' : 'No order of yours with this number.'}>{focus === null && <p>Orders appear here a minute after a buyer pays or a winner redeems.</p>}</Empty>;
   const open = shown.filter((order) => order.state !== OrderState.CLOSED);
@@ -141,7 +153,7 @@ function OrdersSection({ focus }: { focus: string | null }) {
   return (
     <div className="space-y-8">
       <section>
-        <SectionTitle aside={<span className="font-mono text-sm text-gray-500">{open.length}</span>}>Open</SectionTitle>
+        <SectionTitle aside={<span className="font-mono text-sm text-gray-400">{open.length}</span>}>Open</SectionTitle>
         {open.length === 0 ? <Empty title="Nothing to fulfil right now." /> : <div className="space-y-4">{open.map((order) => <StoreOrderCard key={order.orderId} order={order} onChange={load} />)}</div>}
       </section>
       {closed.length > 0 && (
@@ -169,12 +181,13 @@ const STORE_LABEL: Record<Exclude<StoreAction, 'evidence' | 'tracking' | 'submit
 
 function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () => void }) {
   const { relay } = useKeptra();
-  const [tracked, setTracked] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const now = Math.floor(Date.now() / 1000);
-  const actions = storeActions(order, now, tracked);
+  // V1 (A1): whether the number is registered is the bridge's answer (store/orders), not this page's memory —
+  // so the store declares the shipment in another session, after a reload, from the notice's link, or after a lost answer.
+  const actions = storeActions(order, now, order.trackingRegistered);
 
   const run = async (label: string, work: () => Promise<{ ok: boolean; text?: string }>) => {
     setBusy(label);
@@ -201,9 +214,10 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
             {order.state === OrderState.PAID ? `Ship by ${formatUtc(order.shipBy)}` : order.deliverBy ? `Deliver by ${formatUtc(order.deliverBy)}` : ''}
           </p>
           <p className="mt-1 text-xs text-gray-400">{order.mode === 'CARRIER' ? 'Carrier, tracked' : 'Own delivery, with the buyer’s code'}</p>
+          {order.state === OrderState.PAID && order.trackingRegistered && <p className="mt-1 text-xs text-gray-300">Tracking number registered.</p>}
         </div>
         <div className="text-sm">
-          <p className="text-xs uppercase tracking-wider text-gray-500">Ship to</p>
+          <p className="text-xs uppercase tracking-wider text-gray-400">Ship to</p>
           {order.address ? (
             <address className="mt-2 not-italic leading-relaxed text-gray-200">
               {order.address.name}
@@ -232,10 +246,9 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
                 event.preventDefault();
                 void run('tracking', async () => {
                   const result = await registerTracking(order.orderId, input);
-                  if (result.ok) {
-                    setTracked(true);
-                    setInput('');
-                  }
+                  if (result.ok) setInput('');
+                  // V1: read the order again either way — a registration whose answer was lost shows up as registered.
+                  else onChange();
                   return result.ok ? { ok: true, text: 'Tracking number registered. Now declare the order shipped.' } : { ok: false, text: result.error };
                 });
               }}
@@ -330,6 +343,8 @@ function useCeilings() {
   });
   const [refusal, ship, delivery] = reads.data ?? [];
   return {
+    failed: chainFailed(reads),
+    retry: () => void reads.refetch(),
     maxRefusalBps: refusal?.status === 'success' ? Number(refusal.result) : null,
     maxShipDays: ship?.status === 'success' ? Number(ship.result) : null,
     maxDeliveryDays: delivery?.status === 'success' ? Number(delivery.result) : null,
@@ -449,9 +464,17 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'warning'; text: React.ReactNode } | null>(null);
-  const [offers, setOffers] = useState<readonly OfferListed[] | null>(null);
-  const load = useCallback(() => void myOffers().then((result) => setOffers(result.ok ? result.offers.filter((o) => o.obligationId === null) : [])), []);
-  useEffect(load, [load]);
+  // V5 (B9): an offer that exists without its description — the page offers only to write that one.
+  const [unwritten, setUnwritten] = useState<Unwritten | null>(null);
+  const listed = useBridgeRead(myOffers, []);
+  const load = listed.reload;
+
+  const published = (termsId: string) => {
+    setUnwritten(null);
+    setDraft(EMPTY_DRAFT);
+    setMessage({ tone: 'success', text: <>Offer #{termsId} is published. Share its link: <ShareLink path={`/offers/${termsId}`} /></> });
+    load();
+  };
 
   const publish = async () => {
     const built = conditionsBody(draft, 'offer', ceilings);
@@ -464,16 +487,16 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
       return setMessage(outcome.status === 'refused' ? { tone: 'error', text: outcome.error } : null);
     }
     const termsId = outcome.result.termsId;
-    // T4: the description, written once, right after the offer exists (T5 gave its id).
-    const written = termsId ? await writeDescription({ termsId, title: draft.title, text: draft.text }) : null;
     setBusy(false);
-    if (termsId && written?.ok) {
-      setDraft(EMPTY_DRAFT);
-      setMessage({ tone: 'success', text: <>Offer #{termsId} is published. Share its link: <ShareLink path={`/offers/${termsId}`} /></> });
-    } else {
-      setMessage({ tone: 'warning', text: `The offer was created${termsId ? ` (#${termsId})` : ''}, but its description was not saved. It cannot be bought until it has one — try publishing again.` });
+    if (termsId === null) {
+      // Sent, but its receipt did not come back yet: the offer's number is not known, so it cannot be described here.
+      setUnwritten({ termsId: null, title: draft.title, text: draft.text, error: 'The offer was sent and is still confirming on-chain.' });
+      return;
     }
-    load();
+    // T4: the description, written once, right after the offer exists (T5 gave its id).
+    const written = await writeDescription({ termsId, title: draft.title, text: draft.text });
+    if (written.ok) return published(termsId);
+    setUnwritten({ termsId, title: draft.title, text: draft.text, error: written.error });
   };
 
   return (
@@ -487,17 +510,85 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
         <p className="mb-5 text-sm text-gray-400">
           Everything here is shown to the buyer before paying and written on-chain; it never changes for an order. Payments go to your business account ({payout.slice(0, 6)}…).
         </p>
+        {ceilings.failed && (
+          <div className="mb-5">
+            <ReadError what="The escrow's limits" error={CHAIN_FAILED} onRetry={ceilings.retry} />
+          </div>
+        )}
         <ConditionsForm kind="offer" draft={draft} setDraft={setDraft} />
         {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
-        <Button className="mt-5" busy={busy} onClick={() => void publish()}>
-          Review and publish
-        </Button>
+        {unwritten ? (
+          <div className="mt-5">
+            <DescriptionRetry what="Offer" unwritten={unwritten} onWritten={published} />
+          </div>
+        ) : (
+          <Button className="mt-5" busy={busy} onClick={() => void publish()}>
+            Review and publish
+          </Button>
+        )}
       </Card>
       <section>
         <SectionTitle>Your offers</SectionTitle>
-        {offers === null ? <Loading /> : offers.length === 0 ? <Empty title="No offer published yet." /> : <ul className="space-y-3">{offers.map((offer) => <OfferRow key={offer.termsId} offer={offer} onChange={load} />)}</ul>}
+        {listed.read.status === 'failed' ? (
+          <ReadError what="Your offers" error={listed.read.error} onRetry={listed.retry} />
+        ) : listed.read.status === 'loading' ? (
+          <Loading />
+        ) : (
+          <OfferList offers={listed.read.value.offers.filter((o) => o.obligationId === null)} onChange={load} />
+        )}
       </section>
     </div>
+  );
+}
+
+function OfferList({ offers, onChange }: { offers: readonly OfferListed[]; onChange: () => void }) {
+  if (offers.length === 0) return <Empty title="No offer published yet." />;
+  return <ul className="space-y-3">{offers.map((offer) => <OfferRow key={offer.termsId} offer={offer} onChange={onChange} />)}</ul>;
+}
+
+/** V5 (B9): what was created and still lacks its description; `termsId` null while its receipt has not come back. */
+interface Unwritten {
+  readonly termsId: string | null;
+  readonly obligationId?: string;
+  readonly title: string;
+  readonly text: string;
+  readonly error: string;
+}
+
+/**
+ * V5 (B9): the offer or the obligation exists, its description does not. The page
+ * shows why, and offers one thing: write the description of that one — never create
+ * another (a second obligation would take a second bond). A write refused because
+ * one is already there (an answer lost on the way) counts once the bridge shows it.
+ */
+function DescriptionRetry({ what, unwritten, onWritten }: { what: 'Offer' | 'Obligation'; unwritten: Unwritten; onWritten: (termsId: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(unwritten.error);
+  const id = what === 'Offer' ? unwritten.termsId : (unwritten.obligationId ?? null);
+  if (unwritten.termsId === null) {
+    return (
+      <Notice tone="warning" title={`The ${what.toLowerCase()} was sent, but its number is not known yet.`}>
+        <p>{error} Its description cannot be written until it is confirmed. Do not create it again: open Arbiscan from your business account to follow it.</p>
+      </Notice>
+    );
+  }
+  const termsId = unwritten.termsId;
+  const save = async () => {
+    setBusy(true);
+    const written = await writeDescription({ termsId, ...(unwritten.obligationId ? { obligationId: unwritten.obligationId } : {}), title: unwritten.title, text: unwritten.text });
+    const there = written.ok || (written.status === 409 && (await offerDescription(termsId)).ok);
+    setBusy(false);
+    if (there) onWritten(termsId);
+    else if (!written.ok) setError(written.error);
+  };
+  return (
+    <Notice tone="error" title={`${what} #${id} is created, but its description was not saved.`}>
+      <p>{error}</p>
+      <p className="mt-1">{what === 'Offer' ? 'It cannot be bought until it has one.' : 'Its vouchers cannot be redeemed through the page until it has one.'} Nothing new is created by saving it.</p>
+      <Button className="mt-3" busy={busy} onClick={() => void save()}>
+        Save the description of {what.toLowerCase()} #{id}
+      </Button>
+    </Notice>
   );
 }
 
@@ -517,18 +608,23 @@ function ShareLink({ path }: { path: string }) {
 
 function OfferRow({ offer, onChange }: { offer: OfferListed; onChange: () => void }) {
   const { relay } = useKeptra();
-  const { terms } = useTerms(BigInt(offer.termsId));
+  const { terms, failed, retry } = useTerms(BigInt(offer.termsId));
   const [busy, setBusy] = useState(false);
   return (
     <li className="rounded-2xl border border-dark-border bg-dark-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-mono text-xs text-gray-500">#{offer.termsId}</p>
+          <p className="font-mono text-xs text-gray-400">#{offer.termsId}</p>
           <p className="break-words font-semibold text-white">{offer.title}</p>
-          <p className="mt-1 font-mono text-sm text-brand">{terms ? formatUsdc(terms.price) : '…'}</p>
+          <p className="mt-1 font-mono text-sm text-brand">{terms ? formatUsdc(terms.price) : failed ? 'Not read' : '…'}</p>
         </div>
         {terms && <Badge tone={terms.active ? 'success' : 'neutral'}>{terms.active ? 'Live' : 'Taken down'}</Badge>}
       </div>
+      {failed && (
+        <div className="mt-3">
+          <ReadError what="Its conditions" error={CHAIN_FAILED} onRetry={retry} />
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         <ShareLink path={`/offers/${offer.termsId}`} />
         {terms?.active && (
@@ -560,13 +656,14 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'warning'; text: string } | null>(null);
-  const [offers, setOffers] = useState<readonly OfferListed[] | null>(null);
-  const [vouchers, setVouchers] = useState<readonly VoucherHeld[]>([]);
-  const load = useCallback(() => {
-    void myOffers().then((result) => setOffers(result.ok ? result.offers.filter((o) => o.obligationId !== null) : []));
-    void accountVouchers().then((result) => setVouchers(result.ok ? result.vouchers.filter((v) => v.role === 'CREATOR') : []));
-  }, []);
-  useEffect(load, [load]);
+  const [unwritten, setUnwritten] = useState<Unwritten | null>(null);
+  const listed = useBridgeRead(myOffers, []);
+  const held = useBridgeRead(accountVouchers, []);
+  const load = () => {
+    listed.reload();
+    held.reload();
+  };
+  const vouchers = held.read.status === 'ready' ? held.read.value.vouchers.filter((v) => v.role === 'CREATOR') : null;
 
   const create = async () => {
     const built = conditionsBody(draft, 'obligation', ceilings);
@@ -580,14 +677,22 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
       return setMessage(outcome.status === 'refused' ? { tone: 'error', text: outcome.error } : null);
     }
     const { termsId, obligationId, voucherIds } = outcome.result;
-    const written = termsId && obligationId ? await writeDescription({ termsId, obligationId, title: draft.title, text: draft.text }) : null;
+    const done = () => {
+      setUnwritten(null);
+      setDraft(EMPTY_DRAFT);
+      setMessage({ tone: 'success', text: `Obligation #${obligationId} is covered, with ${voucherIds.length} voucher${voucherIds.length === 1 ? '' : 's'}. Put them in a campaign below.` });
+    };
+    if (termsId === null || obligationId === null) {
+      setBusy(false);
+      setUnwritten({ termsId: null, title: draft.title, text: draft.text, error: 'The obligation was sent and is still confirming on-chain.' });
+      load();
+      return;
+    }
+    const written = await writeDescription({ termsId, obligationId, title: draft.title, text: draft.text });
     setBusy(false);
-    setMessage(
-      written?.ok
-        ? { tone: 'success', text: `Obligation #${obligationId} is covered, with ${voucherIds.length} voucher${voucherIds.length === 1 ? '' : 's'}. Put them in a campaign below.` }
-        : { tone: 'warning', text: `The obligation was created${obligationId ? ` (#${obligationId})` : ''}, but its description was not saved.` },
-    );
-    if (written?.ok) setDraft(EMPTY_DRAFT);
+    // V5 (B9): without its description the page offers to write that one, never to create another (a second bond).
+    if (written.ok) done();
+    else setUnwritten({ termsId, obligationId, title: draft.title, text: draft.text, error: written.error });
     load();
   };
 
@@ -600,29 +705,66 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
             You deposit the bond your tier asks for; the Keptra guarantee pool covers the rest of each unit's value plus shipping, for a protection fee paid now. One voucher is
             minted per unit. The exact bond and fee are shown before you sign.
           </p>
+          {ceilings.failed && (
+            <div className="mb-5">
+              <ReadError what="The escrow's limits" error={CHAIN_FAILED} onRetry={ceilings.retry} />
+            </div>
+          )}
           <ConditionsForm kind="obligation" draft={draft} setDraft={setDraft} />
           {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
-          <Button className="mt-5" busy={busy} onClick={() => void create()}>
-            Review and create
-          </Button>
+          {unwritten ? (
+            <div className="mt-5">
+              <DescriptionRetry
+                what="Obligation"
+                unwritten={unwritten}
+                onWritten={() => {
+                  setUnwritten(null);
+                  setDraft(EMPTY_DRAFT);
+                  setMessage({ tone: 'success', text: `Obligation #${unwritten.obligationId} is covered and described. Put its vouchers in a campaign below.` });
+                  load();
+                }}
+              />
+            </div>
+          ) : (
+            <Button className="mt-5" busy={busy} onClick={() => void create()}>
+              Review and create
+            </Button>
+          )}
         </Card>
         <section>
           <SectionTitle>Your obligations</SectionTitle>
-          {offers === null ? <Loading /> : offers.length === 0 ? <Empty title="No obligation yet." /> : (
-            <ul className="space-y-3">
-              {offers.map((offer) => (
-                <li key={offer.termsId} className="rounded-2xl border border-dark-border bg-dark-card p-4">
-                  <p className="font-mono text-xs text-gray-500">Obligation #{offer.obligationId}</p>
-                  <p className="break-words font-semibold text-white">{offer.title}</p>
-                  <p className="mt-1 text-xs text-gray-400">{vouchers.filter((v) => v.obligationId === offer.obligationId).length} voucher(s) in your account</p>
-                </li>
-              ))}
-            </ul>
+          {listed.read.status === 'failed' ? (
+            <ReadError what="Your obligations" error={listed.read.error} onRetry={listed.retry} />
+          ) : listed.read.status === 'loading' ? (
+            <Loading />
+          ) : (
+            <ObligationList offers={listed.read.value.offers.filter((o) => o.obligationId !== null)} vouchers={vouchers} />
           )}
         </section>
       </div>
-      <VoucherCampaign vouchers={vouchers} phoneVerified={status.phoneVerified} onCreated={load} />
+      {held.read.status === 'failed' ? (
+        <ReadError what="Your vouchers" error={held.read.error} onRetry={held.retry} />
+      ) : vouchers === null ? (
+        <Loading />
+      ) : (
+        <VoucherCampaign vouchers={vouchers} phoneVerified={status.phoneVerified} onCreated={load} />
+      )}
     </div>
+  );
+}
+
+function ObligationList({ offers, vouchers }: { offers: readonly OfferListed[]; vouchers: readonly VoucherHeld[] | null }) {
+  if (offers.length === 0) return <Empty title="No obligation yet." />;
+  return (
+    <ul className="space-y-3">
+      {offers.map((offer) => (
+        <li key={offer.termsId} className="rounded-2xl border border-dark-border bg-dark-card p-4">
+          <p className="font-mono text-xs text-gray-400">Obligation #{offer.obligationId}</p>
+          <p className="break-words font-semibold text-white">{offer.title}</p>
+          {vouchers !== null && <p className="mt-1 text-xs text-gray-400">{vouchers.filter((v) => v.obligationId === offer.obligationId).length} voucher(s) in your account</p>}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -635,8 +777,6 @@ function VoucherCampaign({ vouchers, phoneVerified, onCreated }: { vouchers: rea
   const [slots, setSlots] = useState('100');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: React.ReactNode } | null>(null);
-  const cap = useReadContract({ address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'paused' });
-  void cap;
 
   const obligationOf = selected.length > 0 ? loose.find((v) => v.voucherId === selected[0])?.obligationId : null;
   const toggle = (voucher: VoucherHeld) =>
@@ -700,7 +840,7 @@ function VoucherCampaign({ vouchers, phoneVerified, onCreated }: { vouchers: rea
                   <label className={`flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${on ? 'border-brand bg-brand/[0.06]' : 'border-dark-border'}`}>
                     <input type="checkbox" checked={on} onChange={() => toggle(voucher)} className="h-4 w-4 accent-amber-500" />
                     <span className="font-mono">#{voucher.voucherId}</span>
-                    <span className="text-xs text-gray-500">obligation {voucher.obligationId}</span>
+                    <span className="text-xs text-gray-400">obligation {voucher.obligationId}</span>
                   </label>
                 </li>
               );

@@ -34,3 +34,16 @@ export function setKeptraContracts({ escrow, guarantee, voucher }) {
 export function resetKeptraContracts() {
   setKeptraContracts(REAL_KEPTRA);
 }
+
+/**
+ * SPEC-BLOCO-03 V5 (B3): the privacy text order/address checks. The owner's is
+ * empty today (T14), and the suites register addresses, so here it is published
+ * until a test puts the real one back with setPrivacyText(REAL_PRIVACY_TEXT).
+ * lib/keptra/privacy.ts itself is not doubled: what the page reads is the real text.
+ */
+export const REAL_PRIVACY_TEXT = real.PRIVACY_TEXT;
+export let PRIVACY_TEXT = 'Keptra privacy notice (published in the test suites only).';
+
+export function setPrivacyText(text) {
+  PRIVACY_TEXT = text;
+}

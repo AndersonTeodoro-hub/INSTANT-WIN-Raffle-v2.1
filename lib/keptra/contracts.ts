@@ -22,8 +22,6 @@ export {
   KEPTRA_GUARANTEE_ABI,
   KEPTRA_VOUCHER_ABI,
   OrderFlag,
-  OrderMode,
-  OrderOutcome,
   OrderState,
 } from '../bridge-v2/abi.js';
 
@@ -47,12 +45,10 @@ export const ESCROW_READ_ABI = parseAbi([
   'function MAX_REFUSAL_BPS() view returns (uint16)',
   'function MAX_SHIP_DAYS() view returns (uint16)',
   'function MAX_DELIVERY_DAYS() view returns (uint16)',
-  'function CONTEST_WINDOW() view returns (uint256)',
   'function feeBps() view returns (uint16)',
   'function paused() view returns (bool)',
   'function isStore(address) view returns (bool)',
   'function reputation() view returns (address)',
-  'function guarantee() view returns (address)',
 ]);
 
 /** 13 and T15: a store's tier and counters, read from the chain. */
@@ -68,7 +64,6 @@ export const GUARANTEE_READ_ABI = parseAbi([
   'function reserveShareBps() view returns (uint16)',
   'function platformShareBps() view returns (uint16)',
   'function totalDebtOf(address brand) view returns (uint256)',
-  'function obligationCount() view returns (uint256)',
   'event DebtRecorded(address indexed brand, address indexed source, uint256 amount)',
 ]);
 
@@ -78,7 +73,6 @@ export const POOL_READ_ABI = parseAbi([
   'function totalSupply() view returns (uint256)',
   'function reservedTotal() view returns (uint256)',
   'function freeCapacity() view returns (uint256)',
-  'function freeWithdrawCapacity() view returns (uint256)',
   'function utilisationBps() view returns (uint256)',
   'function maxUtilisationBps() view returns (uint16)',
   'function riskReserve() view returns (uint256)',
@@ -86,10 +80,8 @@ export const POOL_READ_ABI = parseAbi([
   'function lossesPaid() view returns (uint256)',
   'function pendingRequests() view returns (uint256)',
   'function balanceOf(address) view returns (uint256)',
-  'function convertToAssets(uint256 shares) view returns (uint256)',
   'function debtOf(address brand) view returns (uint256)',
   'event ProviderSet(address indexed provider, bool allowed)',
-  'event DebtRepaid(address indexed brand, address indexed source, uint256 amount)',
 ]);
 
 /** 13.2: the tiers as the reputation contract numbers them. */

@@ -7,6 +7,7 @@
  */
 
 import { OrderFlag, OrderState } from './contracts.js';
+import { timeLeft } from './format.js';
 
 export interface OrderFacts {
   readonly state: number;
@@ -55,6 +56,17 @@ function closedText(outcome: number | null, prize: boolean): string {
     default:
       return 'Closed';
   }
+}
+
+/**
+ * V5 (B7): an open order's next deadline in words, the same on every width — the
+ * ship-by while paid, the window's end while it runs, the arrive-by after that.
+ * null for a closed order, or one whose deadline is not set yet.
+ */
+export function nextDeadlineText(order: Pick<OrderFacts, 'state' | 'shipBy' | 'deliverBy' | 'windowEndsAt'>, nowSeconds: number): string | null {
+  if (order.state === OrderState.CLOSED || order.state === OrderState.NONE) return null;
+  const at = order.state === OrderState.WINDOW ? order.windowEndsAt : order.state === OrderState.PAID ? order.shipBy : order.deliverBy;
+  return at === null ? null : `Next deadline ${timeLeft(at, nowSeconds)}`;
 }
 
 export type RecipientAction = 'cancelOrder' | 'confirm' | 'contest' | 'evidence';

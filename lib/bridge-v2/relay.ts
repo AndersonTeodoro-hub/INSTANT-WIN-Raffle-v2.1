@@ -95,6 +95,7 @@ import {
   currentCreationFee,
   erc20BalanceOf,
   encodeTokenPrizeData,
+  erc20Meta,
   giveawayIdFromLogs,
   prizeDelivery,
   readGiveaway,
@@ -106,6 +107,7 @@ import {
 } from './chain.js';
 import {
   brandParams,
+  keptraPeripherals,
   obligationFromLogs,
   offerIdFromLogs,
   orderIdFromLogs,
@@ -242,7 +244,12 @@ export interface OfferTerms {
  * what comes back into it, and the destination is then the account itself.
  */
 export type SummaryAmount =
-  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: bigint }
+  /**
+   * V4: a token other than USDC carries its own decimals and symbol, read from the
+   * token when the summary is prepared (withTokenMeta), or null when the token does
+   * not say — the page then shows no figure for it. USDC's are config.ts's.
+   */
+  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: bigint; readonly meta?: { readonly decimals: number; readonly symbol: string } | null }
   | { readonly kind: 'NFT'; readonly token: `0x${string}`; readonly tokenIds: readonly bigint[] }
   /** Prize items whose ids the claim itself decides (an NFT campaign's claim). */
   | { readonly kind: 'ITEMS'; readonly token: `0x${string}`; readonly count: bigint };
@@ -270,13 +277,48 @@ export function summaryJson(summary: ActionSummary): Record<string, unknown> {
     action: summary.action,
     amounts: summary.amounts.map((amount) =>
       amount.kind === 'ERC20'
-        ? { kind: amount.kind, token: amount.token, value: amount.value.toString() }
+        ? { kind: amount.kind, token: amount.token, value: amount.value.toString(), ...(amount.meta === undefined ? {} : { meta: amount.meta }) }
         : amount.kind === 'NFT'
           ? { kind: amount.kind, token: amount.token, tokenIds: amount.tokenIds.map(String) }
           : { kind: amount.kind, token: amount.token, count: amount.count.toString() },
     ),
     destination: summary.destination,
   };
+}
+
+/**
+ * SPEC-BLOCO-03 V4 (A4): every amount of a token other than USDC in the summary,
+ * with that token's decimals and symbol as the token reports them (erc20Meta, which
+ * refuses a symbol that is not a short plain word). Done once, when the summary is
+ * prepared for the page; the submit rebuilds the calls and needs none of it.
+ */
+export async function withTokenMeta(summary: ActionSummary): Promise<ActionSummary> {
+  const amounts = await Promise.all(
+    summary.amounts.map(async (amount) =>
+      amount.kind === 'ERC20' && amount.token.toLowerCase() !== USDC.toLowerCase() ? { ...amount, meta: await erc20Meta(amount.token) } : amount,
+    ),
+  );
+  return { ...summary, amounts };
+}
+
+/**
+ * SPEC-BLOCO-03 V5 (B11): the contracts USDC is never sent to from an account — the
+ * five of Keptra (the escrow, the guarantee and the voucher of config.ts, and the
+ * reputation and the pool the escrow and the guarantee name on-chain), the USDC
+ * contract itself and the draws' core. USDC sent to any of them would not come
+ * back. When the two on-chain names cannot be read the transfer is refused: it is
+ * not signed unchecked.
+ */
+async function platformContract(to: `0x${string}`): Promise<boolean> {
+  const named: `0x${string}`[] = [USDC, GIVEAWAY_MANAGER_V2, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_VOUCHER];
+  if (keptraContractsConfigured()) {
+    try {
+      named.push(...(await keptraPeripherals()));
+    } catch {
+      throw new RelayRefusal('destination_unchecked');
+    }
+  }
+  return named.some((address) => address.toLowerCase() === to.toLowerCase());
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -497,9 +539,10 @@ async function actionCalls(
     case 'transferUsdc': {
       // T12 (U17): USDC the account holds — a refund, a returned bond, a store's
       // payout — to where its owner says, exactly the amount stated (C7). Never
-      // into a platform account that is not deployed and configured (C4), and
-      // never to the account itself.
+      // into a platform account that is not deployed and configured (C4), never
+      // to the account itself, never into a platform contract (V5, B11).
       if (action.to.toLowerCase() === safe.toLowerCase()) throw new RelayRefusal('destination');
+      if (await platformContract(action.to)) throw new RelayRefusal('platform_destination');
       const target = await accountBySafe(action.to);
       if (target !== null && !(await readAccount(target)).usable) throw new RelayRefusal('destination_not_ready');
       if (action.amount <= 0n || (await erc20BalanceOf(USDC, safe)) < action.amount) throw new RelayRefusal('amount');

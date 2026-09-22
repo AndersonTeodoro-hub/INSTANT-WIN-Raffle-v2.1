@@ -4,6 +4,7 @@ import { accountStatus, registerPasskey, type AccountStatus, type Assertion } fr
 import { runAction, type ActionSummary, type RelayAction, type RelayOutcome } from '../../lib/keptra/relay';
 import { createPasskey, passkeyOrigin, signHash } from '../../lib/keptra/webauthn';
 import { summaryWords } from '../../lib/keptra/format';
+import { trapTarget } from '../../lib/keptra/focus';
 import { AddressLink, Button } from './ui';
 
 /*
@@ -18,6 +19,8 @@ interface KeptraContextValue {
   /** null while the first read is in flight. */
   readonly signedIn: boolean | null;
   readonly status: AccountStatus | null;
+  /** V3: the bridge did not answer the session's read (anything but "not signed in"); the page shows it with "Try again". */
+  readonly statusError: string | null;
   readonly refresh: () => Promise<void>;
   /** A1: this page may ask for a Keptra passkey (on keptra.io, WebAuthn available). */
   readonly passkeyReady: boolean;
@@ -44,6 +47,7 @@ interface PendingConfirm {
 export function KeptraProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AccountStatus | null>(null);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const statusRef = useRef<AccountStatus | null>(null);
 
@@ -58,11 +62,15 @@ export function KeptraProvider({ children }: { children: React.ReactNode }) {
       statusRef.current = result;
       setStatus(result);
       setSignedIn(true);
-    } else {
-      // Not signed in (401), or the bridge did not answer: either way the page offers the sign-in, whose own call says what is wrong.
+      setStatusError(null);
+    } else if (result.status === 401) {
       statusRef.current = null;
       setStatus(null);
       setSignedIn(false);
+      setStatusError(null);
+    } else {
+      // V3: no answer about the session — what was read stays, and the page says this read failed.
+      setStatusError(result.error);
     }
   }, []);
 
@@ -110,8 +118,8 @@ export function KeptraProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value = useMemo(
-    () => ({ signedIn, status, refresh, passkeyReady, relay, signChallenge, createAccountPasskey }),
-    [signedIn, status, refresh, passkeyReady, relay, signChallenge, createAccountPasskey],
+    () => ({ signedIn, status, statusError, refresh, passkeyReady, relay, signChallenge, createAccountPasskey }),
+    [signedIn, status, statusError, refresh, passkeyReady, relay, signChallenge, createAccountPasskey],
   );
 
   return (
@@ -122,28 +130,51 @@ export function KeptraProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** What Tab can reach inside the sheet, in order. */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
  * C12 and T2: before the passkey, the transaction in plain words — the action,
  * what moves, where it goes — as the bridge computed it. A dialog: focus on the
  * decision, Escape or the backdrop cancel, nothing is sent without the yes.
+ *
+ * V5 (B1): while it is open Tab and Shift+Tab stay inside it (focus.ts), and when
+ * it closes the focus goes back to the button that opened it — which kept the
+ * focus while the bridge prepared, since a busy Button is not disabled (ui.tsx).
  */
 function SignSheet({ summary, onAnswer }: { summary: ActionSummary; onAnswer: (yes: boolean) => void }) {
   const words = summaryWords(summary);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // The provider hands a new onAnswer on every render; the sheet opens and closes once.
+  const answerRef = useRef(onAnswer);
+  answerRef.current = onAnswer;
 
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     confirmRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onAnswer(false);
+      if (event.key === 'Escape') answerRef.current(false);
+      if (event.key !== 'Tab' || dialogRef.current === null) return;
+      const controls = [...dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      const target = trapTarget(controls, document.activeElement instanceof HTMLElement ? document.activeElement : null, event.shiftKey);
+      if (target !== null) {
+        event.preventDefault();
+        target.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onAnswer]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      opener?.focus();
+    };
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="presentation">
-      <button type="button" aria-label="Cancel" className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in-up" onClick={() => onAnswer(false)} />
+      <button type="button" tabIndex={-1} aria-label="Cancel" className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in-up" onClick={() => onAnswer(false)} />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sign-title"

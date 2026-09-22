@@ -148,6 +148,18 @@ export async function trackingHashUsed(hash: Hex): Promise<boolean> {
   return (await publicClient().readContract({ address: KEPTRA_ESCROW, abi: KEPTRA_ESCROW_ABI, functionName: 'usedTrackingHash', args: [hash] })) as boolean;
 }
 
+/**
+ * SPEC-BLOCO-03 V5 (B11): the two Keptra contracts config.ts does not hold, as the
+ * chain names them now — the escrow's reputation and the guarantee's pool.
+ */
+export async function keptraPeripherals(): Promise<`0x${string}`[]> {
+  const client = publicClient();
+  return (await Promise.all([
+    client.readContract({ address: KEPTRA_ESCROW, abi: KEPTRA_ESCROW_ABI, functionName: 'reputation' }),
+    client.readContract({ address: KEPTRA_GUARANTEE, abi: KEPTRA_GUARANTEE_ABI, functionName: 'defaultSource' }),
+  ])) as `0x${string}`[];
+}
+
 /** H5: the arbiter as the escrow names it now — a rotation reaches every order. */
 export async function escrowArbiter(): Promise<`0x${string}`> {
   return (await publicClient().readContract({ address: KEPTRA_ESCROW, abi: KEPTRA_ESCROW_ABI, functionName: 'arbiter' })) as `0x${string}`;

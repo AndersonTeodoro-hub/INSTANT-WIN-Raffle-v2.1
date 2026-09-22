@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { KeyRound, Mail } from 'lucide-react';
 import { requestCode, verifyCode, type AccountStatus, type Role } from '../../lib/keptra/api';
 import { useKeptra } from './KeptraProvider';
-import { Button, Card, Field, Loading, Notice, inputClass } from './ui';
+import { Button, Card, Field, Loading, Notice, ReadError, inputClass } from './ui';
 
 /*
  * 6.2.1: sign in with email and a code, as today; then create the passkey at the
@@ -159,11 +159,22 @@ export function AccountSetup({ role, status }: { role: Role; status: AccountStat
   );
 }
 
-/** The content, once the person is signed in and has a passkey. */
+/**
+ * The content, once the person is signed in and has a passkey. V3: a session read
+ * that failed is not "signed out" — it is an error with "Try again"; after a good
+ * read, a later failure keeps the content and says so above it.
+ */
 export function RequireAccount({ intro, children }: { intro?: string; children: (status: AccountStatus) => React.ReactNode }) {
-  const { signedIn, status } = useKeptra();
+  const { signedIn, status, statusError, refresh } = useKeptra();
+  const failed = statusError === null ? null : <ReadError what="Your account" error={statusError} onRetry={() => void refresh()} />;
+  if (status === null && failed !== null) return failed;
   if (signedIn === null) return <Loading label="Checking your session…" />;
   if (!signedIn || status === null) return <SignInPanel intro={intro} />;
   if (status.passkeys.length === 0) return <PasskeyPanel />;
-  return <>{children(status)}</>;
+  return (
+    <>
+      {failed && <div className="mb-6">{failed}</div>}
+      {children(status)}
+    </>
+  );
 }

@@ -7,7 +7,7 @@ import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
 import { useUsdcBalance } from '../../components/keptra/hooks';
-import { AddressLink, Badge, Button, Card, Field, Notice, PageTitle, SectionTitle, Stat, inputClass } from '../../components/keptra/ui';
+import { AddressLink, Badge, Button, Card, Field, Notice, PageTitle, ReadError, SectionTitle, Stat, inputClass } from '../../components/keptra/ui';
 import {
   authorizeMigration,
   migrationChallenge,
@@ -19,6 +19,7 @@ import {
   type Role,
 } from '../../lib/keptra/api';
 import { formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
+import { CHAIN_FAILED } from '../../lib/keptra/reads';
 
 /*
  * /account — the recovery notices land here (mail.ts: /account), and so does
@@ -79,7 +80,7 @@ function AccountBody({ status }: { status: AccountStatus }) {
 }
 
 function AccountCard({ account, status }: { account: AccountView; status: AccountStatus }) {
-  const { balance, refetch } = useUsdcBalance(account.address);
+  const { balance, failed, refetch } = useUsdcBalance(account.address);
   const title = account.role === 'PARTICIPANT' ? 'Personal account' : 'Business account';
   return (
     <Card>
@@ -94,7 +95,7 @@ function AccountCard({ account, status }: { account: AccountView; status: Accoun
       ) : (
         <>
           <dl className="mt-5 grid grid-cols-2 gap-5">
-            <Stat label="USDC" value={balance === null ? '…' : formatUsdc(balance)} />
+            <Stat label="USDC" value={balance !== null ? formatUsdc(balance) : failed ? 'Not read' : '…'} />
             <div>
               <dt className="text-xs text-gray-400">Recovery</dt>
               <dd className="mt-1 flex items-center gap-2 text-sm">
@@ -110,11 +111,16 @@ function AccountCard({ account, status }: { account: AccountView; status: Accoun
               </dd>
             </div>
           </dl>
+          {failed && (
+            <div className="mt-4">
+              <ReadError what="The balance" error={CHAIN_FAILED} onRetry={() => void refetch()} />
+            </div>
+          )}
           <div className="mt-5">
             <p className="text-xs text-gray-400">Address on Arbitrum One</p>
             <p className="mt-1 break-all font-mono text-sm text-white">{account.address}</p>
             {account.address && <AddressLink address={account.address} label="View on Arbiscan" />}
-            <p className="mt-2 text-xs text-gray-500">To add money, send USDC on Arbitrum One to this address.</p>
+            <p className="mt-2 text-xs text-gray-400">To add money, send USDC on Arbitrum One to this address.</p>
           </div>
           {!account.recoveryEnabled && (
             <div className="mt-4">
@@ -193,6 +199,13 @@ function SendPrize() {
       <Field id="prize-campaign" label="Campaign number" hint="The Event Center campaign whose prize you claimed.">
         <input id="prize-campaign" inputMode="numeric" className={`${inputClass} font-mono`} value={campaign} onChange={(event) => setCampaign(event.target.value)} />
       </Field>
+      {(read.isError || decimals.isError) && (
+        <ReadError
+          what="The campaign's prize"
+          error={CHAIN_FAILED}
+          onRetry={() => void (read.isError ? read.refetch() : decimals.refetch())}
+        />
+      )}
       <Field id="prize-to" label="Send to (Arbitrum One address)">
         <input id="prize-to" className={`${inputClass} font-mono text-sm`} value={to} onChange={(event) => setTo(event.target.value)} placeholder="0x…" />
       </Field>

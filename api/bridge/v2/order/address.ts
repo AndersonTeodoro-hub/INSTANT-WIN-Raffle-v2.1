@@ -6,6 +6,8 @@ import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
 import { readObligation, readTerms, readVouchers, regionsOf } from '../../../../lib/bridge-v2/escrowChain.js';
 import { ordersConfigured, parsePostalAddress, registerAddress, type AddressPurpose } from '../../../../lib/bridge-v2/orders.js';
+import { PRIVACY_TEXT } from '../../../../lib/bridge-v2/config.js';
+import { privacyPublished } from '../../../../lib/keptra/privacy.js';
 
 /**
  * POST /api/bridge/v2/order/address
@@ -28,6 +30,8 @@ const route = handle('order/address', async ({ request, log }) => {
   if (session === null) return refuse(401, 'Sign in to continue.');
   // P24.
   if (!ordersConfigured()) return refuse(503, 'Orders are not available yet.');
+  // SPEC-BLOCO-03 V5 (B3), T14, 10.4: no address before the privacy page has its text.
+  if (!privacyPublished(PRIVACY_TEXT)) return refuse(503, 'Delivery addresses open once Keptra’s privacy page is published.');
 
   const body = await readJsonBody(request);
   if (body === null) return refuse(400, 'Invalid request body.');
