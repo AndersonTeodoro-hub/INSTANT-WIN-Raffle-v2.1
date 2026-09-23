@@ -196,6 +196,8 @@ export const KEPTRA_TABLES = [
   'bridge_v2_order_unread',
   // 0015: the terms the relay created for a store (P6-14).
   'bridge_v2_store_terms',
+  // 0015 (AB4): how far the orders pass has read the chain's terms and obligations.
+  'bridge_v2_store_terms_cursor',
 ];
 
 export const KEPTRA_UNIQUE = {
@@ -227,4 +229,5 @@ export const KEPTRA_UNIQUE = {
   bridge_v2_offer_descriptions: [['terms_id']],
   bridge_v2_order_unread: [['order_id']],
   bridge_v2_store_terms: [['terms_id']],
+  bridge_v2_store_terms_cursor: [['name']],
 };

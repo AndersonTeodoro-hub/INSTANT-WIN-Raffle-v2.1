@@ -530,10 +530,13 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
           <div className="mt-5">
             <DescriptionRetry what="Offer" unwritten={pending} onWritten={published} />
           </div>
-        ) : (
+        ) : listed.read.status === 'ready' ? (
           <Button className="mt-5" busy={busy} onClick={() => void publish()}>
             Review and publish
           </Button>
+        ) : (
+          // AB4: until the list is read, the page cannot know no offer is waiting for its description.
+          <p className="mt-5 text-sm text-gray-400">{listed.read.status === 'failed' ? 'Publishing is offered once your offers are read.' : 'Reading your offers…'}</p>
         )}
       </Card>
       <section>
@@ -753,10 +756,13 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
                 }}
               />
             </div>
-          ) : (
+          ) : listed.read.status === 'ready' ? (
             <Button className="mt-5" busy={busy} onClick={() => void create()}>
               Review and create
             </Button>
+          ) : (
+            // AB4: until the list is read, the page cannot know no obligation is waiting for its description.
+            <p className="mt-5 text-sm text-gray-400">{listed.read.status === 'failed' ? 'Creating is offered once your obligations are read.' : 'Reading your obligations…'}</p>
           )}
         </Card>
         <section>

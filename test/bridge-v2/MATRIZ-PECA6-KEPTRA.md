@@ -1,6 +1,6 @@
 # Matriz da peça 6 — o frontend
 
-Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.30** — a versão em vigor, com as Adendas T, U, V, W e AA (AA4: o lote antes do deploy).
+Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.31** — a versão em vigor, com as Adendas T, U, V, W, AA (AA4: o lote antes do deploy) e AB (secção 6).
 Cobre a secção 17, ponto 6; a **Adenda T** (T0 a T21), que responde às ambiguidades AMB-1 a AMB-19 da Fase A; a **Adenda U** (U1 a U7), decisões da construção; a **Adenda V** (V1 a V7), decisões da auditoria da peça 6; a **Adenda W** (fecho da peça 6 e pendentes P6-14 a P6-21); e, pela **AA4**, os pendentes P6-1 a P6-21 (secção 5).
 
 Código: este repositório, ramo `feat/keptra-frontend`, criado a partir de `d56f499` (peça 5 fechada, S1). Construção em `61e8169`; a correcção da Adenda V em `81f08ce`; o lote AA4 da peça 6 no commit a seguir a `d17bd79`, no mesmo ramo.
@@ -198,3 +198,14 @@ Suite completa de 23/09 (`ANVIL_BIN=… npm run test:bridge-v2`), com o fork con
 36. **P6-7, o que mostra a página do sorteio.** "…" enquanto as casas decimais se lêem; "Not read" se a leitura falhou. Na conta, o campo do montante só aparece com as casas decimais lidas.
 37. **P6-8, o que é um prémio voucher.** Um prémio NFT cujo token é o contrato de vouchers da configuração (`KEPTRA_VOUCHER`), e só com os contratos configurados.
 38. **P6-10, a regra.** Um teste que lê o código-fonte de uma página ou de um componente (`.tsx`) diz "source" no título; os que também exercitam código dizem "the page’s part checked in the source". Onze títulos da suite foram acertados.
+
+## 6. Adenda AB — AB2 e AB4 (23/09)
+
+A etiqueta é o nome da decisão (`AB2`, `AB4`). A AB4 corre também no fork, contra o escrow e a garantia de 5d85a46. A AB9 (os ecrãs da peça 6 cujos testes só lêem o código-fonte são vistos num browser real no ensaio geral) não pede código nesta ronda.
+
+| # | Decisão | Onde está | Teste | Resultado |
+|---|---|---|---|---|
+| AB2 | M1: a resposta a um pedido de apagamento não depende de quantas encomendas fechadas o participante tem, como destinatário ou como loja; sem nada por resolver (T13) apaga sempre | `lib/bridge-v2/orders.ts:638` (`unclosedOrdersOf`: só as que o índice não viu fechadas; CLOSED é final on-chain); `api/bridge/v2/privacy/erase.ts:44` (lê da cadeia só essas e as mais novas que o índice), `:61` (mais de uma página por ler só é 503 quando a primeira não tem nenhuma aberta) | `frontend`: "AB2 (M1): the answer to an erasure does not depend on how many closed orders…" (`test/bridge-v2/suites/frontend.test.mjs:1693`); o P6-6 continua a passar (`:1495`) | passam |
+| AB4 | B2: uma oferta ou obrigação criada pela relay aparece na consola da loja, e a consola nunca oferece criar outra, mesmo sem recibo ou com o registo falhado | `lib/bridge-v2/escrowChain.ts:136` (`termsCreatedSince`: termos e obrigações lidos da cadeia); `lib/bridge-v2/keptraOrders.ts:450` (o passe das encomendas escreve-os em `bridge_v2_store_terms` e move o cursor); `lib/bridge-v2/descriptions.ts:136` e `:146`; `api/bridge/v2/store/offers.ts:45` (junta o que a cadeia tem para lá do cursor; mais de uma página, 503); `pages/keptra/BusinessPage.tsx:533` e `:759` (criar só com a lista lida); `supabase/migrations/0015_keptra_lote.sql:135`; `lib/bridge-v2/config.ts:1264`; `vercel.json` | `frontend`: "AB4 (B2): an offer and an obligation the relay created are listed…" (`test/bridge-v2/suites/frontend.test.mjs:1734`); "AB4 (B2): the console offers to publish…" (`:1770`), no código-fonte; "0015 (AB4)…" (`:1443`), no Postgres embebido; `fork-orders`: "AB4 on the fork, against the escrow and the guarantee of 5d85a46…" (`test/bridge-v2/fork/orders.fork.mjs:571`) | passam |
+
+A AB4 muda a decisão 32 (P6-14) num ponto: um recibo que não voltou deixa de ficar sem id depois de recarregar — a consola lê-o da cadeia e oferece escrever a descrição dele. O que muda para o owner antes do deploy: a 0015 ganha `bridge_v2_store_terms_cursor` (SELECT, INSERT e UPDATE) e `refused_at` nos avisos; `vercel.json` declara `store/offers` com 100 s, porque a rota passa a ler a cadeia.

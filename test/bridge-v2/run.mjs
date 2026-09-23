@@ -112,6 +112,9 @@ const REQUIREMENTS = [
   'D-B5', 'D-FUNDING',
   ...Array.from({ length: 14 }, (_unused, index) => `P5-${index + 1}`),
   ...Array.from({ length: 21 }, (_unused, index) => `P6-${index + 1}`),
+  // SPEC-BLOCO-03 Adenda AB: the decisions of the audit of the lot, by their own
+  // names. AB1 closes the oracle, AB8 is process and AB9 the general rehearsal.
+  'AB2', 'AB3', 'AB4', 'AB5', 'AB6', 'AB7',
 ];
 
 for (const path of SUITES) {

@@ -120,11 +120,15 @@ export type OpsKind =
   | 'order.tracker_created'
   // SPEC-BLOCO-03 AA4: a claim given back (P5-2), a shipment out of the retries (P5-3), an order read aside (P5-12).
   | 'order.address_released'
+  // SPEC-BLOCO-03 AB5: a notice the email provider refused for what it is, recorded and never sent again.
+  | 'order.notice_refused'
   | 'order.tracker_stopped'
   | 'order.read_aside'
   | 'order.evidence_written'
   // P6-14: the terms a store created, not recorded for its console (the relay stands).
   | 'store_terms.failed'
+  // SPEC-BLOCO-03 AB4: terms and obligations read from the chain for the stores' consoles.
+  | 'store_terms.indexed'
   // SPEC-BLOCO-03 piece 6: a description written once (T4); an erasure refused while value is left (T13).
   | 'offer.description_written'
   | 'privacy.erase_refused'

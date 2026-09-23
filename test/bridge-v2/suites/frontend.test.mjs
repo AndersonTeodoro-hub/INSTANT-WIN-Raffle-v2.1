@@ -1439,6 +1439,27 @@ if (engine !== null) {
     assert.equal((await insert(2, 'not an address')).code, '23514');
     assert.equal((await insert(0, '0x3333333333333333333333333333333333333333')).code, '23514');
   });
+
+  await test(['AB4'], '0015 (AB4): the cursor of the orders pass over the chain’s terms is the service’s to read and move — SELECT, INSERT, UPDATE and nothing else, RLS on, closed to the browser; two names only, never below one', async () => {
+    const granted = await q(`SELECT string_agg(privilege_type, ',' ORDER BY privilege_type) AS verbs FROM information_schema.role_table_grants WHERE table_name = 'bridge_v2_store_terms_cursor' AND grantee = 'service_role'`);
+    assert.equal(granted.rows[0].verbs, 'INSERT,SELECT,UPDATE');
+    for (const role of ['anon', 'authenticated']) {
+      const any = await q(`SELECT count(*)::int AS n FROM information_schema.role_table_grants WHERE table_name = 'bridge_v2_store_terms_cursor' AND grantee = $1`, [role]);
+      assert.equal(any.rows[0].n, 0);
+    }
+    assert.equal((await q(`SELECT relrowsecurity FROM pg_class WHERE relname = 'bridge_v2_store_terms_cursor'`)).rows[0].relrowsecurity, true);
+    const moved = await asRole(engine, 'service_role', async (client) => [
+      await attempt(client, `INSERT INTO bridge_v2_store_terms_cursor (name, next_id) VALUES ('terms', 11), ('obligations', 5) ON CONFLICT (name) DO UPDATE SET next_id = EXCLUDED.next_id`),
+      await attempt(client, `INSERT INTO bridge_v2_store_terms_cursor (name, next_id) VALUES ('terms', 12) ON CONFLICT (name) DO UPDATE SET next_id = EXCLUDED.next_id`),
+      await attempt(client, `SELECT name, next_id::text FROM bridge_v2_store_terms_cursor ORDER BY name`),
+      await attempt(client, `DELETE FROM bridge_v2_store_terms_cursor`),
+    ]);
+    assert.deepEqual(moved.slice(0, 3).map((r) => r.ok), [true, true, true]);
+    assert.deepEqual(moved[2].rows.map((r) => [r.name, r.next_id]), [['obligations', '5'], ['terms', '12']]);
+    assert.equal(moved[3].code, '42501', 'the service can delete the cursor');
+    assert.equal((await attempt(engine.pool, `INSERT INTO bridge_v2_store_terms_cursor (name, next_id) VALUES ('orders', 1)`)).code, '23514');
+    assert.equal((await attempt(engine.pool, `UPDATE bridge_v2_store_terms_cursor SET next_id = 0 WHERE name = 'terms'`)).code, '23514');
+  });
 }
 
 // ===========================================================================
@@ -1656,13 +1677,113 @@ await test(['P6-21'], 'P6-21: the offer page never shows reputation counters tha
   assert.match(page, /tier\.delivered !== null && tier\.materialFailures !== null \?/);
 });
 
+// ===========================================================================
+// Adenda AB — AB2 and AB4
+// ===========================================================================
+
+/** An order the pass wrote down, as bridge_v2_orders holds it. */
+function indexed(id, { payer, store: storeSafe, state }) {
+  store.insert('bridge_v2_orders', {
+    order_id: String(id), terms_id: '1', voucher_id: '0', store_address: getAddress(storeSafe), payer_address: getAddress(payer), mode: 0, prize: false,
+    ship_days: 5, delivery_days: 10, state, flags: 0, paid_at: String(T0), shipped_at: '0', window_ends_at: '0', contested_at: '0', seen_block: '1',
+    outcome: state === bridgeAbi.OrderState.CLOSED ? 0 : null, closed_at: state === bridgeAbi.OrderState.CLOSED ? new Date().toISOString() : null,
+  });
+}
+
+await test(['AB2'], 'AB2 (M1): the answer to an erasure does not depend on how many closed orders the participant has — 120 closed, as recipient and as store, erase; one open among them refuses and names it; the closed history is never read from the chain', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  const other = '0x4444444444444444444444444444444444444444';
+  // 60 closed as the recipient and 60 as the store: more than twice the page the route reads.
+  for (let id = 1; id <= 120; id += 1) {
+    indexed(id, id <= 60 ? { payer: buyer.participant, store: other, state: bridgeAbi.OrderState.CLOSED } : { payer: other, store: buyer.creator, state: bridgeAbi.OrderState.CLOSED });
+  }
+  // One open order of the participant, the last one, and the index caught up with the chain.
+  indexed(121, { payer: buyer.participant, store: shop.creator, state: bridgeAbi.OrderState.PAID });
+  chainShows([fx({ id: 121, payer: buyer.participant, store: shop.creator })]);
+  asParticipant('participant-1');
+  const refused = await api.privacyErase();
+  assert.equal(refused.status, 409, `a participant with an open order was not refused: ${JSON.stringify(refused)}`);
+  assert.match(refused.error, /1 open order/);
+  const readIds = escrow.calls.filter((c) => c.name === 'readOrders').flatMap((c) => c.args[0]).map(String);
+  assert.deepEqual(readIds, ['121'], 'the closed history was read from the chain');
+  // The open order closes: nothing is left to resolve (T13), and the answer is the erasure — never a 503.
+  chainShows([fx({ id: 121, state: bridgeAbi.OrderState.CLOSED, payer: buyer.participant, store: shop.creator })]);
+  const erased = await api.privacyErase();
+  assert.equal(erased.ok, true, `120 closed orders blocked the erasure: ${JSON.stringify(erased)}`);
+  // Before AB2, the same history was more than a page to read, and the answer a 503.
+  const before = execFileSync('git', ['show', '133891e:api/bridge/v2/privacy/erase.ts'], { cwd: root, encoding: 'utf8' });
+  assert.match(before, /ordersOfPayer\(participant\.safe\)/);
+  assert.match(before, /if \(ids\.size > ORDER_SCAN_PAGE\) throw new TooManyToRead\(\);/);
+});
+
+/** AB4: the terms and obligations the doubled chain holds, read past a cursor as termsCreatedSince reads them. */
+function chainTerms({ offers = [], obligations = [], termsCount, obligationCount, more = false }) {
+  escrow.set({
+    termsCreatedSince: (nextTerms, nextObligation, max) => ({
+      offers: offers.filter((o) => o.termsId >= nextTerms).slice(0, max),
+      obligations: obligations.filter((o) => o.obligationId >= nextObligation).slice(0, max),
+      nextTerms: termsCount > nextTerms ? termsCount : nextTerms,
+      nextObligation: obligationCount > nextObligation ? obligationCount : nextObligation,
+      more,
+    }),
+  });
+}
+
+await test(['AB4'], 'AB4 (B2): an offer and an obligation the relay created are listed by the store’s console even when the receipt never reached the relay and nothing was recorded — from the chain past the index, then from the index the orders pass writes; another store’s terms are not listed; more than a page past the index is a 503, never a partial list', async () => {
+  fresh();
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  const other = await person('store-2', '0x4444444444444444444444444444444444444444');
+  // Receipt lost: the relay recorded nothing (bridge_v2_store_terms is empty) — the chain holds offer 9 and obligation 4 (terms 10).
+  chainTerms({
+    offers: [{ termsId: 8n, store: other.creator }, { termsId: 9n, store: shop.creator }],
+    obligations: [{ obligationId: 4n, termsId: 10n, brand: shop.creator }],
+    termsCount: 11n,
+    obligationCount: 5n,
+  });
+  assert.equal(store.rows('bridge_v2_store_terms').length, 0);
+  asParticipant('store-1');
+  const listed = (await api.myOffers()).offers.map((o) => [o.termsId, o.obligationId, o.title]).sort();
+  assert.deepEqual(listed, [['10', '4', null], ['9', null, null]], 'the console did not list what the chain holds');
+  // The orders pass writes them down and moves its cursor past them; the list is the same from the index.
+  await pass();
+  assert.deepEqual(store.rows('bridge_v2_store_terms').map((r) => [String(r.terms_id), r.obligation_id == null ? null : String(r.obligation_id)]).sort(), [['10', '4'], ['8', null], ['9', null]]);
+  assert.deepEqual(store.rows('bridge_v2_store_terms_cursor').map((r) => [r.name, String(r.next_id)]).sort(), [['obligations', '5'], ['terms', '11']]);
+  asParticipant('store-1');
+  assert.deepEqual((await api.myOffers()).offers.map((o) => [o.termsId, o.obligationId, o.title]).sort(), listed);
+  // A second pass reads from the cursor: nothing is written twice.
+  await pass();
+  assert.equal(store.rows('bridge_v2_store_terms').length, 3);
+  // Described, it is listed once, with its title.
+  escrow.set({ readTerms: { ...fx({ id: 1, payer: shop.participant, store: shop.creator }).terms } });
+  asParticipant('store-1');
+  assert.equal((await api.writeDescription({ termsId: '9', title: 'Desk lamp', text: 'Brushed brass.' })).ok, true);
+  assert.deepEqual((await api.myOffers()).offers.filter((o) => o.termsId === '9').map((o) => o.title), ['Desk lamp']);
+  // More past the index than one page: no list, so the console offers to create nothing.
+  chainTerms({ termsCount: 11n, obligationCount: 5n, more: true });
+  const cut = await api.myOffers();
+  assert.equal(cut.ok, false);
+  assert.equal(cut.status, 503);
+});
+
+await test(['AB4'], 'AB4 (B2): the console offers to publish an offer or create an obligation only once its list is read — never while it loads or after it failed (checked in the source)', () => {
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(page, /\) : listed\.read\.status === 'ready' \? \(\s*<Button className="mt-5" busy=\{busy\} onClick=\{\(\) => void publish\(\)\}>/);
+  assert.match(page, /\) : listed\.read\.status === 'ready' \? \(\s*<Button className="mt-5" busy=\{busy\} onClick=\{\(\) => void create\(\)\}>/);
+  // The only other create of the console is a voucher campaign's, which creates no offer and no obligation.
+  assert.equal((page.match(/onClick=\{\(\) => void publish\(\)\}/g) ?? []).length, 1, 'another way to publish an offer');
+  assert.deepEqual([...page.matchAll(/onClick=\{\(\) => void create\(\)\}>\s*([^<]*?)\s*</g)].map((m) => m[1]), ['Review and create', 'Review and create campaign']);
+});
+
 // The matrix is in the repository, names the spec version, and has a row for every tag the suite declares.
-await test(['AT8', 'AV6', 'P6-10'], 'V6 and AA4: the matrix of piece 6 is in the repository, declares the spec version in force (1.30), covers Adendas T, U, V, W and AA4, and has a row for every Un, ATn, AUn, AVn and P6-n a piece-6 test declares (reads the matrix)', async () => {
+await test(['AT8', 'AV6', 'P6-10'], 'V6, AA4 and AB: the matrix of piece 6 is in the repository, declares the spec version in force (1.31), covers Adendas T, U, V, W, AA4 and AB, and has a row for every Un, ATn, AUn, AVn, P6-n, AB2 and AB4 a piece-6 test declares (reads the matrix)', async () => {
   const matrix = read('test/bridge-v2/MATRIZ-PECA6-KEPTRA.md');
-  assert.match(matrix, /Versão 1\.30/);
-  for (const adenda of ['Adenda T', 'Adenda U', 'Adenda V', 'Adenda W', 'AA4']) assert.ok(matrix.includes(adenda), `the matrix does not cover ${adenda}`);
+  assert.match(matrix, /Versão 1\.31/);
+  for (const adenda of ['Adenda T', 'Adenda U', 'Adenda V', 'Adenda W', 'AA4', '## 6. Adenda AB']) assert.ok(matrix.includes(adenda), `the matrix does not cover ${adenda}`);
   const { results } = await import('../harness.mjs');
-  const declared = new Set(results.filter((r) => r.suite === 'frontend' || (r.suite === 'fork-orders' && r.requirements.includes('P6-13'))).flatMap((r) => r.requirements).filter((tag) => /^(U\d+|AT\d+|AU\d+|AV\d+|P6-\d+)$/.test(tag)));
+  const declared = new Set(results.filter((r) => r.suite === 'frontend' || (r.suite === 'fork-orders' && r.requirements.includes('P6-13'))).flatMap((r) => r.requirements).filter((tag) => /^(U\d+|AT\d+|AU\d+|AV\d+|P6-\d+|AB[24])$/.test(tag)));
+  for (const tag of ['AB2', 'AB4']) assert.ok(declared.has(tag), `no piece-6 test declares ${tag}`);
   // P6-13 runs on the fork, in another process: its row is required all the same.
   declared.add('P6-13');
   for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);

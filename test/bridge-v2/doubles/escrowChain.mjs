@@ -44,6 +44,8 @@ const DEFAULTS = () => ({
   campaignItems: [],
   voucherReleasable: false,
   brandParams: { bondBps: 5_000, protectionBps: 300, canCreate: true, debt: 0n },
+  // AB4: no terms and no obligation past the ones given.
+  termsCreatedSince: (nextTerms, nextObligation) => ({ offers: [], obligations: [], nextTerms, nextObligation, more: false }),
 });
 
 export let behaviour = DEFAULTS();
@@ -69,6 +71,7 @@ export const ordersHead = (...args) => answer('ordersHead', args);
 export const latestBlock = (...args) => answer('latestBlock', args);
 export const readOrders = (...args) => answer('readOrders', args);
 export const readTerms = (...args) => answer('readTerms', args);
+export const termsCreatedSince = (...args) => answer('termsCreatedSince', args);
 export const regionsOf = (...args) => answer('regionsOf', args);
 export const trackingHashUsed = (...args) => answer('trackingHashUsed', args);
 export const escrowArbiter = (...args) => answer('escrowArbiter', args);

@@ -1,7 +1,7 @@
 # Matriz da peça 1 — contas com passkey e recuperação: o lote antes do deploy
 
-Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.30 — 23/09/2026** — a versão em vigor, com a **Adenda AA**.
-Cobre o que a **AA4** lista para a peça 1 e para o módulo 2: **P1-1 a P1-11** (G3 e P26) e **D-B5 e D-FUNDING** (B5, E7 e G3). O D-0007 saiu (AA3).
+Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.31 — 23/09/2026** — a versão em vigor, com a **Adenda AA** e a **Adenda AB**.
+Cobre o que a **AA4** lista para a peça 1 e para o módulo 2: **P1-1 a P1-11** (G3 e P26) e **D-B5 e D-FUNDING** (B5, E7 e G3). O D-0007 saiu (AA3). Pela **Adenda AB**, cobre também a **AB6** (B4) e a **AB7** (secção 5).
 
 Onde vive: por decisão do owner nesta sessão (pergunta 1 abaixo), a matriz da peça 1 para este lote fica neste repositório, como a AA1 fez com a da peça 4. A matriz da Fase A (`MATRIZ-PECA1-KEPTRA.md` em `instant-win-audit/v2`, M1 a M46 e Adendas A a F) não foi alterada; as linhas M1–M46 continuam lá, e as etiquetas KMn da suite continuam a apontar para ela.
 
@@ -53,3 +53,14 @@ Código: este repositório, ramo `feat/keptra-frontend`. Peça 1 fechada em `f35
 
 - `npx tsc --noEmit`
 - `ANVIL_BIN=<caminho do anvil.exe> npm run test:bridge-v2`
+
+## 5. Adenda AB — AB6 e AB7 (23/09)
+
+A etiqueta é o nome da decisão (`AB6`, `AB7`). As duas correm também no fork: a AB6 com a USDC de Arbitrum One, a AB7 contra o escrow de 5d85a46 (`test/bridge-v2/fork/orders.fork.mjs`).
+
+| # | Decisão | Onde está | Teste | Resultado |
+|---|---|---|---|---|
+| AB6 | B4: um depósito real para um rascunho conta sempre, mesmo que o saldo do endereço de depósito tenha descido depois de o rascunho ser criado | `api/bridge/v2/creator/campaign/start.ts:136` (o bloco lido com os saldos, gravado com o rascunho); `lib/bridge-v2/creatorCampaigns.ts:374` (sem saldo acima da base, lê as transferências para o endereço desde esse bloco; lida em parte, o rascunho fica e a passagem seguinte continua de onde parou, `:398`); `lib/bridge-v2/chain.ts:1557` (`transferInto`); `lib/bridge-v2/config.ts:576` e `:578`; `supabase/migrations/0015_keptra_lote.sql:117` | `keptra`: "AB6 (B4): a real deposit for a draft counts…" (`test/bridge-v2/suites/keptra.test.mjs:3338`); "0015 for AB5 and AB6…" (`:3527`), no Postgres embebido; `fork-orders`: "AB6 on the fork, with Arbitrum One’s USDC…" (`test/bridge-v2/fork/orders.fork.mjs:603`) | passam |
+| AB7 | Depois de uma rotação da chave de guardião (B6), uma conta com o guardião antigo continua a poder ser reconfigurada pela R-3 e usada pelo dono | `lib/bridge-v2/keptra.ts:636` (`rotatedAwayGuardian`); `lib/bridge-v2/relay.ts:668` (configure = R-3 sobre a chave antiga e a actual acrescentada, numa só transacção), `:1012` (só essas duas chaves podem ser nomeadas), `:1032` (a conta não está "já configurada"); `lib/bridge-v2/keptra.ts:726` (`refusalFor` com revoke e add) | `keptra`: "AB7: after a rotation of the guardian key (B6)…" (`test/bridge-v2/suites/keptra.test.mjs:3389`); `fork-orders`: "AB7 on the fork, against the escrow of 5d85a46…" (`test/bridge-v2/fork/orders.fork.mjs:638`) | passam |
+
+O que muda para o owner antes do deploy: a migration `0015_keptra_lote.sql` ganha `deposit_from_block` nos rascunhos (AB6); um rascunho anterior fica com NULL e continua a ser julgado só pelo saldo.

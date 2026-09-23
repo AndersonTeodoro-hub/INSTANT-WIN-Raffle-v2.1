@@ -42,6 +42,7 @@ import * as trackingRoute from '../../../api/bridge/v2/store/tracking.ts';
 import * as evidenceRoute from '../../../api/bridge/v2/order/evidence.ts';
 import * as arbiterRoute from '../../../api/bridge/v2/arbiter/evidence.ts';
 import * as pendingRoute from '../../../api/bridge/v2/oracle/pending.ts';
+import * as offersRoute from '../../../api/bridge/v2/store/offers.ts';
 
 suite('fork-orders');
 
@@ -555,4 +556,123 @@ await test(['P6-13', 'AA-Q7'], 'P6-13 on the fork, against the escrow of 5d85a46
   const proved = await order(orderId);
   assert.equal(Number(proved.state), OrderState.WINDOW);
   assert.ok((Number(proved.flags) & OrderFlag.PROOF) !== 0, 'the escrow does not show the delivery proved by the code');
+});
+
+// ===========================================================================
+// Adenda AB, on the fork
+// ===========================================================================
+
+const offersOf = async (participantId) => {
+  asSession(participantId);
+  const response = await offersRoute.POST(request(route('store/offers'), { cookie: SESSION_COOKIE, body: {} }));
+  return { status: response.status, body: await response.json() };
+};
+
+await test(['AB4', 'AA-Q7'], 'AB4 on the fork, against the escrow and the guarantee of 5d85a46: the terms and obligations are read from the chain — an id past the last terms reverts and ends the read — so an offer whose record the relay lost is listed by the store’s console from the chain, and the orders pass writes every offer and obligation down, each with its store or brand, and moves past them', async () => {
+  const { termsCreatedSince } = await import('../../../lib/bridge-v2/escrowChain.ts');
+  const offer = await relayAs(shop, { kind: 'createOffer', terms: TERMS });
+  const termsId = offer.created.termsId;
+  assert.ok(termsId !== null);
+  // The relay's record of it is lost (its write failed), and the pass has not run since.
+  const rows = store.rows('bridge_v2_store_terms');
+  rows.splice(rows.findIndex((r) => String(r.terms_id) === String(termsId)), 1);
+  const listed = await offersOf('store-1');
+  assert.equal(listed.status, 200, JSON.stringify(listed.body));
+  assert.ok(listed.body.offers.some((o) => o.termsId === String(termsId) && o.obligationId === null), 'the console did not list the offer the chain holds');
+  // The real reads: every terms from id 1, the last one the one just created; a page smaller than that says there is more.
+  const all = await termsCreatedSince(1n, 1n, 50);
+  assert.equal(all.more, false);
+  assert.equal(all.nextTerms, termsId + 1n, 'the read did not stop at the first id the escrow does not hold');
+  assert.deepEqual(all.offers.find((o) => o.termsId === termsId).store.toLowerCase(), shop.creator.safe.toLowerCase());
+  const obligations = await client.readContract({ address: GUARANTEE, abi: parseAbi(['function obligationCount() view returns (uint256)']), functionName: 'obligationCount' });
+  assert.equal(all.nextObligation, obligations);
+  assert.ok(all.obligations.length >= 2 && all.obligations.every((o) => o.brand.toLowerCase() === shop.creator.safe.toLowerCase()));
+  const small = await termsCreatedSince(1n, 1n, 1);
+  assert.deepEqual([small.more, small.nextTerms, small.offers.length + small.obligations.length > 0], [true, 2n, true]);
+  // The pass writes it down from the chain and moves the cursor past everything.
+  await pass();
+  assert.ok(store.rows('bridge_v2_store_terms').some((r) => String(r.terms_id) === String(termsId) && r.store_address.toLowerCase() === shop.creator.safe.toLowerCase()));
+  for (const ob of all.obligations) {
+    const row = store.rows('bridge_v2_store_terms').find((r) => String(r.terms_id) === String(ob.termsId));
+    assert.equal(String(row?.obligation_id), String(ob.obligationId), `obligation ${ob.obligationId} not written with its terms`);
+  }
+  assert.deepEqual(store.rows('bridge_v2_store_terms_cursor').map((r) => [r.name, String(r.next_id)]).sort(), [['obligations', String(obligations)], ['terms', String(termsId + 1n)]]);
+  assert.ok((await offersOf('store-1')).body.offers.some((o) => o.termsId === String(termsId)));
+});
+
+await test(['AB6'], 'AB6 on the fork, with Arbitrum One’s USDC: a draft whose deposit address’s balance went below its baseline after it was made keeps its real deposit — the Transfer the log holds since the draft’s block — and a draft with no transfer into its address expires', async () => {
+  const drafts = await import('../../../lib/bridge-v2/creatorCampaigns.ts');
+  const { blockNumber, transferInto } = await import('../../../lib/bridge-v2/chain.ts');
+  const [funded, empty, payer] = [fresh(), fresh(), fresh()];
+  await rpc.setBalance(payer, 10n ** 18n);
+  // Both addresses held 5 USDC when the draft was made (the baseline), and it went down to nothing after.
+  for (const holder of [funded, empty]) await setUsdcBalance(rpc, USDC, holder, 5_000_000n);
+  const from = await blockNumber();
+  for (const holder of [funded, empty]) await setUsdcBalance(rpc, USDC, holder, 0n);
+  // A real deposit of 2 USDC into the first: below the baseline.
+  await setUsdcBalance(rpc, USDC, payer, 2_000_000n);
+  await rpc.impersonate(payer);
+  await as(payer, USDC, encodeFunctionData({ abi: parseAbi(['function transfer(address,uint256) returns (bool)']), functionName: 'transfer', args: [funded, 2_000_000n] }));
+  assert.equal(await usdcOf(funded), 2_000_000n);
+  const tip = await blockNumber();
+  const hit = await transferInto(USDC, funded, from, tip, () => true);
+  assert.equal(hit.found, true, 'the deposit in the log was not found');
+  assert.ok(hit.searchedTo <= tip);
+  assert.equal((await transferInto(USDC, empty, from, tip, () => true)).found, false);
+  assert.equal((await transferInto(USDC, funded, tip + 1n, tip + 1n, () => true)).found, false, 'a transfer before the range was found');
+  const old = new Date(Date.now() - 8 * DAY * 1000).toISOString();
+  const draft = (holder, i) => {
+    const creatorRow = store.insert('bridge_v2_creators', { participant_id: `ab6-${i}`, wallet_index: null, wallet_address: holder });
+    return store.insert('bridge_v2_creator_campaigns', {
+      creator_id: creatorRow.id, status: 'PENDING_DEPOSIT', module: ERC721_PRIZE_MODULE, prize_token: USDC, prize_amount: '10000000', duration_seconds: '3600',
+      winners_count: 1, slot_cap: 10, fee_amount: '1000000', slots_cost: '1000000', giveaway_id: null, tx_hash: null, created_at: old, updated_at: old,
+      deposit_baseline_prize: '5000000', deposit_baseline_usdc: '5000000', deposit_from_block: String(from), creator: { wallet_address: holder },
+    });
+  };
+  const kept = draft(funded, 1);
+  const gone = draft(empty, 2);
+  await drafts.expireUnfundedDrafts(log, deadline());
+  assert.deepEqual([kept.status, gone.status], ['PENDING_DEPOSIT', 'EXPIRED']);
+});
+
+await test(['AB7', 'AA-Q7'], 'AB7 on the fork, against the escrow of 5d85a46: after the guardian key is rotated (B6), an account still holding the old key — with a change of access the old key started — keeps publishing offers with its passkey, and configure reconfigures it by R-3 in one transaction: the change cancelled, the nonce invalidated, the old key revoked, the new one added; it keeps working after', async () => {
+  const { signRecoveryHash } = await import('../../../lib/bridge-v2/guardian.ts');
+  const MODULE = parseAbi(['function isGuardian(address,address) view returns (bool)', 'function guardiansCount(address) view returns (uint256)', 'function nonce(address) view returns (uint256)']);
+  const brand = await registerParticipant('rotated-1', 'phone-rotated');
+  await as(owner, ESCROW, call('setStore', [brand.creator.safe, true]));
+  await relayAs(brand, { kind: 'configure' }, 'CREATOR');
+  const safe = brand.creator.safe;
+  const OLD = guardianAddress();
+  // The old key starts a change of access (as a compromised key would).
+  const rogue = privateKeyToAccount(generatePrivateKey()).address;
+  const sent = await relay.sendAsRelayer([kchain.confirmRecoveryCall(safe, [rogue], OLD, await signRecoveryHash(await kchain.recoveryHash(safe, [rogue])))], log);
+  assert.equal(sent.receipt.status, 'success');
+  assert.notEqual((await kchain.accountState(safe)).recoveryExecuteAfter, 0n);
+  const nonceBefore = await client.readContract({ address: keptra.RECOVERY_MODULE, abi: MODULE, functionName: 'nonce', args: [safe] });
+  const previous = process.env.BRIDGE_V2_GUARDIAN_KEY;
+  process.env.BRIDGE_V2_GUARDIAN_KEY = generatePrivateKey();
+  try {
+    const NEW = guardianAddress();
+    const terms = { ...TERMS, payout: safe };
+    // Its owner keeps using it.
+    const first = await relayAs(brand, { kind: 'createOffer', terms }, 'CREATOR');
+    assert.ok(first.created.termsId !== null);
+    // Reconfigured by R-3, in one transaction signed by the passkey.
+    const reconfigured = await relayAs(brand, { kind: 'configure' }, 'CREATOR');
+    const events = parseEventLogs({ abi: parseAbi(['event RecoveryCanceled(address indexed wallet, uint256 nonce)', 'event NonceInvalidated(address indexed wallet, uint256 nonce)']), logs: reconfigured.receipt.logs }).map((e) => e.eventName);
+    assert.ok(events.includes('RecoveryCanceled') && events.includes('NonceInvalidated'), `events were ${events}`);
+    const state = await kchain.accountState(safe);
+    assert.equal(state.recoveryExecuteAfter, 0n, 'the change of access the old key started is still pending');
+    assert.deepEqual(state.guardians.map((g) => g.toLowerCase()), [NEW.toLowerCase()]);
+    assert.equal(await client.readContract({ address: keptra.RECOVERY_MODULE, abi: MODULE, functionName: 'isGuardian', args: [safe, OLD] }), false);
+    assert.ok((await client.readContract({ address: keptra.RECOVERY_MODULE, abi: MODULE, functionName: 'nonce', args: [safe] })) > nonceBefore);
+    assert.equal(kchain.configurationRefusal(state, NEW, [brand.signer]), null, 'the account is not an account of 6.1 with the new key');
+    assert.equal(store.rows('bridge_v2_accounts').find((a) => a.id === brand.creator.id).guardian_address.toLowerCase(), NEW.toLowerCase());
+    // And it keeps working after.
+    const second = await relayAs(brand, { kind: 'createOffer', terms }, 'CREATOR');
+    assert.equal(second.created.termsId, first.created.termsId + 1n);
+    await assert.rejects(relay.prepareAction(brand.id, { kind: 'configure' }, 'CREATOR'), (error) => error.reason === 'already_configured');
+  } finally {
+    process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
+  }
 });

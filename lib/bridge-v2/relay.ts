@@ -155,6 +155,7 @@ import {
   execTransactionData,
   refusalFor,
   revokeGuardianCalls,
+  rotatedAwayGuardian,
   safeTxFor,
   safeTxHash,
   type AccountRole,
@@ -664,6 +665,17 @@ async function actionCalls(
       // account or module is the whole configuration, which prepareAction puts
       // in front as the first transaction; a missing guardian is the current one
       // added back by the account itself (A6: "no próximo login").
+      // AB7: a guardian a rotation (B6) left behind is taken off by the R-3
+      // reaction — cancelRecovery if one is pending, invalidateNonce, the
+      // revocation — and the current one added, in the same transaction.
+      const held = rotatedAwayGuardian(state, guardianAddress());
+      if (held !== null) {
+        return {
+          calls: [...revokeGuardianCalls(held, state.recoveryExecuteAfter > 0n), ...addGuardianCalls(guardianAddress())],
+          extraSigner: null,
+          summary: nothingMoves('configure'),
+        };
+      }
       if (configurationGap(state) !== 'guardian') return { calls: [], extraSigner: null, summary: nothingMoves('configure') };
       return { calls: addGuardianCalls(guardianAddress()), extraSigner: null, summary: nothingMoves('configure') };
     }
@@ -995,8 +1007,11 @@ async function orderCalls(
  * a rotation (B6) or a lost receipt can leave different (Adenda F1). Null when
  * the account holds none: then no guardian may be named.
  */
-function guardianFor(state: AccountState, action: Action): `0x${string}` | null {
-  return action.kind === 'configure' ? guardianAddress() : (state.guardians[0] ?? null);
+function guardianFor(state: AccountState, action: Action): `0x${string}` | null | { revoke: `0x${string}`; add: `0x${string}` } {
+  if (action.kind !== 'configure') return state.guardians[0] ?? null;
+  // AB7: the reconfiguration revokes the held key and adds the current one — those two, nothing else.
+  const held = rotatedAwayGuardian(state, guardianAddress());
+  return held === null ? guardianAddress() : { revoke: held, add: guardianAddress() };
 }
 
 /**
@@ -1014,8 +1029,10 @@ export async function prepareAction(
   // E3 and E10: read, and marked deployed if the chain holds it configured.
   const { account, state, usable } = await readAccount(found);
   const gap = configurationGap(state);
+  // AB7: an account holding a guardian a rotation left behind is not configured yet: configure puts the current one in its place.
+  const rotated = rotatedAwayGuardian(state, guardianAddress()) !== null;
   if (action.kind === 'configure') {
-    if (gap === null) throw new RelayRefusal('already_configured');
+    if (gap === null && !rotated) throw new RelayRefusal('already_configured');
   } else if (state.deployed && !usable) {
     // C2 (b) and D1: an account on-chain without its module, or never
     // configured, is completed with its passkey before anything else.
@@ -1043,7 +1060,7 @@ export async function prepareAction(
 
   // C11: the relayer pays for a bounded number of guardians added back per
   // account. A revocation is not one of them (E2: always possible).
-  const guardianChange = action.kind === 'configure' && gap === 'guardian';
+  const guardianChange = action.kind === 'configure' && (gap === 'guardian' || rotated);
   if (guardianChange && (await guardianChangesSince(account.id, new Date(Date.now() - DAY_MS))) >= GUARDIAN_CHANGES_PER_DAY) {
     throw new RelayRefusal('guardian_change_limit');
   }
@@ -1224,7 +1241,16 @@ async function sendClaimed(
     onBroadcast: async (txHash) => {
       progress.broadcast = true;
       if (campaign !== null) await advanceCampaign(campaign.id, 'FUNDING', 'FUNDING', { tx_hash: txHash });
-      if (claimId !== null) await setClaimTx(claimId, txHash);
+      // AB3: a failed write of the hash does not stop the wait — the receipt below
+      // binds the address — and a receipt that then never comes leaves the claim to
+      // the orders pass, which settles a claim with no hash from the chain.
+      if (claimId !== null) {
+        try {
+          await setClaimTx(claimId, txHash);
+        } catch (error) {
+          await log.failure('orders.failed', error, { stage: 'claim_tx' });
+        }
+      }
     },
   });
   if (sent === null) throw new RelayRefusal('relayer_unavailable');
@@ -1254,7 +1280,7 @@ async function sendClaimed(
       await log.event('creator_campaign.confirmed', { giveaway_id: giveawayId.toString() });
     }
   }
-  if (action.kind === 'configure' && configurationGap(state) === 'guardian') {
+  if (action.kind === 'configure' && (configurationGap(state) === 'guardian' || rotatedAwayGuardian(state, guardianAddress()) !== null)) {
     await recordGuardian(account.id, guardianAddress());
   }
   if (action.kind === 'createVoucherCampaign') giveawayId = giveawayIdFromLogs(sent.receipt.logs);

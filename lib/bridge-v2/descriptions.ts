@@ -127,3 +127,34 @@ export async function undescribedTermsOf(store: `0x${string}`): Promise<{ termsI
     .map((row) => ({ termsId: BigInt(String(row.terms_id)), obligationId: row.obligation_id === null || row.obligation_id === undefined ? null : BigInt(String(row.obligation_id)) }))
     .filter((row) => !described.has(row.termsId));
 }
+
+/**
+ * SPEC-BLOCO-03 AB4: how far the orders pass has read the chain's terms and
+ * obligations into bridge_v2_store_terms — the next id of each to read. One from
+ * the start: both contracts leave id 0 empty.
+ */
+export async function storeTermsCursor(): Promise<{ nextTerms: bigint; nextObligation: bigint }> {
+  const rows = checked(
+    'store_terms.cursor',
+    await getDb().from('bridge_v2_store_terms_cursor').select('name, next_id').abortSignal(timeout()),
+  ) as { name: string; next_id: number | string }[] | null;
+  const next = (name: string) => BigInt(String(rows?.find((row) => row.name === name)?.next_id ?? 1));
+  return { nextTerms: next('terms'), nextObligation: next('obligations') };
+}
+
+/** AB4: the cursor moved on, once what it passed is recorded. */
+export async function advanceStoreTermsCursor(nextTerms: bigint, nextObligation: bigint): Promise<void> {
+  checked(
+    'store_terms.cursor_advance',
+    await getDb()
+      .from('bridge_v2_store_terms_cursor')
+      .upsert(
+        [
+          { name: 'terms', next_id: nextTerms.toString() },
+          { name: 'obligations', next_id: nextObligation.toString() },
+        ],
+        { onConflict: 'name' },
+      )
+      .abortSignal(timeout()),
+  );
+}

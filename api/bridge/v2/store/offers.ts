@@ -3,8 +3,10 @@ import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
-import { descriptionsOfStore, undescribedTermsOf } from '../../../../lib/bridge-v2/descriptions.js';
+import { descriptionsOfStore, storeTermsCursor, undescribedTermsOf } from '../../../../lib/bridge-v2/descriptions.js';
 import { keptraContractsConfigured } from '../../../../lib/bridge-v2/orders.js';
+import { termsCreatedSince } from '../../../../lib/bridge-v2/escrowChain.js';
+import { ORDER_SCAN_PAGE } from '../../../../lib/bridge-v2/config.js';
 
 /**
  * POST /api/bridge/v2/store/offers -> the offers and obligations the store published
@@ -15,6 +17,9 @@ import { keptraContractsConfigured } from '../../../../lib/bridge-v2/orders.js';
  * state and the numbers are read from the chain by the page.
  *
  * P2: the store is the session's creator account.
+ *
+ * AB4: the list is the chain's — what the orders pass read into the index, and
+ * what the chain holds past it — never only what the relay managed to record.
  */
 const route = handle('store/offers', async ({ request, log }) => {
   const guard = methodGuard(request, 'POST');
@@ -36,9 +41,21 @@ const route = handle('store/offers', async ({ request, log }) => {
   if (account === null) return ok({ offers: [] });
 
   // P6-14: with them, what the store created and never described — title null.
-  const [described, undescribed] = await Promise.all([descriptionsOfStore(account.safe), undescribedTermsOf(account.safe)]);
+  const [described, undescribed, cursor] = await Promise.all([descriptionsOfStore(account.safe), undescribedTermsOf(account.safe), storeTermsCursor()]);
+  // AB4: and what the chain holds past the orders pass's last read — one created a
+  // moment ago, whose receipt or record may never have reached this side. More than
+  // one page to read: the list cannot be given whole now, and the console, with no
+  // list, offers to create nothing.
+  const recent = await termsCreatedSince(cursor.nextTerms, cursor.nextObligation, ORDER_SCAN_PAGE);
+  if (recent.more) return refuse(503, 'Your offers cannot be listed right now. Try again in a few minutes.');
+  const mine = (store: string) => store.toLowerCase() === account.safe.toLowerCase();
+  const known = new Set([...described, ...undescribed].map((row) => row.termsId));
+  const fresh = [
+    ...recent.offers.filter((o) => mine(o.store)).map((o) => ({ termsId: o.termsId, obligationId: null as bigint | null })),
+    ...recent.obligations.filter((o) => mine(o.brand)).map((o) => ({ termsId: o.termsId, obligationId: o.obligationId as bigint | null })),
+  ].filter((row) => !known.has(row.termsId));
   const offers = [
-    ...undescribed.map((row) => ({ termsId: row.termsId.toString(), obligationId: row.obligationId === null ? null : row.obligationId.toString(), title: null })),
+    ...[...fresh, ...undescribed].map((row) => ({ termsId: row.termsId.toString(), obligationId: row.obligationId === null ? null : row.obligationId.toString(), title: null })),
     ...described.map((row) => ({
       termsId: row.termsId.toString(),
       obligationId: row.obligationId === null ? null : row.obligationId.toString(),

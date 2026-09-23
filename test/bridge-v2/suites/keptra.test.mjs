@@ -3332,6 +3332,114 @@ if (engine !== null) {
 }
 
 // ===========================================================================
+// Adenda AB — AB6 and AB7
+// ===========================================================================
+
+await test(['AB6'], 'AB6 (B4): a real deposit for a draft counts even when the deposit address’s balance went down after the draft was made — the transfers into it since its block are read; none, and the draft expires; a log read only in part keeps the draft and goes on next pass from where it stopped; a draft made before the block was recorded is judged by its balance; start records the block', async () => {
+  fresh();
+  const old = new Date(Date.now() - config.DRAFT_DEPOSIT_TTL_MS - 60_000).toISOString();
+  const make = (i, extra) => {
+    const creatorRow = store.insert('bridge_v2_creators', { participant_id: `p6-${i}`, wallet_index: null, wallet_address: `0x${(6000 + i).toString(16).padStart(40, '0')}` });
+    return { draft: draftOf(creatorRow.id, creatorRow.wallet_address, { created_at: old, deposit_baseline_usdc: '5000000', deposit_baseline_prize: '5000000', ...extra }), holder: creatorRow.wallet_address.toLowerCase() };
+  };
+  // The creator spent 5 USDC from the address after the draft was made, then deposited 2: the balance is below the baseline.
+  const deposited = make(1, { deposit_from_block: '500' });
+  const nothing = make(2, { deposit_from_block: '500' });
+  const unread = make(3, { deposit_from_block: '500' });
+  const legacy = make(4, { deposit_from_block: null });
+  chain.set({ erc20BalanceOf: 2_000_000n, blockNumber: 90_000n });
+  chain.set({
+    transferInto: (token, to, from, toBlock, hasTime) => {
+      assert.equal(token.toLowerCase(), config.USDC.toLowerCase());
+      if (to.toLowerCase() === deposited.holder) return { found: true, searchedTo: 20_000n };
+      // Out of time after the first request: read up to block 10 499.
+      if (to.toLowerCase() === unread.holder && !hasTime()) return { found: false, searchedTo: from + 9_999n };
+      return { found: false, searchedTo: toBlock };
+    },
+  });
+  const drafts = await draftsLibrary();
+  let reads = 0;
+  // Time for every draft, and for one more request of the log only while the third draft is read.
+  const clock = { hasTimeFor: (ms) => ms !== config.DRAFT_DEPOSIT_LOG_CHUNK_MS || (reads += 1) > 1e9 };
+  await drafts.expireUnfundedDrafts(recordingLogger(), clock);
+  assert.deepEqual(
+    [deposited, nothing, unread, legacy].map((x) => x.draft.status),
+    ['PENDING_DEPOSIT', 'EXPIRED', 'PENDING_DEPOSIT', 'EXPIRED'],
+    'a deposit hidden by a lower balance did not count, or a draft with no deposit stayed',
+  );
+  assert.equal(String(unread.draft.deposit_from_block), '10500', 'the next pass does not go on from where the read stopped');
+  // Read to the end next pass, with nothing in it: expired.
+  chain.set({ transferInto: (_token, _to, _from, toBlock) => ({ found: false, searchedTo: toBlock }) });
+  unread.draft.updated_at = new Date(0).toISOString();
+  await drafts.expireUnfundedDrafts(recordingLogger(), deadline());
+  assert.equal(unread.draft.status, 'EXPIRED');
+  assert.ok(chain.calls.filter((c) => c.name === 'transferInto').every((c) => c.args[2] >= 500n), 'the log was read from before the draft');
+  // start writes the block with the balances.
+  fresh();
+  await registered();
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  kchain.set({ accountState: readyState() });
+  chain.set({ erc20BalanceOf: 3n, blockNumber: 123_456n });
+  const startRoute = await import('../../../api/bridge/v2/creator/campaign/start.ts');
+  const response = await startRoute.POST(request(url('creator/campaign/start'), { cookie: SESSION_COOKIE, body: { module: ERC20_PRIZE_MODULE, prizeToken: config.USDC, prizeAmount: '1000', durationSeconds: 3600, winnersCount: 1, slotCap: 10 } }));
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal(String(store.rows('bridge_v2_creator_campaigns')[0].deposit_from_block), '123456');
+});
+
+await test(['AB7'], 'AB7: after a rotation of the guardian key (B6), an account still holding the old key is reconfigured by R-3 in one passkey transaction — cancelRecovery if one is pending, invalidateNonce, the old key revoked, the current one added — and meanwhile its owner keeps using it; the transaction names no other key, and during an incident on the current key it waits', async () => {
+  fresh();
+  const { passkey } = await registered();
+  const OLD = guardianAddress();
+  const previous = process.env.BRIDGE_V2_GUARDIAN_KEY;
+  process.env.BRIDGE_V2_GUARDIAN_KEY = generatePrivateKey();
+  try {
+    const current = guardianAddress();
+    assert.notEqual(current.toLowerCase(), OLD.toLowerCase());
+    // The account the platform configured before the rotation, as the chain holds it: the old key.
+    markConfigured();
+    let onChain = readyState([SIGNER], [OLD]);
+    kchain.set({ accountState: () => onChain, isValidPasskeySignature: true, hasCode: true });
+    chain.set({ erc20BalanceOf: 10n });
+    const relayLib = await relayLibrary();
+    // Its owner keeps using it: an ordinary action is prepared, not refused as a configuration left to finish.
+    const used = await relayLib.prepareAction('participant-1', { kind: 'transferUsdc', to: DESTINATION, amount: 1n }, null);
+    assert.equal(callsOf(used.tx).length, 1);
+    // configure is R-3 on the old key and the current one added — never "already set up".
+    const prepared = await relayLib.prepareAction('participant-1', { kind: 'configure' }, null);
+    const expected = [...keptra.revokeGuardianCalls(OLD, false), ...keptra.addGuardianCalls(current)];
+    assert.deepEqual(lowerCalls(callsOf(prepared.tx)), lowerCalls(expected));
+    assert.equal(keptra.refusalFor(used.account.safe, expected, 1n, null, { revoke: OLD, add: current }), null);
+    // No other key may be named: revoking the current one, or adding the old one back.
+    assert.equal(keptra.refusalFor(used.account.safe, [...keptra.revokeGuardianCalls(current, false), ...keptra.addGuardianCalls(current)], 1n, null, { revoke: OLD, add: current }), 'guardian_mismatch');
+    assert.equal(keptra.refusalFor(used.account.safe, [...keptra.revokeGuardianCalls(OLD, false), ...keptra.addGuardianCalls(OLD)], 1n, null, { revoke: OLD, add: current }), 'guardian_mismatch');
+    // A change of access pending: the reaction cancels it first (R-3).
+    onChain = readyState([SIGNER], [OLD], { recoveryExecuteAfter: 1n });
+    const pending = await relayLib.prepareAction('participant-1', { kind: 'configure' }, null);
+    assert.deepEqual(lowerCalls(callsOf(pending.tx)), lowerCalls([...keptra.revokeGuardianCalls(OLD, true), ...keptra.addGuardianCalls(current)]));
+    assert.equal(callsOf(pending.tx)[0].data.slice(0, 10), keptra.cancelRecoveryCalls()[0].data.slice(0, 10));
+    // Sent through the route, as the page does: the current key is recorded, and it counts as a change of guardian (C11).
+    onChain = readyState([SIGNER], [OLD]);
+    const response = await relayRoute.POST(
+      request(url('account/relay'), { cookie: SESSION_COOKIE, body: { kind: 'configure', nonce: prepared.tx.nonce.toString(), ...(await passkey.sign(prepared.hash)) } }),
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+    const row = store.rows('bridge_v2_accounts').find((r) => r.role === 'PARTICIPANT');
+    assert.equal(row.guardian_address.toLowerCase(), current.toLowerCase());
+    assert.equal(store.rows('bridge_v2_guardian_changes').length, 1);
+    // Reconfigured on-chain: nothing left to do.
+    onChain = readyState([SIGNER], [current]);
+    await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'configure' }, null), (error) => error.reason === 'already_configured');
+    // During an incident on the current key, the reconfiguration waits (D1); the account stays usable.
+    onChain = readyState([SIGNER], [OLD]);
+    store.insert('bridge_v2_guardian_incidents', { guardian_address: current.toLowerCase() });
+    await assert.rejects(relayLib.prepareAction('participant-1', { kind: 'configure' }, null), (error) => error.reason === 'guardian_incident');
+    assert.equal(callsOf((await relayLib.prepareAction('participant-1', { kind: 'transferUsdc', to: DESTINATION, amount: 1n }, null)).tx).length, 1);
+  } finally {
+    process.env.BRIDGE_V2_GUARDIAN_KEY = previous;
+  }
+});
+
+// ===========================================================================
 // migration 0015, executed — P1-3 and P1-11 (Adenda AA4)
 // ===========================================================================
 
@@ -3415,17 +3523,34 @@ if (lote !== null) {
     assert.equal((await attempt(lote.pool, `INSERT INTO bridge_v2_order_notices (order_id, kind) VALUES (1, 'WINDOW_REFUSED')`)).ok, true);
     assert.equal((await attempt(lote.pool, `INSERT INTO bridge_v2_order_notices (order_id, kind) VALUES (1, 'SOMETHING_ELSE')`)).code, '23514');
   });
+
+  await test(['AB5', 'AB6'], '0015 for AB5 and AB6: a notice is recorded as refused with the verbs the service already holds; a draft keeps the block its deposit is read from — never negative, NULL on older drafts — and the service moves it on', async () => {
+    const refused = await asRole(lote, 'service_role', (client) => attempt(client, `INSERT INTO bridge_v2_order_notices (order_id, kind, refused_at) VALUES (3, 'WINDOW_REFUSED', now()) RETURNING refused_at`));
+    assert.equal(refused.ok, true, refused.message);
+    assert.notEqual(refused.rows[0].refused_at, null);
+    const participant = (await q(`INSERT INTO bridge_v2_participants (email_canonical) VALUES ('lote6@example.test') RETURNING id`)).rows[0].id;
+    const creator = (await q(`INSERT INTO bridge_v2_creators (participant_id, wallet_address) VALUES ($1, '0x1313131313131313131313131313131313131313') RETURNING id`, [participant])).rows[0].id;
+    const draft = (block) =>
+      attempt(lote.pool, `INSERT INTO bridge_v2_creator_campaigns (creator_id, status, module, prize_token, prize_amount, duration_seconds, winners_count, slot_cap, fee_amount, slots_cost, deposit_from_block) VALUES ($1, 'EXPIRED', $2, $2, 1, 3600, 1, 10, 1, 1, $3) RETURNING id`, [creator, '0x3434343434343434343434343434343434343434', block]);
+    assert.equal((await draft('-1')).code, '23514');
+    assert.equal((await draft(null)).ok, true, 'a draft made before the block was recorded is refused');
+    const made = await draft('123456');
+    assert.equal(made.ok, true);
+    const moved = await asRole(lote, 'service_role', (client) => attempt(client, `UPDATE bridge_v2_creator_campaigns SET deposit_from_block = 133456 WHERE id = $1 RETURNING deposit_from_block::text`, [made.rows[0].id]));
+    assert.equal(moved.ok, true, moved.message);
+    assert.equal(moved.rows[0].deposit_from_block, '133456');
+  });
 }
 
 // The matrix of this lot for piece 1 is in the repository (owner, 23/09), names the spec version, and has a row for every pendente a test declares.
-await test([], 'AA4: the matrix of piece 1 is in this repository, declares the spec version in force (1.30) and Adenda AA, and has a row for every P1-n, D-B5 and D-FUNDING a piece-1 test declares', async () => {
+await test([], 'AA4 and AB: the matrix of piece 1 is in this repository, declares the spec version in force (1.31) and Adendas AA and AB, and has a row for every P1-n, D-B5, D-FUNDING, AB6 and AB7 a piece-1 test declares', async () => {
   const matrix = read('test/bridge-v2/MATRIZ-PECA1-KEPTRA.md');
-  assert.match(matrix, /Versão 1\.30/);
-  assert.ok(matrix.includes('Adenda AA'));
+  assert.match(matrix, /Versão 1\.31/);
+  assert.ok(matrix.includes('Adenda AA') && matrix.includes('## 5. Adenda AB'));
   const { results } = await import('../harness.mjs');
-  const declared = new Set(results.filter((r) => r.suite === 'keptra').flatMap((r) => r.requirements).filter((tag) => /^(P1-\d+|D-B5|D-FUNDING)$/.test(tag)));
-  for (const tag of [...Array.from({ length: 11 }, (_unused, i) => `P1-${i + 1}`), 'D-B5', 'D-FUNDING']) {
+  const declared = new Set(results.filter((r) => r.suite === 'keptra').flatMap((r) => r.requirements).filter((tag) => /^(P1-\d+|D-B5|D-FUNDING|AB[67])$/.test(tag)));
+  for (const tag of [...Array.from({ length: 11 }, (_unused, i) => `P1-${i + 1}`), 'D-B5', 'D-FUNDING', 'AB6', 'AB7']) {
     assert.ok(declared.has(tag), `no piece-1 test declares ${tag}`);
-    assert.match(matrix, new RegExp(`^\| ${tag} \|`, 'm'), `${tag} has no row in the matrix`);
+    assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
   }
 });

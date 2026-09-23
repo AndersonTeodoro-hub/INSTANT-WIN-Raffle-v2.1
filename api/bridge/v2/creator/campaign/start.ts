@@ -8,6 +8,7 @@ import { findCreatorByParticipant, getOrCreateCreator } from '../../../../../lib
 import { findAccount } from '../../../../../lib/bridge-v2/accounts.js';
 import { createDraft, findActiveCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
 import {
+  blockNumber,
   currentCreationFee,
   erc20BalanceOf,
   isModuleRegistered,
@@ -132,10 +133,14 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
   const slotsCost = BigInt(slotCap) * (await slotPrice());
   // P1-3: what the deposit address already holds is not this draft's deposit.
   // Recorded with the draft, so its expiry counts only what arrives above it.
+  // AB6: and the block read with them — every transfer into the address from it
+  // on is this draft's deposit, whatever the balance does after. Read together:
+  // a transfer in that block counted twice keeps a draft alive, never expires one.
   const sameToken = prizeToken.toLowerCase() === (USDC as string).toLowerCase();
-  const [baselinePrize, baselineUsdc] = await Promise.all([
+  const [baselinePrize, baselineUsdc, depositFromBlock] = await Promise.all([
     erc20BalanceOf(prizeToken, creator.walletAddress),
     sameToken ? Promise.resolve(null) : erc20BalanceOf(USDC, creator.walletAddress),
+    blockNumber(),
   ]);
 
   const outcome = await createDraft(creator.id, {
@@ -149,6 +154,7 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
     slotsCost,
     baselinePrize,
     baselineUsdc: baselineUsdc ?? baselinePrize,
+    depositFromBlock,
   });
 
   if (outcome.kind === 'ACTIVE_EXISTS') {

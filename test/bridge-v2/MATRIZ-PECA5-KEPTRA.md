@@ -1,6 +1,6 @@
 # Matriz da peça 5 — os fluxos da bridge
 
-Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.30 — 23/09/2026** (Adenda AA). A construção foi verificada contra a 1.19 (Adenda R); o lote antes do deploy, contra a 1.30.
+Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.31 — 23/09/2026** (Adendas AA e AB). A construção foi verificada contra a 1.19 (Adenda R); o lote antes do deploy, contra a 1.30; a correcção da Adenda AB, contra a 1.31.
 Cobre a secção 17, ponto 5, a O4 da Adenda O, as **Adendas P, Q e R**, e o que a **AA4 da Adenda AA** lista para a peça 5: P5-1 a P5-14, B8, Y5 e, com os contratos, T18 e Q7.
 
 Código: este repositório, ramo `feat/keptra-bridge`. A construção está em `d0f49c2`. A correcção da Adenda R está no commit que traz esta matriz.
@@ -230,3 +230,14 @@ Perguntas ao owner nesta sessão: nenhuma sobre a peça 5 (as três da sessão e
 | AA-Q7 | O código de criação dos testes de fork passa a ser o de 5d85a46 | `test/bridge-v2/fork/keptra-5d85a46.json` | `fork-orders`: "fork (Q7, Z1)…"; `fork-orders`: "B8 and Y5 on the fork…" | passam |
 
 O que muda para o owner antes do deploy: a migration `0015_keptra_lote.sql` também traz a parte da peça 5; `vercel.json` passa `store/tracking` a 158 s.
+
+## 9. Adenda AB — AB3 e AB5 (23/09)
+
+A etiqueta é o nome da decisão (`AB3`, `AB5`).
+
+| # | Decisão | Onde está | Teste | Resultado |
+|---|---|---|---|---|
+| AB3 | B1: uma morada reservada para um pagamento ou um resgate nunca fica presa — sem envio volta a estar disponível; com envio fica ligada à encomenda que ele abriu, mesmo que a escrita do hash tenha falhado | `lib/bridge-v2/relay.ts:1244` (a escrita do hash falhada não pára a espera: o recibo liga a morada); `lib/bridge-v2/keptraOrders.ts:410` (uma reserva sem hash, mais velha que a rota da relay, liga-se à encomenda que as contas do participante abriram para a mesma oferta ou voucher desde a reserva, ou é devolvida quando o índice tem todas as encomendas da cadeia e nenhuma é dela; com o índice atrás, espera); `lib/bridge-v2/orders.ts:233` e `:260` | `orders`: "AB3 (B1): a payment whose write of the transaction hash fails…" (`test/bridge-v2/suites/orders.test.mjs:1900`); "AB3 (B1): a claim with no transaction written never stays taken…" (`:1926`) | passam |
+| AB5 | B3: um aviso que o fornecedor de email recusa sempre não impede o fecho de uma janela recusada de ficar registado, e não gasta uma unidade de email em cada passe | `lib/bridge-v2/mail.ts:35` (uma resposta 4xx que não 408 nem 429 é recusa da própria mensagem); `lib/bridge-v2/keptraOrders.ts:836` (gravado como recusado, com alerta, nunca mais enviado), `:820` (o fecho da janela recusada segue); `lib/bridge-v2/orders.ts:999`; `supabase/migrations/0015_keptra_lote.sql:128` (`refused_at`) | `orders`: "AB5 (B3): a notice the email provider refuses for what it is…" (`test/bridge-v2/suites/orders.test.mjs:1963`); `keptra`: "0015 for AB5 and AB6…" (`test/bridge-v2/suites/keptra.test.mjs:3527`), no Postgres embebido | passam |
+
+Uma recusa de momento (5xx, 408, 429, sem resposta) continua a ser tentada outra vez, e o fecho continua à espera dela, como a Y5 pediu.

@@ -23,6 +23,17 @@ const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
 export interface MailResult {
   readonly sent: boolean;
+  /**
+   * SPEC-BLOCO-03 AB5: the provider answered and refused this message for what it
+   * is (a 4xx other than 408 and 429) — sending it again gets the same answer. A
+   * timeout, a 408, a 429 or a 5xx is not a refusal: it may go through later.
+   */
+  readonly refused?: boolean;
+}
+
+/** AB5: the answers that say the message itself will never be taken. */
+export function refusedStatus(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 /**
@@ -56,7 +67,7 @@ async function post(to: string, subject: string, text: string): Promise<MailResu
       }),
       signal: controller.signal,
     });
-    return { sent: response.ok };
+    return { sent: response.ok, refused: refusedStatus(response.status) };
   } catch {
     return { sent: false };
   } finally {

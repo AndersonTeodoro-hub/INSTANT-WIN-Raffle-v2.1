@@ -567,8 +567,15 @@ export const GUARDIAN_RECORD_MS = 2 * DB_TIMEOUT_MS;
  * none of either token this long after it was made is closed (EXPIRED).
  */
 export const DRAFT_DEPOSIT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-/** F2: one such draft — its creator read (up to three stages), two balances, the transition, the event. */
-export const DRAFT_EXPIRY_MS = 2 * RPC_TIMEOUT_MS + 5 * DB_TIMEOUT_MS;
+/**
+ * F2: one such draft — its creator read (up to three stages), two balances, the
+ * transition, the event. AB6: and the latest block and the first request of the
+ * log of transfers into its address for each of the two tokens, and the write of
+ * how far that read got.
+ */
+export const DRAFT_EXPIRY_MS = 5 * RPC_TIMEOUT_MS + 6 * DB_TIMEOUT_MS;
+/** SPEC-BLOCO-03 AB6: one more request of the log of transfers into a draft's deposit address, and the write of how far it got. */
+export const DRAFT_DEPOSIT_LOG_CHUNK_MS = RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
 
 /**
  * SPEC-BLOCO-03 Adenda E1, F3, F6: one derived wallet looked at for seed
@@ -835,7 +842,7 @@ export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 5 * DB_TIMEOUT_MS;
  * recovery confirmation, 86_000 for advancing one (P1-10: its notices' claims included), 44_000 for a page of the
  * recovery scan, 44_000 for recognising one account (E3), 132_000 for one
  * campaign left in FUNDING (E7, F5, D-FUNDING), 28_000 for a page of the guardian scan and
- * 16_000 for one guardian recorded (F1), 60_000 for one unfunded draft (F2),
+ * 16_000 for one guardian recorded (F1), 98_000 for one unfunded draft (F2, AB6),
  * 84_000 for one wallet of the seed readiness (E1, F6), and in the pipeline
  * 20_000 for a self-custody entry; the steps of F7 — 16_000 for an alert,
  * 24_000 for the cleanup, 32_000 for the relay's retention, 24_000 and 16_000
@@ -877,6 +884,7 @@ export const EVERY_RESERVATION_MS: Record<string, number> = {
   guardianScan: GUARDIAN_SCAN_MS,
   guardianRecord: GUARDIAN_RECORD_MS,
   draftExpiry: DRAFT_EXPIRY_MS,
+  draftDepositLogChunk: DRAFT_DEPOSIT_LOG_CHUNK_MS,
   readinessWallet: READINESS_WALLET_MS,
   selfCustodyEntry: SELF_CUSTODY_RECONCILE_MS,
   // Adenda F7: every other step of the maintenance pass, and the two routes that
@@ -1253,6 +1261,12 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // database stages: the session read and slide, three rate-limit axes, the
   // creator account, the insert, the ops event, and the envelope's.
   'api/bridge/v2/store/description.ts': maxDurationSeconds(2, 9),
+  // AB4. Two RPC stages: the obligations' count, then the terms and the
+  // obligations past the index together. Ten database stages: the session read
+  // and slide, three rate-limit axes, the creator account, the descriptions, the
+  // undescribed terms with their descriptions (two), the cursor, the ops event,
+  // and the envelope's; the cursor runs beside the first two.
+  'api/bridge/v2/store/offers.ts': maxDurationSeconds(2, 10),
   // T13. Three RPC stages: the USDC and voucher balances of both accounts and
   // (P6-6) the order count, read together; then one page of orders and their
   // terms. Seventeen database stages outside the addresses: the session read and

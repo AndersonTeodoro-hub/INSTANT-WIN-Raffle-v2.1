@@ -39,6 +39,7 @@
     "api/bridge/v2/account/status.ts": { "maxDuration": 188 },
     "api/bridge/v2/account/vouchers.ts": { "maxDuration": 142 },
     "api/bridge/v2/store/description.ts": { "maxDuration": 92 },
+    "api/bridge/v2/store/offers.ts": { "maxDuration": 100 },
     "api/bridge/v2/privacy/erase.ts": { "maxDuration": 294 }
   },
   "crons": [

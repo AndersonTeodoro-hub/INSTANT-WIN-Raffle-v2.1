@@ -121,6 +121,72 @@ export async function readTerms(termsId: bigint): Promise<TermsView> {
   );
 }
 
+/**
+ * SPEC-BLOCO-03 AB4: the stores' terms and obligations the chain holds past the
+ * given ids — at most `max` of each, from the next id on. An offer is its terms
+ * (prize false); an obligation's terms are read through the obligation, which
+ * names them and the brand (a prize's terms are never an offer). `more` says the
+ * chain may hold more than was read.
+ *
+ * The escrow of 5d85a46 has no count of its terms: getTerms of an id past the
+ * last reverts (an index out of bounds), so the terms are the ids read before the
+ * first that reverts, and a page read whole may have more behind it. The
+ * guarantee counts its obligations (obligationCount).
+ */
+export async function termsCreatedSince(
+  nextTerms: bigint,
+  nextObligation: bigint,
+  max: number,
+): Promise<{
+  offers: { termsId: bigint; store: `0x${string}` }[];
+  obligations: { obligationId: bigint; termsId: bigint; brand: `0x${string}` }[];
+  nextTerms: bigint;
+  nextObligation: bigint;
+  more: boolean;
+}> {
+  const client = publicClient();
+  const obligationCount = (await client.readContract({ address: KEPTRA_GUARANTEE, abi: KEPTRA_GUARANTEE_ABI, functionName: 'obligationCount' })) as bigint;
+  const range = (from: bigint, count: bigint) => {
+    const ids: bigint[] = [];
+    for (let id = from; id < count && ids.length < max; id += 1n) ids.push(id);
+    return ids;
+  };
+  const probed = range(nextTerms, nextTerms + BigInt(max));
+  const obligationIds = range(nextObligation, obligationCount);
+  const [probes, obligations] = await Promise.all([
+    client.multicall({
+      allowFailure: true,
+      contracts: probed.map((id) => ({ address: KEPTRA_ESCROW, abi: KEPTRA_ESCROW_ABI, functionName: 'getTerms', args: [id] }) as const),
+    }),
+    obligationIds.length === 0
+      ? Promise.resolve([])
+      : client.multicall({
+          allowFailure: false,
+          contracts: obligationIds.map(
+            (id) => ({ address: KEPTRA_GUARANTEE, abi: KEPTRA_GUARANTEE_ABI, functionName: 'getObligation', args: [id] }) as const,
+          ),
+        }),
+  ]);
+  // The terms that exist: every id read before the first one that reverted.
+  const firstMissing = probes.findIndex((probe) => probe.status !== 'success');
+  const termIds = firstMissing === -1 ? probed : probed.slice(0, firstMissing);
+  const terms = termIds.map((_id, i) => probes[i].result);
+  const after = (ids: bigint[], from: bigint) => (ids.length === 0 ? from : ids[ids.length - 1] + 1n);
+  return {
+    offers: termIds
+      .map((termsId, i) => ({ termsId, terms: toTerms(terms[i] as unknown as Record<string, unknown>) }))
+      .filter(({ terms: t }) => !t.prize)
+      .map(({ termsId, terms: t }) => ({ termsId, store: t.store })),
+    obligations: obligationIds.map((obligationId, i) => {
+      const o = obligations[i] as unknown as Record<string, unknown>;
+      return { obligationId, termsId: BigInt(o.termsId as bigint), brand: o.brand as `0x${string}` };
+    }),
+    nextTerms: after(termIds, nextTerms),
+    nextObligation: after(obligationIds, nextObligation),
+    more: firstMissing === -1 || after(obligationIds, nextObligation) < obligationCount,
+  };
+}
+
 /** One order and the terms it runs under: the order, then its terms. */
 export async function readOrder(orderId: bigint): Promise<OrderWithTerms> {
   const [page] = await readOrders([orderId]);

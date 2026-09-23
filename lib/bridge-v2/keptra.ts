@@ -628,6 +628,17 @@ export function revokeGuardianCalls(guardian: `0x${string}`, recoveryPending: bo
   return calls;
 }
 
+/**
+ * SPEC-BLOCO-03 AB7: the guardian an account holds on-chain when it is not the
+ * platform's current one — a rotation (B6) left it behind. Null otherwise, and
+ * for an account holding none (R-3 revoked it: configure adds the current one).
+ */
+export function rotatedAwayGuardian(state: ConfigurationView, current: `0x${string}`): `0x${string}` | null {
+  if (configurationGap(state) !== null) return null;
+  const held = state.guardians.find((guardian) => guardian.toLowerCase() !== current.toLowerCase());
+  return (held as `0x${string}` | undefined) ?? null;
+}
+
 /** A6: after a rotation, the account adds the new guardian at its next login. */
 export function addGuardianCalls(guardian: `0x${string}`): SafeCall[] {
   return [
@@ -711,7 +722,8 @@ const MODULE_CALLS = new Set([
  *   disableModule (R-5), setFallbackHandler (R-4), setGuard, removeOwner,
  *   swapOwner or changeThreshold;
  * - on the module, only the four recovery calls of 6.3/6.4, naming no guardian
- *   but `guardian` (null: none may be named);
+ *   but `guardian` (null: none may be named) — or, for the reconfiguration of
+ *   AB7, `revoke` in the revocation and `add` in the addition;
  * - no nested MultiSendCallOnly batch;
  * - the configuration prefix (configurationCalls) is accepted only as the exact
  *   first two calls of the account's first transaction.
@@ -721,8 +733,10 @@ export function refusalFor(
   calls: readonly SafeCall[],
   nonce: bigint,
   configuration: readonly SafeCall[] | null,
-  guardian: `0x${string}` | null,
+  guardian: `0x${string}` | null | { readonly revoke: `0x${string}`; readonly add: `0x${string}` },
 ): string | null {
+  const allowed = (fn: string): string | null =>
+    guardian === null || typeof guardian === 'string' ? guardian : fn === 'addGuardianWithThreshold' ? guardian.add : guardian.revoke;
   let rest = calls;
   if (configuration !== null) {
     if (nonce !== 0n) return 'configuration_not_first';
@@ -757,7 +771,7 @@ export function refusalFor(
           : functionName === 'revokeGuardianWithThreshold'
             ? (args[1] as string)
             : null;
-      if (named !== null && named.toLowerCase() !== guardian?.toLowerCase()) return 'guardian_mismatch';
+      if (named !== null && named.toLowerCase() !== allowed(functionName)?.toLowerCase()) return 'guardian_mismatch';
       continue;
     }
     if (to === MULTI_SEND_CALL_ONLY.toLowerCase()) return 'nested_batch';

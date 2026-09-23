@@ -112,3 +112,37 @@ REVOKE ALL ON TABLE public.bridge_v2_store_terms FROM service_role;
 -- Exactly the verbs lib/bridge-v2/descriptions.ts uses: recorded once, read.
 GRANT SELECT, INSERT ON TABLE public.bridge_v2_store_terms TO service_role;
 REVOKE ALL ON TABLE public.bridge_v2_store_terms FROM anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- AB6 — a real deposit for a draft counts, whatever the balance did after the draft
+-- was made: the block its deposit is read from (transfers into the address from it
+-- on), moved on as the expiry reads the log and finds none. NULL on a draft made
+-- before it: the balance alone says.
+-- -----------------------------------------------------------------------------
+ALTER TABLE bridge_v2_creator_campaigns ADD COLUMN IF NOT EXISTS deposit_from_block bigint;
+ALTER TABLE bridge_v2_creator_campaigns DROP CONSTRAINT IF EXISTS bridge_v2_creator_campaigns_deposit_from_block_check;
+ALTER TABLE bridge_v2_creator_campaigns ADD CONSTRAINT bridge_v2_creator_campaigns_deposit_from_block_check
+  CHECK (deposit_from_block >= 0);
+
+-- -----------------------------------------------------------------------------
+-- AB5 — a notice the email provider refused for what it is is recorded, as refused,
+-- and never sent again: no unit of email spent on it every pass, and the close of a
+-- refused window (Y5) not held by it. NULL: sent.
+-- -----------------------------------------------------------------------------
+ALTER TABLE bridge_v2_order_notices ADD COLUMN IF NOT EXISTS refused_at timestamptz;
+
+-- -----------------------------------------------------------------------------
+-- AB4 — the console's list is the chain's: the orders pass reads every terms and
+-- every obligation the contracts hold into bridge_v2_store_terms, so one the relay
+-- created is listed even when its receipt never reached the relay or the relay's
+-- own write failed. This is how far that read has gone: the next id of each.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bridge_v2_store_terms_cursor (
+  name    text   PRIMARY KEY CHECK (name IN ('terms', 'obligations')),
+  next_id bigint NOT NULL CHECK (next_id >= 1)
+);
+ALTER TABLE bridge_v2_store_terms_cursor ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.bridge_v2_store_terms_cursor FROM service_role;
+-- Exactly the verbs lib/bridge-v2/descriptions.ts uses: read, and moved on (upsert).
+GRANT SELECT, INSERT, UPDATE ON TABLE public.bridge_v2_store_terms_cursor TO service_role;
+REVOKE ALL ON TABLE public.bridge_v2_store_terms_cursor FROM anon, authenticated;

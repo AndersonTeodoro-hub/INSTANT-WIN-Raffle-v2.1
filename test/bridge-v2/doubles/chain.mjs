@@ -87,6 +87,9 @@ const DEFAULTS = () => ({
   slotPrice: 100_000n,
   erc20Allowance: 0n,
   erc20BalanceOf: 0n,
+  // SPEC-BLOCO-03 AB6: the latest block, and no transfer into anybody unless a test says so.
+  blockNumber: 1_000n,
+  transferInto: (_token, _to, _from, toBlock) => ({ found: false, searchedTo: toBlock }),
   // The settlement notice's "what you won". null is the honest default for a
   // token that implements neither, which mail.ts degrades around.
   erc20Meta: { symbol: 'USDC', decimals: 6 },
@@ -181,6 +184,8 @@ export const currentCreationFee = (...args) => answer('currentCreationFee', args
 export const slotPrice = (...args) => answer('slotPrice', args);
 export const erc20Allowance = (...args) => answer('erc20Allowance', args);
 export const erc20BalanceOf = (...args) => answer('erc20BalanceOf', args);
+export const blockNumber = (...args) => answer('blockNumber', args);
+export const transferInto = (...args) => answer('transferInto', args);
 export const erc20Meta = (...args) => answer('erc20Meta', args);
 export const erc20MetaRead = (...args) => answer('erc20MetaRead', args);
 export const quoteApprove = (...args) => answer('quoteApprove', args);

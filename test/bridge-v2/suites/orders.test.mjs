@@ -1536,18 +1536,18 @@ await test(['AR4'], 'R4: what no flow reads is gone — the contest window param
   assert.ok(!JSON.stringify(listed).includes('a'.repeat(64)));
 });
 
-await test(['AR3'], 'R3 and AA4: this matrix is in the repository, names the spec version in force (1.30) and the Adendas P, Q, R and AA, and has a row for every Qn, APn, AQn, ARn, P5-n and AA- tag a piece-5 test declares', () => {
+await test(['AR3'], 'R3, AA4 and AB: this matrix is in the repository, names the spec version in force (1.31) and the Adendas P, Q, R, AA and AB, and has a row for every Qn, APn, AQn, ARn, P5-n, AA-, AB3 and AB5 tag a piece-5 test declares', () => {
   const matrix = read('test/bridge-v2/MATRIZ-PECA5-KEPTRA.md');
-  assert.match(matrix, /linha 3: \*\*Versão 1\.30 — 23\/09\/2026\*\*/);
-  for (const heading of ['## 2. Adenda P', '## 3. Adenda Q', '## 4. Adenda R', '## 8. Adenda AA']) assert.ok(matrix.includes(heading), heading);
+  assert.match(matrix, /linha 3: \*\*Versão 1\.31 — 23\/09\/2026\*\*/);
+  for (const heading of ['## 2. Adenda P', '## 3. Adenda Q', '## 4. Adenda R', '## 8. Adenda AA', '## 9. Adenda AB']) assert.ok(matrix.includes(heading), heading);
   const declared = new Set();
   for (const path of ['test/bridge-v2/suites/orders.test.mjs', 'test/bridge-v2/fork/orders.fork.mjs']) {
     for (const [, list] of read(path).matchAll(/await test\(\s*\[([^\]]*)\]/g)) {
-      for (const tag of list.split(',').map((part) => part.trim().replace(/'/g, ''))) if (/^(Q|AP|AQ|AR)\d+$|^P5-\d+$|^AA-(B8|Y5|Q7)$/.test(tag)) declared.add(tag);
+      for (const tag of list.split(',').map((part) => part.trim().replace(/'/g, ''))) if (/^(Q|AP|AQ|AR)\d+$|^P5-\d+$|^AA-(B8|Y5|Q7)$|^AB[35]$/.test(tag)) declared.add(tag);
     }
   }
   assert.ok(declared.has('AR3') && declared.has('Q31') && declared.has('AQ5'), 'the tags were not all read');
-  for (let n = 1; n <= 14; n += 1) assert.ok(declared.has(`P5-${n}`), `no piece-5 test declares P5-${n}`);
+  for (const tag of [...Array.from({ length: 14 }, (_unused, i) => `P5-${i + 1}`), 'AB3', 'AB5']) assert.ok(declared.has(tag), `no piece-5 test declares ${tag}`);
   for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
 });
 
@@ -1891,6 +1891,116 @@ await test(['AA-Y5'], 'Y5 (X10): a window the store’s declaration opened, clos
   assert.equal(refusedDeclaredWindow({ ...base, contestedAt: T0 }), false);
   assert.equal(refusedDeclaredWindow({ ...base, windowEndsAt: 0n }), false);
   assert.equal(refusedDeclaredWindow({ ...base, outcome: 0 }), false);
+});
+
+// ===========================================================================
+// Adenda AB — AB3 and AB5
+// ===========================================================================
+
+await test(['AB3'], 'AB3 (B1): a payment whose write of the transaction hash fails after the broadcast still binds its address to the order that send opened — from the receipt, in the same request', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  offer();
+  asParticipant('participant-1');
+  await post(addressRoute, 'order/address', { ...ADDRESS, termsId: '1' });
+  chain.set({ erc20BalanceOf: 100_000_000n });
+  // The write of claim_tx fails; every other write of the table goes through.
+  const memUpdate = db.handlerOf('bridge_v2_order_addresses:update');
+  db.on('bridge_v2_order_addresses:update', (op) =>
+    typeof op.payload?.claim_tx === 'string' ? { data: null, error: { code: '08006', message: 'connection lost' } } : memUpdate(op),
+  );
+  const opened = {
+    address: ESCROW,
+    topics: encodeEventTopics({ abi: KEPTRA_ESCROW_ABI, eventName: 'OrderOpened', args: { orderId: 1n, termsId: 1n, payer: buyer.participant } }),
+    data: encodeAbiParameters([{ type: 'uint96' }, { type: 'uint256' }], [11_000_000n, 0n]),
+  };
+  chain.set({ waitForReceipt: { status: 'success', logs: [opened] } });
+  const paid = await relayed(buyer.passkey, { kind: 'pay', termsId: '1', quantity: 1 });
+  assert.equal(paid.status, 200, `a failed write of the hash failed the payment: ${JSON.stringify(paid.body)}`);
+  assert.equal(paid.body.orderId, '1');
+  const [address] = store.rows('bridge_v2_order_addresses');
+  assert.equal(String(address.order_id), '1', 'the address stayed claimed with no order');
+  assert.equal(address.claim_tx ?? null, null, 'the test did not make the write of the hash fail');
+});
+
+await test(['AB3'], 'AB3 (B1): a claim with no transaction written never stays taken — once no request can still be sending it, the pass binds it to the order its participant’s account opened for the same offer since the claim, or gives it back when the index holds every order and none is there; an index behind the chain decides nothing, and a fresh claim is left to its request', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  offer();
+  asParticipant('participant-1');
+  for (let i = 0; i < 4; i += 1) await post(addressRoute, 'order/address', { ...ADDRESS, city: `City ${i}`, termsId: '1' });
+  const rows = store.rows('bridge_v2_order_addresses');
+  const stale = (ms) => new Date(Date.now() - config.RELAYED_CAMPAIGN_STALE_MS - ms).toISOString();
+  // Three claims whose request died with no hash written (oldest first), and one whose request may still be running.
+  rows.forEach((row, i) => {
+    row.claimed_at = i === 3 ? new Date().toISOString() : stale(10_000 - i * 1_000);
+    row.claim_tx = null;
+  });
+  // The chain holds order 1, paid by the buyer's account for offer 1 after the claims, and order 2 the pass cannot read yet.
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator })]);
+  escrow.set({
+    ordersHead: { orderCount: 3n, now: T0, block: 1_000n },
+    readOrders: (ids) => {
+      if (ids.includes(2n)) throw new Error('node timeout');
+      return ids.map((id) => fx({ id: Number(id), payer: buyer.participant, store: shop.creator }));
+    },
+  });
+  let { log } = await pass();
+  // Behind the chain (order 2 read aside): order 1's address is the oldest claim's, and nothing is given back.
+  assert.equal(String(rows[0].order_id), '1', 'the claim was not bound to the order its send opened');
+  assert.deepEqual(rows.slice(1).map((r) => [r.order_id ?? null, r.claimed_at !== null]), [[null, true], [null, true], [null, true]], 'a claim was given back while the index was behind');
+  // The index catches up (order 2 is another offer's): the two stale claims left go back; the fresh one waits for its request.
+  escrow.set({ readOrders: (ids) => ids.map((id) => fx({ id: Number(id), payer: buyer.participant, store: shop.creator, termsId: id === 2n ? 5n : 1n })) });
+  ({ log } = await pass());
+  assert.deepEqual(rows.slice(1, 3).map((r) => [r.order_id ?? null, r.claimed_at ?? null]), [[null, null], [null, null]], 'a claim that sent nothing stayed taken');
+  assert.notEqual(rows[3].claimed_at ?? null, null, 'a claim whose request may still run was given back');
+  assert.deepEqual(log.events.filter((e) => e.kind === 'order.address_released').map((e) => e.detail.reason), ['never_sent', 'never_sent']);
+  // Given back, an address serves the next payment again.
+  assert.notEqual(await orders.unboundAddress('participant-1', { termsId: 1n }), null);
+});
+
+await test(['AB5'], 'AB5 (B3): a notice the email provider refuses for what it is (a 4xx) does not hold the close of a refused window — the close is recorded in the same pass, the notice kept as refused — and no unit of email goes on it again; a refusal for the moment (5xx) is tried again, as before', async () => {
+  const { buyer, shop } = await markSetup();
+  offer();
+  const spent = [];
+  db.on('rpc:bridge_v2_claim_spend', (op) => {
+    if (op.args.p_provider === 'email') spent.push(op.args.p_provider);
+    return { data: true, error: null };
+  });
+  const declared = { payer: buyer.participant, store: shop.creator, state: OrderState.WINDOW, flags: 0, shippedAt: T0 - DAY, windowEndsAt: T0 + 4n * DAY };
+  chainShows([fx({ id: 1, ...declared }), fx({ id: 2, ...declared })]);
+  await pass();
+  // The oracle attests a refusal of both declared windows (T8).
+  chainShows([fx({ id: 1, ...declared, state: OrderState.CLOSED }), fx({ id: 2, ...declared, state: OrderState.CLOSED })], T0 + DAY);
+  escrow.set({ orderOutcome: (_id, _from, to) => ({ outcome: 2, searchedTo: to }) });
+  // The provider refuses order 1's notice for what it is, and order 2's for the moment.
+  const refusedFor = (text) => (/order #1\b|order 1\b/i.test(text) ? 422 : 503);
+  http.routes.unshift(['api.resend.com', (_url, init) => jsonResponse({ message: 'refused' }, refusedFor(JSON.parse(init.body).subject))]);
+  spent.length = 0;
+  const attempts = () => http.requests.filter((r) => r.url.includes('resend')).length;
+  const before = attempts();
+  await pass();
+  const row = (id) => store.rows('bridge_v2_orders').find((r) => String(r.order_id) === String(id));
+  assert.notEqual(row(1).closed_at ?? null, null, 'a notice the provider always refuses held the close');
+  const notice = store.rows('bridge_v2_order_notices').find((r) => String(r.order_id) === '1' && r.kind === 'WINDOW_REFUSED');
+  assert.ok(notice && typeof notice.refused_at === 'string', 'the refused notice was not kept as refused');
+  assert.equal(row(2).closed_at ?? null, null, 'a notice refused for the moment was given up on');
+  assert.equal(attempts() - before, 2);
+  assert.equal(spent.length, 2);
+  // Next passes: order 1's notice is never sent again and spends nothing; order 2's is tried again until it goes.
+  spent.length = 0;
+  await pass();
+  assert.equal(spent.length, 1, 'a unit of email went on a refused notice again');
+  assert.equal(attempts() - before, 3);
+  http.routes.shift();
+  await pass();
+  assert.notEqual(row(2).closed_at ?? null, null);
+  // A notice of the open path refused for what it is is kept as refused too, and never sent again.
+  const { refusedStatus } = await import('../../../lib/bridge-v2/mail.ts');
+  assert.deepEqual([400, 403, 404, 422].map(refusedStatus), [true, true, true, true]);
+  assert.deepEqual([200, 408, 429, 500, 503].map(refusedStatus), [false, false, false, false, false]);
+  assert.match(read('lib/bridge-v2/keptraOrders.ts'), /if \(!result\.sent\) \{\s*if \(result\.refused === true\) await refusedNotice\(row, kind, detail, log\);\s*continue;\s*\}/);
 });
 
 // ===========================================================================

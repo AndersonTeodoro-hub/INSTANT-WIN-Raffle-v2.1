@@ -6,7 +6,7 @@ import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
 import { DB_TIMEOUT_MS, ERASE_ADDRESSES_NOW_MAX, ORDER_SCAN_PAGE, USDC } from '../../../../lib/bridge-v2/config.js';
-import { eraseAddressesOf, keptraContractsConfigured, lastKnownOrderId, ordersOfPayer, ordersOfStore } from '../../../../lib/bridge-v2/orders.js';
+import { eraseAddressesOf, keptraContractsConfigured, lastKnownOrderId, unclosedOrdersOf } from '../../../../lib/bridge-v2/orders.js';
 import { accountsOf, eraseAccountData, LIVE_RECOVERY_STATUSES, recoveriesOf } from '../../../../lib/bridge-v2/accounts.js';
 import { erc20BalanceOf } from '../../../../lib/bridge-v2/chain.js';
 import { ordersHead, readOrders, voucherBalanceOf } from '../../../../lib/bridge-v2/escrowChain.js';
@@ -41,19 +41,24 @@ async function whatIsLeft(participantId: string): Promise<{ usdc: bigint; vouche
     // which may not have read a close yet, or an order paid a moment ago. The
     // index only says which orders to read, and every order newer than the index
     // holds is read as well.
+    // AB2: never the ones the index holds CLOSED — final on-chain — so the answer
+    // does not depend on how many closed orders the participant has behind it.
     const [asRecipient, asStore, lastIndexed] = await Promise.all([
-      participant ? ordersOfPayer(participant.safe) : Promise.resolve([]),
-      creator ? ordersOfStore(creator.safe) : Promise.resolve([]),
+      participant ? unclosedOrdersOf('payer_address', participant.safe) : Promise.resolve([]),
+      creator ? unclosedOrdersOf('store_address', creator.safe) : Promise.resolve([]),
       lastKnownOrderId(),
     ]);
     const ids = new Set([...asRecipient, ...asStore].map((row) => row.orderId.toString()));
     for (let id = lastIndexed + 1n; id < (head?.orderCount ?? 0n); id += 1n) ids.add(id.toString());
-    if (ids.size > ORDER_SCAN_PAGE) throw new TooManyToRead();
+    // One page of the chain (F7). More than that to read: one open among the first
+    // page already refuses; none open there, and the rest cannot be read now.
+    const page = [...ids].map(BigInt).slice(0, ORDER_SCAN_PAGE);
     const same = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
-    for (const { order, terms } of await readOrders([...ids].map(BigInt))) {
+    for (const { order, terms } of await readOrders(page)) {
       if (order.state === OrderState.CLOSED || order.state === OrderState.NONE) continue;
       if (same(order.payer, participant?.safe) || same(terms.store, creator?.safe)) openOrders += 1;
     }
+    if (openOrders === 0 && ids.size > page.length) throw new TooManyToRead();
   }
   const left = { usdc: usdc.reduce((a, b) => a + b, 0n), vouchers: vouchers.reduce((a, b) => a + b, 0n), openOrders };
   return left.usdc === 0n && left.vouchers === 0n && left.openOrders === 0 ? null : left;

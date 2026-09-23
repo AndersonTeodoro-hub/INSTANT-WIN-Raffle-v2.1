@@ -1104,6 +1104,8 @@ export const KEPTRA_ESCROW_ABI = parseAbi([
 export const KEPTRA_GUARANTEE_ABI = parseAbi([
   'struct Obligation { address brand; uint64 termsId; uint32 units; uint32 openUnits; uint96 bond; uint96 coverage; address source; }',
   'function getObligation(uint256 obligationId) view returns (Obligation)',
+  // SPEC-BLOCO-03 AB4: how many obligations exist, so the console's list is the chain's.
+  'function obligationCount() view returns (uint256)',
   'function createObligation(uint96 declaredValue, uint96 shipping, uint96 returnCost, uint16 shipDays, uint16 deliveryDays, uint8 mode, bytes regions, uint32 units) returns (uint256)',
   'function totalDebtOf(address brand) view returns (uint256)',
   // SPEC-BLOCO-03 V5 (B11): the pool, a Keptra contract USDC is never sent to from an account.

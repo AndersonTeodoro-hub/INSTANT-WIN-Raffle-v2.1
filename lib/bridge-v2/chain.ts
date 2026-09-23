@@ -86,6 +86,7 @@ import {
   LIFECYCLE_MAX_GAS_COST_WEI,
   LIFECYCLE_SCAN_PAGE,
   MAX_GAS_COST_WEI,
+  ORDER_LOG_SPAN_BLOCKS,
   RECEIPT_TIMEOUT_MS,
   RPC_TIMEOUT_MS,
   type GasBand,
@@ -1528,6 +1529,58 @@ export async function erc20BalanceOf(token: `0x${string}`, address: `0x${string}
     functionName: 'balanceOf',
     args: [address],
   })) as bigint;
+}
+
+/** SPEC-BLOCO-03 AB6: the chain's latest block. */
+export async function blockNumber(): Promise<bigint> {
+  return publicClient().getBlockNumber({ cacheTime: 0 });
+}
+
+const TRANSFER_EVENT = {
+  type: 'event',
+  name: 'Transfer',
+  inputs: [
+    { name: 'from', type: 'address', indexed: true },
+    { name: 'to', type: 'address', indexed: true },
+    { name: 'value', type: 'uint256', indexed: false },
+  ],
+} as const;
+
+/**
+ * SPEC-BLOCO-03 AB6: whether `to` received any `token` from another address
+ * between two blocks — a deposit, whatever the balance did since. At most
+ * ORDER_LOG_SPAN_BLOCKS per request, halved down to one block when the provider
+ * refuses a range (as orderOutcome reads OrderClosed); before every request after
+ * the first `hasTime` says whether the run can afford one more, and `searchedTo`
+ * says how far the search got.
+ */
+export async function transferInto(
+  token: `0x${string}`,
+  to: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+  hasTime: () => boolean,
+): Promise<{ found: boolean; searchedTo: bigint }> {
+  let span = ORDER_LOG_SPAN_BLOCKS;
+  let first = true;
+  for (let from = fromBlock; from <= toBlock; ) {
+    if (!first && !hasTime()) return { found: false, searchedTo: from - 1n };
+    first = false;
+    const end = from + span - 1n < toBlock ? from + span - 1n : toBlock;
+    let logs: readonly { args: { from?: string; value?: bigint } }[];
+    try {
+      logs = (await publicClient().getLogs({ address: token, event: TRANSFER_EVENT, args: { to }, fromBlock: from, toBlock: end })) as never;
+    } catch (error) {
+      if (span === 1n) throw error;
+      span /= 2n;
+      continue;
+    }
+    if (logs.some((log) => (log.args.value ?? 0n) > 0n && log.args.from?.toLowerCase() !== to.toLowerCase())) {
+      return { found: true, searchedTo: end };
+    }
+    from = end + 1n;
+  }
+  return { found: false, searchedTo: toBlock };
 }
 
 export interface Erc20Meta {

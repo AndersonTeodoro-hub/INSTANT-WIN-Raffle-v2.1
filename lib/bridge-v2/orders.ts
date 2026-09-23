@@ -225,6 +225,51 @@ export async function claimsAwaitingBind(limit: number): Promise<Array<{ id: str
 }
 
 /**
+ * SPEC-BLOCO-03 AB3: the claims with no transaction written, older than `before` —
+ * a request that died between the claim and the broadcast, or whose write of the
+ * hash failed after it. Nothing else will ever give them back or bind them: the
+ * orders pass settles them from the orders the chain holds (settleUnhashedClaims).
+ */
+export async function unhashedClaims(before: Date, limit: number): Promise<Array<{ id: string; participantId: string; purpose: AddressPurpose; claimedAt: string }>> {
+  const rows = checked(
+    'order.address_unhashed_claims',
+    await getDb()
+      .from('bridge_v2_order_addresses')
+      .select('id, participant_id, terms_id, voucher_id, claimed_at')
+      .is('order_id', null)
+      .is('claim_tx', null)
+      .not('claimed_at', 'is', null)
+      .lte('claimed_at', before.toISOString())
+      .order('claimed_at', { ascending: true })
+      .limit(limit)
+      .abortSignal(timeout()),
+  ) as (Pick<AddressRow, 'id' | 'participant_id' | 'terms_id' | 'voucher_id'> & { claimed_at: string })[] | null;
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    participantId: row.participant_id,
+    purpose: row.terms_id != null ? { termsId: big(row.terms_id) } : { voucherId: big(row.voucher_id) },
+    claimedAt: row.claimed_at,
+  }));
+}
+
+/**
+ * AB3: the orders these accounts opened for this purpose — the offer paid, or the
+ * voucher redeemed — paid at or after `paidSince` (seconds, the chain's clock),
+ * oldest first. The caller keeps the ones with no address yet.
+ */
+export async function ordersOpenedFor(payers: readonly `0x${string}`[], purpose: AddressPurpose, paidSince: bigint): Promise<OrderRow[]> {
+  if (payers.length === 0) return [];
+  let query = getDb()
+    .from('bridge_v2_orders')
+    .select(ORDER_COLUMNS)
+    .in('payer_address', payers.map((payer) => getAddress(payer)))
+    .gte('paid_at', paidSince.toString());
+  query = 'termsId' in purpose ? query.eq('terms_id', purpose.termsId.toString()).eq('prize', false) : query.eq('voucher_id', purpose.voucherId.toString()).eq('prize', true);
+  const rows = checked('order.opened_for', await query.order('order_id', { ascending: true }).abortSignal(timeout())) as OrderDbRow[] | null;
+  return (rows ?? []).map(toOrderRow);
+}
+
+/**
  * P5-2: whether a claim of this participant for this purpose is still waiting
  * for its order — the pass then leaves the binding to the claim's own receipt.
  */
@@ -468,12 +513,22 @@ export async function saveOrder(row: OrderRow): Promise<void> {
 }
 
 /** A filter of the orders index, as data: the builder's own type does not survive being passed around. */
-type OrderFilter = readonly ['eq', string, string | number] | readonly ['in', string, readonly number[]] | readonly ['is', string, null];
+type OrderFilter =
+  | readonly ['eq' | 'neq', string, string | number]
+  | readonly ['in', string, readonly number[]]
+  | readonly ['is', string, null];
 
 async function selectOrders(operation: string, filters: readonly OrderFilter[]): Promise<OrderRow[]> {
   let query = getDb().from('bridge_v2_orders').select(ORDER_COLUMNS);
   for (const [kind, column, value] of filters) {
-    query = kind === 'in' ? query.in(column, [...(value as readonly number[])]) : kind === 'eq' ? query.eq(column, value as string | number) : query.is(column, null);
+    query =
+      kind === 'in'
+        ? query.in(column, [...(value as readonly number[])])
+        : kind === 'eq'
+          ? query.eq(column, value as string | number)
+          : kind === 'neq'
+            ? query.neq(column, value as string | number)
+            : query.is(column, null);
   }
   const rows = checked(operation, await query.order('order_id', { ascending: true }).abortSignal(timeout())) as OrderDbRow[] | null;
   return (rows ?? []).map(toOrderRow);
@@ -572,6 +627,19 @@ export function ordersOfPayer(safe: `0x${string}`): Promise<OrderRow[]> {
 /** A store's orders (P2: its creator account is the store the terms name). */
 export function ordersOfStore(safe: `0x${string}`): Promise<OrderRow[]> {
   return selectOrders('order.of_store', [['eq', 'store_address', getAddress(safe)]]);
+}
+
+/**
+ * SPEC-BLOCO-03 AB2: the orders of a recipient or a store the index has not seen
+ * closed. CLOSED is final on-chain (the escrow never reopens an order), so an
+ * order the index holds CLOSED is closed; every other one may still be open, and
+ * is for the chain to answer. The history of closed orders is never read.
+ */
+export function unclosedOrdersOf(side: 'payer_address' | 'store_address', safe: `0x${string}`): Promise<OrderRow[]> {
+  return selectOrders('order.unclosed_of', [
+    ['eq', side, getAddress(safe)],
+    ['neq', 'state', OrderState.CLOSED],
+  ]);
 }
 
 /**
@@ -927,8 +995,12 @@ export async function sentOrderNotices(orderIds: readonly bigint[]): Promise<Set
 }
 
 /** Recorded after the send succeeded: a duplicate beats a lost notice, as the recovery notices have it. */
-export async function recordOrderNotice(orderId: bigint, kind: OrderNoticeKind): Promise<void> {
-  const { error } = await getDb().from('bridge_v2_order_notices').insert({ order_id: orderId.toString(), kind }).abortSignal(timeout());
+export async function recordOrderNotice(orderId: bigint, kind: OrderNoticeKind, refused = false): Promise<void> {
+  // AB5: a notice the provider refused for what it is is recorded too — as refused
+  // — so it is never sent (nor a unit of email spent on it) again.
+  const row: { order_id: string; kind: OrderNoticeKind; refused_at?: string } = { order_id: orderId.toString(), kind };
+  if (refused) row.refused_at = new Date().toISOString();
+  const { error } = await getDb().from('bridge_v2_order_notices').insert(row).abortSignal(timeout());
   if (error !== null && (error as { code?: string }).code !== '23505') checked('order.notice_record', { data: null, error });
 }
 

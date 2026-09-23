@@ -68,6 +68,7 @@ import {
   ordersHead,
   readOrders,
   readVouchers,
+  termsCreatedSince,
   voucherLastId,
   voucherReleasable,
   type OrdersHead,
@@ -89,6 +90,8 @@ import {
   orderHasAddress,
   hasPendingClaim,
   orderRow,
+  ordersOpenedFor,
+  unhashedClaims,
   ordersConfigured,
   recordFinishedVoucher,
   recordOrderNotice,
@@ -108,7 +111,8 @@ import {
   type OrderNoticeKind,
   type OrderRow,
 } from './orders.js';
-import { accountBySafe } from './accounts.js';
+import { accountBySafe, accountsOf } from './accounts.js';
+import { advanceStoreTermsCursor, recordStoreTerms, storeTermsCursor } from './descriptions.js';
 import { participantEmail } from './entries.js';
 import { livePhoneHash } from './phone.js';
 import { requireKeptraEnv } from './env.js';
@@ -159,6 +163,10 @@ export async function advanceOrders(log: Logger, deadline: RunDeadline): Promise
   }
 
   for (const step of [
+    // AB3: after the scan, so the orders a claim with no hash may have opened are in the index.
+    () => settleUnhashedClaims(head, log, deadline),
+    // AB4: every terms and obligation the chain holds, for the stores' consoles.
+    () => indexStoreTerms(log, deadline),
     () => fireExits(rows, head, log, deadline),
     () => sendNotices(rows, head, log, deadline),
     () => closeOrders(rows, head, log, deadline),
@@ -386,6 +394,89 @@ async function bindClaimedAddresses(log: Logger, deadline: RunDeadline): Promise
 }
 
 /**
+ * SPEC-BLOCO-03 AB3: a claim with no transaction written — its request died
+ * between the claim and the broadcast, or the write of the hash failed after it —
+ * is never left taken. Once no request can still be sending it (older than
+ * RELAYED_CAMPAIGN_STALE_MS, as a dropped claim is), the chain decides:
+ *   - an order its participant's accounts opened for the same offer or voucher
+ *     since the claim, with no address yet, is the order that send opened: the
+ *     address is bound to it (bindRecipientAddress leaves such an order to the
+ *     claim while the claim is pending);
+ *   - none, and the index holds every order the chain has: nothing was sent, and
+ *     the address is given back.
+ * An index still behind the chain decides nothing: the order may be one it has
+ * not read yet.
+ */
+async function settleUnhashedClaims(head: OrdersHead, log: Logger, deadline: RunDeadline): Promise<number> {
+  const claims = await unhashedClaims(new Date(Date.now() - RELAYED_CAMPAIGN_STALE_MS), 50);
+  if (claims.length === 0) return 0;
+  const caughtUp = (await lastKnownOrderId()) + 1n >= head.orderCount && (await unreadOrderIds()).length === 0;
+  let settled = 0;
+  for (const claim of claims) {
+    if (!deadline.hasTimeFor(ORDER_CLAIM_MS)) break;
+    try {
+      const payers = (await accountsOf(claim.participantId)).map((account) => account.safe);
+      const since = BigInt(Math.floor((Date.parse(claim.claimedAt) - CLAIM_CLOCK_MARGIN_MS) / 1000));
+      let bound: bigint | null = null;
+      for (const order of await ordersOpenedFor(payers, claim.purpose, since)) {
+        if (await orderHasAddress(order.orderId)) continue;
+        if (await bindAddress(claim.id, order.orderId)) bound = order.orderId;
+        break;
+      }
+      if (bound !== null) {
+        settled += 1;
+        await log.event('order.address_bound', { order_id: bound.toString(), reconciled: true });
+      } else if (caughtUp) {
+        await releaseClaim(claim.id);
+        settled += 1;
+        await log.event('order.address_released', { reason: 'never_sent' });
+      }
+    } catch (error) {
+      await log.failure('orders.failed', error, { stage: 'bind' });
+      await alert(log, 'order address bind failed');
+    }
+  }
+  return settled;
+}
+
+/**
+ * SPEC-BLOCO-03 AB4: the terms and the obligations the chain holds, written into
+ * bridge_v2_store_terms a page at a time, and the cursor moved past each page once
+ * it is written. The console lists what is there (store/offers), so an offer or an
+ * obligation the relay created is listed — and never offered to be created again —
+ * whether or not its receipt reached the relay, and whether or not the relay's own
+ * record of it was written. The relay's record stays: it only lists it sooner.
+ */
+async function indexStoreTerms(log: Logger, deadline: RunDeadline): Promise<number> {
+  let recorded = 0;
+  let cursor = await storeTermsCursor();
+  for (;;) {
+    if (!deadline.hasTimeFor(ORDER_SCAN_MS)) return recorded;
+    const found = await termsCreatedSince(cursor.nextTerms, cursor.nextObligation, ORDER_SCAN_PAGE);
+    const entries = [
+      ...found.offers.map((offer) => ({ termsId: offer.termsId, store: offer.store, obligationId: null })),
+      ...found.obligations.map((ob) => ({ termsId: ob.termsId, store: ob.brand, obligationId: ob.obligationId as bigint | null })),
+    ];
+    // P5-5: each one written under a reservation of its own; out of time, the cursor stays and the next pass writes the page again.
+    for (const entry of entries) {
+      if (!deadline.hasTimeFor(ORDER_SYNC_MS)) return recorded;
+      await recordStoreTerms(entry);
+      recorded += 1;
+    }
+    if (found.nextTerms !== cursor.nextTerms || found.nextObligation !== cursor.nextObligation) {
+      await advanceStoreTermsCursor(found.nextTerms, found.nextObligation);
+    }
+    cursor = { nextTerms: found.nextTerms, nextObligation: found.nextObligation };
+    if (!found.more) break;
+  }
+  if (recorded > 0) await log.event('store_terms.indexed', { recorded });
+  return recorded;
+}
+
+/** AB3: how far before a claim its order's payment is looked for — a server clock and a block clock that disagree by a little. */
+const CLAIM_CLOCK_MARGIN_MS = 5 * 60 * 1000;
+
+/**
  * P5 at the final state: a mark counts once per store only if its delivery was
  * counted — the order was marked on-chain and closed to the store. Anything else
  * releases the (store, number) pair for a later order. An outcome the log did not
@@ -592,7 +683,10 @@ async function sendNotices(rows: readonly OrderRow[], head: OrdersHead, log: Log
       if (to === null) continue;
       if (!(await claimSpend('email', 1, log))) break;
       const result = await sendNotice(to, row, kind);
-      if (!result.sent) continue;
+      if (!result.sent) {
+        if (result.refused === true) await refusedNotice(row, kind, detail, log);
+        continue;
+      }
       await recordOrderNotice(row.orderId, kind);
       await log.event('order.notified', detail);
       count += 1;
@@ -721,10 +815,28 @@ async function noticeRefusedWindow(row: OrderRow, detail: Detail, log: Logger): 
   const to = await recipientOf(row, 'WINDOW_REFUSED');
   if (to === null) return true;
   if (!(await claimSpend('email', 1, log))) return false;
-  if (!(await sendNotice(to, row, 'WINDOW_REFUSED')).sent) return false;
+  const result = await sendNotice(to, row, 'WINDOW_REFUSED');
+  if (!result.sent) {
+    // AB5: refused for what it is, it would be refused on every pass: the close goes on.
+    if (result.refused !== true) return false;
+    await refusedNotice(row, 'WINDOW_REFUSED', { ...detail, kind: 'WINDOW_REFUSED' }, log);
+    return true;
+  }
   await recordOrderNotice(row.orderId, 'WINDOW_REFUSED');
   await log.event('order.notified', { ...detail, kind: 'WINDOW_REFUSED' });
   return true;
+}
+
+/**
+ * SPEC-BLOCO-03 AB5: a notice the email provider refused for what it is — the same
+ * message gets the same answer — is recorded as refused, with an alert, and never
+ * tried again: no unit of email goes on it every pass, and nothing waiting for it
+ * (the close of a refused window, Y5) waits for ever.
+ */
+async function refusedNotice(row: OrderRow, kind: OrderNoticeKind, detail: Detail, log: Logger): Promise<void> {
+  await recordOrderNotice(row.orderId, kind, true);
+  await log.event('order.notice_refused', detail);
+  await alert(log, 'order notice refused by the email provider', detail);
 }
 
 // -----------------------------------------------------------------------------

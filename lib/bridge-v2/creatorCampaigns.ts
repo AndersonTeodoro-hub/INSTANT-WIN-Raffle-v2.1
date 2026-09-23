@@ -18,8 +18,8 @@
  */
 
 import { checked, checkedMaybe, getDb } from './db.js';
-import { DB_TIMEOUT_MS, DRAFT_DEPOSIT_TTL_MS, DRAFT_EXPIRY_MS, USDC } from './config.js';
-import { erc20BalanceOf } from './chain.js';
+import { DB_TIMEOUT_MS, DRAFT_DEPOSIT_LOG_CHUNK_MS, DRAFT_DEPOSIT_TTL_MS, DRAFT_EXPIRY_MS, USDC } from './config.js';
+import { blockNumber, erc20BalanceOf, transferInto } from './chain.js';
 import { findCreatorById } from './creators.js';
 import type { Logger } from './log.js';
 import type { RunDeadline } from './runlock.js';
@@ -58,6 +58,12 @@ export interface CreatorCampaign {
    */
   readonly baselinePrize: bigint;
   readonly baselineUsdc: bigint;
+  /**
+   * AB6: the first block whose transfers into the deposit address are this draft's
+   * deposit, moved on as the expiry reads the log and finds none. Null for a draft
+   * made before it was recorded: only the balance says then.
+   */
+  readonly depositFromBlock: bigint | null;
   readonly updatedAt: string;
 }
 
@@ -79,6 +85,7 @@ interface Row {
   updated_at: string;
   deposit_baseline_prize: string | null;
   deposit_baseline_usdc: string | null;
+  deposit_from_block?: string | null;
 }
 
 // numeric(78,0) columns are cast to text: PostgREST renders numeric as a JSON
@@ -90,7 +97,7 @@ interface Row {
 // widens to plain `string` at the type level, which is indistinguishable from
 // an arbitrary runtime string and falls back to an error type instead of the
 // row shape below. Kept on one line for exactly that reason.
-const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, created_at, updated_at, deposit_baseline_prize::text, deposit_baseline_usdc::text';
+const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, created_at, updated_at, deposit_baseline_prize::text, deposit_baseline_usdc::text, deposit_from_block::text';
 
 function toCampaign(row: Row): CreatorCampaign {
   return {
@@ -111,6 +118,7 @@ function toCampaign(row: Row): CreatorCampaign {
     updatedAt: row.updated_at,
     baselinePrize: BigInt(row.deposit_baseline_prize ?? '0'),
     baselineUsdc: BigInt(row.deposit_baseline_usdc ?? '0'),
+    depositFromBlock: row.deposit_from_block == null ? null : BigInt(row.deposit_from_block),
   };
 }
 
@@ -126,6 +134,8 @@ export interface DraftInput {
   /** P1-3: the deposit address's balances of the prize token and of USDC as the draft is made. */
   readonly baselinePrize: bigint;
   readonly baselineUsdc: bigint;
+  /** AB6: the block read with those balances; transfers from it on are the draft's deposit. */
+  readonly depositFromBlock: bigint;
 }
 
 export type DraftOutcome = { readonly kind: 'CREATED'; readonly campaign: CreatorCampaign } | { readonly kind: 'ACTIVE_EXISTS' };
@@ -154,6 +164,7 @@ export async function createDraft(creatorId: string, input: DraftInput): Promise
       slots_cost: input.slotsCost.toString(),
       deposit_baseline_prize: input.baselinePrize.toString(),
       deposit_baseline_usdc: input.baselineUsdc.toString(),
+      deposit_from_block: input.depositFromBlock.toString(),
     })
     .select(COLUMNS)
     .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
@@ -331,7 +342,8 @@ export async function expireUnfundedDrafts(log: Logger, deadline: RunDeadline): 
       if (!deadline.hasTimeFor(DRAFT_EXPIRY_MS)) return expired;
       seen.add(campaign.id);
       try {
-        if (await depositArrived(campaign)) {
+        // AB6: a log not read to the end yet says nothing; the draft waits for the next pass.
+        if ((await depositArrived(campaign, () => deadline.hasTimeFor(DRAFT_DEPOSIT_LOG_CHUNK_MS))) !== 'none') {
           await touchDraft(campaign.id);
           continue;
         }
@@ -347,16 +359,53 @@ export async function expireUnfundedDrafts(log: Logger, deadline: RunDeadline): 
   }
 }
 
-/** P1-3: whether the deposit address holds more of either token than it did when the draft was made. */
-async function depositArrived(campaign: CreatorCampaign): Promise<boolean> {
+/**
+ * P1-3: whether the deposit address holds more of either token than it did when
+ * the draft was made.
+ *
+ * SPEC-BLOCO-03 AB6: and, when it does not, whether it RECEIVED any since — a
+ * transfer of either token into it from another address, from the block the draft
+ * recorded on. A balance that went down after the draft was made (the creator
+ * account spent from it) hides a real deposit from the first question; the log
+ * does not. The log is read as far as the run affords (`hasTime`) and the draft
+ * keeps how far that was, so a later pass goes on from there: 'unread' until the
+ * whole of it has been read.
+ */
+async function depositArrived(campaign: CreatorCampaign, hasTime: () => boolean): Promise<'arrived' | 'none' | 'unread'> {
   const creator = await findCreatorById(campaign.creatorId);
   // No creator row: no address a deposit could have reached.
-  if (creator === null) return false;
+  if (creator === null) return 'none';
   const usdc = (USDC as string).toLowerCase();
+  const tokens = campaign.prizeToken.toLowerCase() === usdc ? [USDC] : [campaign.prizeToken, USDC];
   if (campaign.prizeToken.toLowerCase() !== usdc && (await erc20BalanceOf(campaign.prizeToken, creator.walletAddress)) > campaign.baselinePrize) {
-    return true;
+    return 'arrived';
   }
-  return (await erc20BalanceOf(USDC, creator.walletAddress)) > campaign.baselineUsdc;
+  if ((await erc20BalanceOf(USDC, creator.walletAddress)) > campaign.baselineUsdc) return 'arrived';
+  if (campaign.depositFromBlock === null) return 'none';
+  const tip = await blockNumber();
+  let readTo = tip;
+  for (const token of tokens) {
+    const found = await transferInto(token as `0x${string}`, creator.walletAddress, campaign.depositFromBlock, tip, hasTime);
+    if (found.found) return 'arrived';
+    if (found.searchedTo < readTo) readTo = found.searchedTo;
+  }
+  if (readTo >= tip) return 'none';
+  // Nothing arrived up to readTo, for both tokens: the next pass starts after it.
+  if (readTo >= campaign.depositFromBlock) await moveDepositFromBlock(campaign.id, readTo + 1n);
+  return 'unread';
+}
+
+/** AB6: the log read so far held no deposit; what is left starts at `block`. */
+async function moveDepositFromBlock(id: string, block: bigint): Promise<void> {
+  checked(
+    'creator_campaign.deposit_from_block',
+    await getDb()
+      .from('bridge_v2_creator_campaigns')
+      .update({ deposit_from_block: block.toString() })
+      .eq('id', id)
+      .eq('status', 'PENDING_DEPOSIT')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
 }
 
 /** P1-2: a draft looked at and left alive goes to the back of the expiry's order. */
