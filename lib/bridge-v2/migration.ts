@@ -26,7 +26,7 @@ import { alert } from './alert.js';
 import { acquireRunLock, releaseRunLock, type RunDeadline } from './runlock.js';
 import { claimSpend } from './spend.js';
 import { ERC20_ABI, GiveawayStatus } from './abi.js';
-import { DB_TIMEOUT_MS, MIGRATION_ASSET_MS, MIGRATION_SEAL_MS, USDC } from './config.js';
+import { DB_TIMEOUT_MS, MIGRATION_ASSET_MS, MIGRATION_SEAL_MS, READINESS_WALLET_MS, RIGHT_READ_MS, USDC } from './config.js';
 import {
   claimableFor,
   claimDeadlineSeconds,
@@ -133,8 +133,16 @@ export async function assetTransfers(migration: Migration, account: `0x${string}
  * row's status says: an entry abandoned in a campaign that no longer takes
  * entries, with no prize to claim, is not a right. Adenda F2: a creator's draft
  * in PENDING_DEPOSIT or FUNDING is.
+ *
+ * P1-5: those reads are the chain's, one entry or campaign at a time, so each
+ * starts only with RIGHT_READ_MS of the caller's budget left (`hasTime`). A
+ * count the time cut short is null — unknown, never "no right".
  */
-export async function openRights(kind: 'PARTICIPANT' | 'CREATOR', derived: `0x${string}`): Promise<number> {
+export async function openRights(
+  kind: 'PARTICIPANT' | 'CREATOR',
+  derived: `0x${string}`,
+  hasTime: () => boolean = () => true,
+): Promise<number | null> {
   const db = getDb();
   let open = 0;
   if (kind === 'PARTICIPANT') {
@@ -149,6 +157,7 @@ export async function openRights(kind: 'PARTICIPANT' | 'CREATOR', derived: `0x${
     ) as { giveaway_id: string }[] | null;
     let deadlineSeconds: bigint | null = null;
     for (const entry of entries ?? []) {
+      if (!hasTime()) return null;
       const giveawayId = BigInt(entry.giveaway_id);
       const campaign = await readGiveaway(giveawayId);
       // The entry may still be made.
@@ -178,6 +187,7 @@ export async function openRights(kind: 'PARTICIPANT' | 'CREATOR', derived: `0x${
         .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
     ) as { status: string; giveaway_id: string | null }[] | null;
     for (const campaign of campaigns ?? []) {
+      if (!hasTime()) return null;
       if (campaign.status === 'PENDING_DEPOSIT' || campaign.status === 'FUNDING') {
         open += 1;
         continue;
@@ -307,12 +317,24 @@ async function moveAndSeal(
   // cost is kept with the seal: what the sweep leaves is below it.
   const swept =
     poolSize > 0 ? await sweepAboveCost(migration.walletIndex, migration.derived, randomFunderAddress(poolSize), signAsDerived) : null;
+  // P1-1: sealed only once that sweep is mined. A sealed wallet is never swept
+  // again, so a sweep that never lands would leave its ETH there for good, and
+  // the seed "not ready" with it. Not mined within the wait: the next pass
+  // looks again, and sweeps what is still there.
+  if (swept !== null && swept.hash !== null) {
+    const mined = await waitForReceipt(swept.hash);
+    if (mined === null || mined.status !== 'success') {
+      await log.event('migration.waiting', { kind: migration.kind, reason: 'sweep' });
+      return false;
+    }
+  }
 
   // A8: sealed only when the wallet is empty of every asset AND nothing is still
   // tied to its address. Otherwise the key stays usable for those rights, and
   // the next pass looks again.
   if ((await assetTransfers(migration, account.safe)).length > 0) return false;
-  if ((await openRights(migration.kind, migration.derived)) > 0) return false;
+  // P1-5: a count the time cut short (null) seals nothing either.
+  if ((await openRights(migration.kind, migration.derived, () => deadline.hasTimeFor(RIGHT_READ_MS))) !== 0) return false;
   await sealMigration(migration.id, swept?.cost ?? null);
   await log.event('migration.sealed', { kind: migration.kind });
   return true;
@@ -352,10 +374,11 @@ export async function migrateAuthorizedWallets(log: Logger, poolSize: number, de
 export async function seedRetirementReadiness(
   log: Logger,
   // G4: the maintenance pass bounds this like everything else it runs. A pass
-  // that could not look at every wallet does not say "ready".
-  hasTime: () => boolean = () => true,
+  // that could not look at every wallet does not say "ready". Each unit — a
+  // wallet, or one of its rights (P1-5) — starts only with its reservation left.
+  deadline: Pick<RunDeadline, 'hasTimeFor'> = { hasTimeFor: () => true },
 ): Promise<{ ready: boolean; complete: boolean; blocking: number; holding: number; wallets: number }> {
-  const listed = await derivedWallets(hasTime);
+  const listed = await derivedWallets(() => deadline.hasTimeFor(READINESS_WALLET_MS));
   const wallets = listed.wallets;
   let blocking = 0;
   let holding = 0;
@@ -364,7 +387,7 @@ export async function seedRetirementReadiness(
   // F6: the sweep this ETH would take, priced to where a sweep sends it (H2).
   const sweepTo = wallets.length > 0 ? funderAddress(0) : null;
   for (const wallet of wallets) {
-    if (!hasTime()) {
+    if (!deadline.hasTimeFor(READINESS_WALLET_MS)) {
       complete = false;
       break;
     }
@@ -386,7 +409,18 @@ export async function seedRetirementReadiness(
       holding += 1;
       if (wallet.sealed) sealedHolding += 1;
     }
-    if (held || (!wallet.sealed && (await openRights(wallet.kind, wallet.address)) > 0)) blocking += 1;
+    if (held) {
+      blocking += 1;
+      continue;
+    }
+    if (wallet.sealed) continue;
+    // P1-5: the rights are read under the same budget; a count cut short is a pass that did not look at everything (F4).
+    const rights = await openRights(wallet.kind, wallet.address, () => deadline.hasTimeFor(RIGHT_READ_MS));
+    if (rights === null) {
+      complete = false;
+      break;
+    }
+    if (rights > 0) blocking += 1;
   }
   if (holding > 0) {
     await alert(log, 'derived wallet holds a balance', { wallets: holding, sealed: sealedHolding });

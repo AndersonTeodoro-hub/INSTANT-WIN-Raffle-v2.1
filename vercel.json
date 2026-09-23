@@ -24,7 +24,7 @@
     "api/bridge/v2/cron/maintenance.ts": { "maxDuration": 300 },
     "api/bridge/v2/entry/start.ts": { "maxDuration": 156 },
     "api/bridge/v2/entry/resume.ts": { "maxDuration": 110 },
-    "api/bridge/v2/creator/campaign/start.ts": { "maxDuration": 204 },
+    "api/bridge/v2/creator/campaign/start.ts": { "maxDuration": 214 },
     "api/bridge/v2/creator/campaign/status.ts": { "maxDuration": 132 },
     "api/bridge/v2/creator/campaign/submit.ts": { "maxDuration": 300 },
     "api/bridge/v2/campaign/identity/save.ts": { "maxDuration": 116 },
@@ -39,7 +39,7 @@
     "api/bridge/v2/account/status.ts": { "maxDuration": 188 },
     "api/bridge/v2/account/vouchers.ts": { "maxDuration": 142 },
     "api/bridge/v2/store/description.ts": { "maxDuration": 92 },
-    "api/bridge/v2/privacy/erase.ts": { "maxDuration": 250 }
+    "api/bridge/v2/privacy/erase.ts": { "maxDuration": 282 }
   },
   "crons": [
     { "path": "/api/bridge/v2/cron/process", "schedule": "* * * * *" },

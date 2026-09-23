@@ -8,8 +8,9 @@
  * FAILED            not reached by this pass — reserved for a hard, unretriable
  *                    stop (an admin action), which nothing here writes yet
  * EXPIRED           SPEC-BLOCO-03 Adenda F2: a PENDING_DEPOSIT draft whose
- *                    deposit address still holds none of either token seven
- *                    days after the draft was made (expireUnfundedDrafts)
+ *                    deposit address received none of either token for it
+ *                    seven days after the draft was made (expireUnfundedDrafts;
+ *                    P1-3: what was already there when it was made is not its)
  *
  * A creator holds at most one PENDING_DEPOSIT or FUNDING row at a time
  * (bridge_v2_creator_campaigns_active_unique, 0007), enforced by the database
@@ -50,6 +51,13 @@ export interface CreatorCampaign {
   readonly txHash: string | null;
   /** SPEC-BLOCO-03 Adenda F5: when the draft was made, the instant the chain is searched back to. */
   readonly createdAt: string;
+  /**
+   * P1-3: what the deposit address held of the prize token and of USDC when the
+   * draft was made. Only what arrives above it is this draft's deposit. Zero for a
+   * draft made before migration 0015, which recorded nothing.
+   */
+  readonly baselinePrize: bigint;
+  readonly baselineUsdc: bigint;
   readonly updatedAt: string;
 }
 
@@ -69,6 +77,8 @@ interface Row {
   tx_hash: string | null;
   created_at: string;
   updated_at: string;
+  deposit_baseline_prize: string | null;
+  deposit_baseline_usdc: string | null;
 }
 
 // numeric(78,0) columns are cast to text: PostgREST renders numeric as a JSON
@@ -80,7 +90,7 @@ interface Row {
 // widens to plain `string` at the type level, which is indistinguishable from
 // an arbitrary runtime string and falls back to an error type instead of the
 // row shape below. Kept on one line for exactly that reason.
-const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, created_at, updated_at';
+const COLUMNS = 'id, creator_id, status, module, prize_token, prize_amount::text, duration_seconds, winners_count, slot_cap, fee_amount::text, slots_cost::text, giveaway_id::text, tx_hash, created_at, updated_at, deposit_baseline_prize::text, deposit_baseline_usdc::text';
 
 function toCampaign(row: Row): CreatorCampaign {
   return {
@@ -99,6 +109,8 @@ function toCampaign(row: Row): CreatorCampaign {
     txHash: row.tx_hash ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    baselinePrize: BigInt(row.deposit_baseline_prize ?? '0'),
+    baselineUsdc: BigInt(row.deposit_baseline_usdc ?? '0'),
   };
 }
 
@@ -111,6 +123,9 @@ export interface DraftInput {
   readonly slotCap: number;
   readonly feeAmount: bigint;
   readonly slotsCost: bigint;
+  /** P1-3: the deposit address's balances of the prize token and of USDC as the draft is made. */
+  readonly baselinePrize: bigint;
+  readonly baselineUsdc: bigint;
 }
 
 export type DraftOutcome = { readonly kind: 'CREATED'; readonly campaign: CreatorCampaign } | { readonly kind: 'ACTIVE_EXISTS' };
@@ -137,6 +152,8 @@ export async function createDraft(creatorId: string, input: DraftInput): Promise
       slot_cap: input.slotCap,
       fee_amount: input.feeAmount.toString(),
       slots_cost: input.slotsCost.toString(),
+      deposit_baseline_prize: input.baselinePrize.toString(),
+      deposit_baseline_usdc: input.baselineUsdc.toString(),
     })
     .select(COLUMNS)
     .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
@@ -231,6 +248,29 @@ export async function advanceCampaign(
 }
 
 /**
+ * P1-6: the moment a draft is signed for. It moves to FUNDING — or stays there —
+ * only if it is still where the caller last read it (`from`) and no transaction
+ * has been sent for it yet. False: it expired, was settled or was sent for in
+ * between, and nothing is signed. One conditional statement (G1), so a draft
+ * that has left PENDING_DEPOSIT is never submitted.
+ */
+export async function startSubmission(id: string, from: 'PENDING_DEPOSIT' | 'FUNDING'): Promise<boolean> {
+  const updated = checkedMaybe(
+    'creator_campaign.start_submission',
+    await getDb()
+      .from('bridge_v2_creator_campaigns')
+      .update({ status: 'FUNDING', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', from)
+      .is('tx_hash', null)
+      .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
+}
+
+/**
  * SPEC-BLOCO-03 Adenda F5: the on-chain ids this creator's drafts already name.
  * A campaign found on-chain that one of them registered is not another draft's.
  */
@@ -250,45 +290,84 @@ export async function registeredGiveawayIds(creatorId: string): Promise<Set<bigi
 /**
  * SPEC-BLOCO-03 Adenda F2, as the owner decided on 19/09/2026: a draft in
  * PENDING_DEPOSIT closes by itself — EXPIRED — seven days after it was made, if
- * its deposit address holds none of the prize token and none of USDC. Every
- * draft, a derived creator's and an account creator's alike. A draft is a right
- * of a derived wallet (A8, F2) and holds the creator's one active slot (0007), so
- * one nobody funds must not hold either for ever.
+ * its deposit address received none of the prize token and none of USDC for it.
+ * Every draft, a derived creator's and an account creator's alike. A draft is a
+ * right of a derived wallet (A8, F2) and holds the creator's one active slot
+ * (0007), so one nobody funds must not hold either for ever.
+ *
+ * P1-3: "for it" is what arrived above the balance the address already had when
+ * the draft was made (the baseline createDraft recorded). A balance that was
+ * there before is no deposit of this draft, and does not keep it alive.
+ *
+ * P1-2: every eligible draft is reached, however many are ahead of it. The
+ * drafts are read oldest-touched first, and each one looked at and left alive —
+ * its deposit arrived, or its read failed — is touched, so it goes to the back:
+ * the pass reads on until a page holds only drafts it has already looked at, and
+ * the next pass starts with the drafts this one did not reach.
  *
  * One conditional transition (G1): a draft a submit moved on in between is left
  * alone. A deposit that arrives after the check stays where it is: in the
  * creator account, or in the derived wallet, where the migration moves it.
  */
 export async function expireUnfundedDrafts(log: Logger, deadline: RunDeadline): Promise<number> {
-  const rows = checked(
-    'creator_campaign.list_unfunded',
-    await getDb()
-      .from('bridge_v2_creator_campaigns')
-      .select(COLUMNS)
-      .eq('status', 'PENDING_DEPOSIT')
-      .lte('created_at', new Date(Date.now() - DRAFT_DEPOSIT_TTL_MS).toISOString())
-      .order('created_at', { ascending: true })
-      .limit(50)
-      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
-  ) as Row[] | null;
+  const seen = new Set<string>();
   let expired = 0;
-  for (const campaign of (rows ?? []).map(toCampaign)) {
-    if (!deadline.hasTimeFor(DRAFT_EXPIRY_MS)) break;
-    try {
-      const creator = await findCreatorById(campaign.creatorId);
-      if (creator === null) continue;
-      const tokens = new Set([campaign.prizeToken.toLowerCase(), (USDC as string).toLowerCase()]);
-      let held = false;
-      for (const token of tokens) {
-        if ((await erc20BalanceOf(token as `0x${string}`, creator.walletAddress)) > 0n) held = true;
+  for (;;) {
+    if (!deadline.hasTimeFor(DRAFT_EXPIRY_MS)) return expired;
+    const rows = checked(
+      'creator_campaign.list_unfunded',
+      await getDb()
+        .from('bridge_v2_creator_campaigns')
+        .select(COLUMNS)
+        .eq('status', 'PENDING_DEPOSIT')
+        .lte('created_at', new Date(Date.now() - DRAFT_DEPOSIT_TTL_MS).toISOString())
+        .order('updated_at', { ascending: true })
+        .limit(50)
+        .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+    ) as Row[] | null;
+    const unseen = (rows ?? []).map(toCampaign).filter((campaign) => !seen.has(campaign.id));
+    if (unseen.length === 0) return expired;
+    for (const campaign of unseen) {
+      if (!deadline.hasTimeFor(DRAFT_EXPIRY_MS)) return expired;
+      seen.add(campaign.id);
+      try {
+        if (await depositArrived(campaign)) {
+          await touchDraft(campaign.id);
+          continue;
+        }
+        // Moved on in between (G1): no longer this pass's, and out of its list.
+        if (!(await advanceCampaign(campaign.id, 'PENDING_DEPOSIT', 'EXPIRED'))) continue;
+        expired += 1;
+        await log.event('creator_campaign.expired');
+      } catch (error) {
+        await log.failure('creator_campaign.failed', error);
+        await touchDraft(campaign.id);
       }
-      if (held) continue;
-      if (!(await advanceCampaign(campaign.id, 'PENDING_DEPOSIT', 'EXPIRED'))) continue;
-      expired += 1;
-      await log.event('creator_campaign.expired');
-    } catch (error) {
-      await log.failure('creator_campaign.failed', error);
     }
   }
-  return expired;
+}
+
+/** P1-3: whether the deposit address holds more of either token than it did when the draft was made. */
+async function depositArrived(campaign: CreatorCampaign): Promise<boolean> {
+  const creator = await findCreatorById(campaign.creatorId);
+  // No creator row: no address a deposit could have reached.
+  if (creator === null) return false;
+  const usdc = (USDC as string).toLowerCase();
+  if (campaign.prizeToken.toLowerCase() !== usdc && (await erc20BalanceOf(campaign.prizeToken, creator.walletAddress)) > campaign.baselinePrize) {
+    return true;
+  }
+  return (await erc20BalanceOf(USDC, creator.walletAddress)) > campaign.baselineUsdc;
+}
+
+/** P1-2: a draft looked at and left alive goes to the back of the expiry's order. */
+async function touchDraft(id: string): Promise<void> {
+  checked(
+    'creator_campaign.touch',
+    await getDb()
+      .from('bridge_v2_creator_campaigns')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'PENDING_DEPOSIT')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
 }

@@ -7,7 +7,7 @@ import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
 import { DB_TIMEOUT_MS, ERASE_ADDRESSES_NOW_MAX, USDC } from '../../../../lib/bridge-v2/config.js';
 import { eraseAddressesOf, keptraContractsConfigured, ordersOfPayer, ordersOfStore } from '../../../../lib/bridge-v2/orders.js';
-import { accountsOf } from '../../../../lib/bridge-v2/accounts.js';
+import { accountsOf, eraseAccountData, LIVE_RECOVERY_STATUSES, recoveriesOf } from '../../../../lib/bridge-v2/accounts.js';
 import { erc20BalanceOf } from '../../../../lib/bridge-v2/chain.js';
 import { voucherBalanceOf } from '../../../../lib/bridge-v2/escrowChain.js';
 import { OrderState } from '../../../../lib/bridge-v2/abi.js';
@@ -106,6 +106,22 @@ const route = handle('privacy/erase', async ({ request, log }) => {
     );
   }
 
+  // SPEC-BLOCO-03 P1-11: a change of access still alive needs the passkeys and
+  // the request the erasure removes — the pass that confirms, notifies and
+  // finishes it reads them. Refused until it has finished or been cancelled.
+  const recoveries = await recoveriesOf(session.participantId);
+  if (recoveries.some((request) => LIVE_RECOVERY_STATUSES.includes(request.status))) {
+    await log.event('privacy.erase_refused', { recovery: true });
+    return json(
+      {
+        ok: false,
+        error: 'Your data cannot be erased yet: a change of access to your account is in progress. It can be erased once that change has finished or been cancelled.',
+        left: { recovery: true },
+      },
+      409,
+    );
+  }
+
   // Released first. C6 puts the number into its cooling period, so erasure does
   // not become a way to recycle a number between accounts on demand.
   const released = await releasePhone(session.participantId);
@@ -127,6 +143,11 @@ const route = handle('privacy/erase', async ({ request, log }) => {
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
+  // SPEC-BLOCO-03 P1-11, as the owner answered on 23/09/2026: the passkeys and
+  // the history of the changes of access, with their notices. The accounts and
+  // what the relay counted stay, as the participation record does.
+  const accountData = await eraseAccountData(session.participantId, recoveries.map((request) => request.id));
+
   // SPEC-BLOCO-03 10.3 and Adenda P18: the delivery addresses, with the tracking
   // numbers and evidence that travel with them. Those of orders still open are
   // erased after the order's final state, and the participant is told so.
@@ -134,7 +155,14 @@ const route = handle('privacy/erase', async ({ request, log }) => {
 
   const revoked = await revokeAllSessions(session.participantId);
 
-  await log.event('route.ok', { released, revoked, addresses_erased: addresses.erased, addresses_deferred: addresses.deferred });
+  await log.event('route.ok', {
+    released,
+    revoked,
+    addresses_erased: addresses.erased,
+    addresses_deferred: addresses.deferred,
+    passkeys_erased: accountData.passkeys,
+    recoveries_erased: accountData.recoveries,
+  });
   return ok(
     {
       erased: true,
@@ -143,6 +171,8 @@ const route = handle('privacy/erase', async ({ request, log }) => {
       retained: 'participation record, no longer linked to an identity',
       addressesErased: addresses.erased,
       addressesDeferred: addresses.deferred,
+      passkeysErased: accountData.passkeys,
+      recoveriesErased: accountData.recoveries,
       ...(addresses.deferred === 0
         ? {}
         : { deferredNote: 'The delivery address of an order still open is erased within 30 days of that order ending.' }),

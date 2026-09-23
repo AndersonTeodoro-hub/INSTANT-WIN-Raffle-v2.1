@@ -1005,3 +1005,189 @@ export async function derivedWallets(hasTime: () => boolean = () => true): Promi
   }
   return { wallets, complete };
 }
+
+// -----------------------------------------------------------------------------
+// P1-11: the export and the erasure cover the tables of migration 0012
+// -----------------------------------------------------------------------------
+
+/** P1-11: what migration 0012 holds about one participant, for the export (D7). */
+export interface AccountData {
+  readonly passkeys: readonly { credentialId: string; signer: string; publicX: string; publicY: string; createdAt: string }[];
+  readonly accounts: readonly {
+    role: string;
+    address: string;
+    initialSigner: string;
+    guardian: string | null;
+    deployedAt: string | null;
+    createdAt: string;
+    relayedTransactions: readonly string[];
+    guardianChanges: readonly string[];
+  }[];
+  readonly recoveries: readonly {
+    status: string;
+    linkExpiresAt: string;
+    phoneVerifiedAt: string | null;
+    startedAt: string | null;
+    executeAfter: string | null;
+    finalizedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+    notices: readonly { stage: string; channel: string; sentAt: string }[];
+  }[];
+  readonly migrations: readonly { derivedAddress: string; kind: string; authorizedAt: string; sealedAt: string | null }[];
+}
+
+/**
+ * P1-11: every row of the 0012 tables that is the participant's — its passkeys,
+ * its accounts with what the relay counted for each, its changes of access with
+ * their notices, and its migrations. The keyed hashes the rows carry (the
+ * Telegram chat's, the link code's) are not returned, for the reason the phone's
+ * is not (C5). The guardian incidents are the platform's, never a participant's.
+ */
+export async function accountDataOf(participantId: string): Promise<AccountData> {
+  const db = getDb();
+  const passkeys = (checked(
+    'export.passkeys',
+    await db
+      .from('bridge_v2_passkeys')
+      .select('credential_id, signer_address, public_x::text, public_y::text, created_at')
+      .eq('participant_id', participantId)
+      .order('created_at', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) ?? []) as { credential_id: string; signer_address: string; public_x: string; public_y: string; created_at: string }[];
+  const accounts = (checked(
+    'export.accounts',
+    await db
+      .from('bridge_v2_accounts')
+      .select('id, role, safe_address, initial_signer, guardian_address, deployed_at, created_at')
+      .eq('participant_id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) ?? []) as { id: string; role: string; safe_address: string; initial_signer: string; guardian_address: string | null; deployed_at: string | null; created_at: string }[];
+  const recoveries = (checked(
+    'export.recoveries',
+    await db
+      .from('bridge_v2_recoveries')
+      .select('id, status, link_expires_at, phone_verified_at, started_at, execute_after, finalized_at, created_at, updated_at')
+      .eq('participant_id', participantId)
+      .order('created_at', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) ?? []) as {
+    id: string;
+    status: string;
+    link_expires_at: string;
+    phone_verified_at: string | null;
+    started_at: string | null;
+    execute_after: string | null;
+    finalized_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }[];
+  const accountIds = accounts.map((row) => row.id);
+  const recoveryIds = recoveries.map((row) => row.id);
+  const byAccount = async (table: 'bridge_v2_relayed_transactions' | 'bridge_v2_guardian_changes') =>
+    (accountIds.length === 0
+      ? []
+      : ((checked(
+          `export.${table}`,
+          await db.from(table).select('account_id, created_at').in('account_id', accountIds).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+        ) ?? []) as { account_id: string; created_at: string }[]));
+  const [relayed, guardianChanges] = [await byAccount('bridge_v2_relayed_transactions'), await byAccount('bridge_v2_guardian_changes')];
+  const notices =
+    recoveryIds.length === 0
+      ? []
+      : ((checked(
+          'export.recovery_notices',
+          await db
+            .from('bridge_v2_recovery_notices')
+            .select('recovery_id, stage, channel, sent_at')
+            .in('recovery_id', recoveryIds)
+            .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+        ) ?? []) as { recovery_id: string; stage: string; channel: string; sent_at: string }[]);
+  const migrations =
+    accountIds.length === 0
+      ? []
+      : ((checked(
+          'export.migrations',
+          await db
+            .from('bridge_v2_migrations')
+            .select('derived_address, kind, authorized_at, sealed_at')
+            .in('account_id', accountIds)
+            .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+        ) ?? []) as { derived_address: string; kind: string; authorized_at: string; sealed_at: string | null }[]);
+  return {
+    passkeys: passkeys.map((row) => ({
+      credentialId: row.credential_id,
+      signer: row.signer_address,
+      publicX: row.public_x,
+      publicY: row.public_y,
+      createdAt: row.created_at,
+    })),
+    accounts: accounts.map((row) => ({
+      role: row.role,
+      address: row.safe_address,
+      initialSigner: row.initial_signer,
+      guardian: row.guardian_address,
+      deployedAt: row.deployed_at,
+      createdAt: row.created_at,
+      relayedTransactions: relayed.filter((r) => r.account_id === row.id).map((r) => r.created_at),
+      guardianChanges: guardianChanges.filter((r) => r.account_id === row.id).map((r) => r.created_at),
+    })),
+    recoveries: recoveries.map((row) => ({
+      status: row.status,
+      linkExpiresAt: row.link_expires_at,
+      phoneVerifiedAt: row.phone_verified_at,
+      startedAt: row.started_at,
+      executeAfter: row.execute_after,
+      finalizedAt: row.finalized_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      notices: notices.filter((n) => n.recovery_id === row.id).map((n) => ({ stage: n.stage, channel: n.channel, sentAt: n.sent_at })),
+    })),
+    migrations: migrations.map((row) => ({
+      derivedAddress: row.derived_address,
+      kind: row.kind,
+      authorizedAt: row.authorized_at,
+      sealedAt: row.sealed_at,
+    })),
+  };
+}
+
+/** P1-11: the participant's changes of access, whatever their state — what the erasure removes, and whether one is still alive. */
+export async function recoveriesOf(participantId: string): Promise<{ id: string; status: RecoveryStatus }[]> {
+  return ((checked(
+    'erase.recoveries',
+    await getDb()
+      .from('bridge_v2_recoveries')
+      .select('id, status')
+      .eq('participant_id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) ?? []) as { id: string; status: RecoveryStatus }[]);
+}
+
+/**
+ * P1-11, as the owner answered on 23/09/2026: the erasure removes the
+ * participant's passkeys and the history of its changes of access, with their
+ * notices — in the order the foreign keys ask (notices, requests, passkeys). The
+ * accounts, the migrations and the relay's counts stay, as the participation
+ * record does (D7): the addresses are public on the chain, and the counts leave
+ * after seven days (F10). The caller has refused the erasure while a change of
+ * access is alive (erase.ts).
+ */
+export async function eraseAccountData(participantId: string, recoveryIds: readonly string[]): Promise<{ passkeys: number; recoveries: number }> {
+  const db = getDb();
+  if (recoveryIds.length > 0) {
+    checked(
+      'erase.recovery_notices',
+      await db.from('bridge_v2_recovery_notices').delete().in('recovery_id', [...recoveryIds]).abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+    );
+  }
+  const recoveries = (checked(
+    'erase.recoveries',
+    await db.from('bridge_v2_recoveries').delete().eq('participant_id', participantId).select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) ?? []) as { id: string }[];
+  const passkeys = (checked(
+    'erase.passkeys',
+    await db.from('bridge_v2_passkeys').delete().eq('participant_id', participantId).select('id').abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  ) ?? []) as { id: string }[];
+  return { passkeys: passkeys.length, recoveries: recoveries.length };
+}

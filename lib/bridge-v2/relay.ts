@@ -53,7 +53,7 @@ import { encodeAbiParameters, encodeFunctionData, keccak256, type Hex } from 'vi
 import { alert } from './alert.js';
 import { claimSpend } from './spend.js';
 import type { Logger } from './log.js';
-import { runDeadline, type RunDeadline } from './runlock.js';
+import { acquireRunLock, releaseRunLock, runDeadline, type RunDeadline } from './runlock.js';
 import {
   CREATOR_APPROVAL_ABI,
   CREATOR_CAMPAIGN_MANAGER_ABI,
@@ -173,7 +173,9 @@ import { proofForAddress } from './eligibility.js';
 import { findCreatorById, findCreatorByParticipant } from './creators.js';
 import {
   advanceCampaign,
+  creatorCampaignLock,
   findActiveCampaign,
+  startSubmission,
   fundingCampaigns,
   registeredGiveawayIds,
   type CreatorCampaign,
@@ -409,10 +411,15 @@ export async function readAccount(account: Account): Promise<AccountView> {
 /**
  * 6.1 as the chain holds it — R-4 among it — with the one guardian the chain
  * holds (Adenda F1: never the value recorded here). The reason it is not, or null.
+ *
+ * P1-4: and that one guardian is the platform's guardian key (6.1.4). An account
+ * whose module names some other address as its guardian is not an account of
+ * 6.1, however right the rest of it is: the E3 recognition does not mark it, and
+ * the R-4 check after a creation alerts on it.
  */
 function compositionRefusal(state: AccountState): string | null {
   if (state.guardians.length !== 1) return 'guardians';
-  return configurationRefusal(state, state.guardians[0], state.owners);
+  return configurationRefusal(state, guardianAddress(), state.owners);
 }
 
 /** compositionRefusal, with the owners A3 admits: one or two signers of the participant's own passkeys. */
@@ -1159,8 +1166,10 @@ export async function submitAction(
   if (prepared.guardianChange) await recordGuardianChange(account.id);
 
   const { campaign } = prepared;
-  if (campaign !== null && campaign.status === 'PENDING_DEPOSIT') {
-    await advanceCampaign(campaign.id, 'PENDING_DEPOSIT', 'FUNDING');
+  // P1-6: signed for only while it is still the draft prepare read, with nothing
+  // sent for it: one that expired or was settled in between is never submitted.
+  if (campaign !== null && !(await startSubmission(campaign.id, campaign.status === 'FUNDING' ? 'FUNDING' : 'PENDING_DEPOSIT'))) {
+    throw new RelayRefusal('no_campaign');
   }
 
   const sent = await sendAsRelayer(batch, log, {
@@ -1306,9 +1315,12 @@ export async function reconcileGuardians(log: Logger, deadline: RunDeadline): Pr
  * A campaign the account did create since then, with the draft's terms, is the
  * draft's (E7: registered); one with other terms is alerted and the draft waits.
  *
- * Only the relay's campaigns: those of a creator whose deposit address is the
- * creator account (E1 counts a sealed one). The same pattern in module 2's
- * derived submit is D-FUNDING, left to a session of its own.
+ * D-FUNDING: module 2's derived submit (creator/campaign/submit) is settled the
+ * same way, from its derived wallet: it writes the createGiveaway's hash on the
+ * draft the moment it is broadcast, as the relay does. A derived draft is read
+ * and settled under the creator's lock — the one the submit and the migration
+ * take — so a submit still running is never settled under it, and one the lock
+ * finds busy is left for the next pass.
  */
 export async function reconcileRelayedCampaigns(log: Logger, deadline: RunDeadline): Promise<number> {
   let settled = 0;
@@ -1316,8 +1328,21 @@ export async function reconcileRelayedCampaigns(log: Logger, deadline: RunDeadli
     if (!deadline.hasTimeFor(CAMPAIGN_RECONCILE_MS)) break;
     try {
       const creator = await findCreatorById(campaign.creatorId);
-      if (creator === null || creator.walletIndex !== null) continue;
-      if (await settleCampaign(campaign, creator.walletAddress, log)) settled += 1;
+      if (creator === null) continue;
+      if (creator.walletIndex === null) {
+        if (await settleCampaign(campaign, creator.walletAddress, log)) settled += 1;
+        continue;
+      }
+      const lock = await acquireRunLock(creatorCampaignLock(creator.id));
+      if (lock === null) continue;
+      try {
+        // Read again under the lock: a submit that held it may have moved the draft on.
+        const current = await findActiveCampaign(creator.id);
+        if (current === null || current.id !== campaign.id || current.status !== 'FUNDING') continue;
+        if (await settleCampaign(current, creator.walletAddress, log)) settled += 1;
+      } finally {
+        await releaseRunLock(lock);
+      }
     } catch (error) {
       await log.failure('creator_campaign.failed', error);
     }

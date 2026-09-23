@@ -1850,16 +1850,27 @@ await test(['AF6', 'KM34', 'KM32'], 'F6 on the real contracts: ETH above what a 
   assert.equal(await holdingNow(), without, 'a sealed wallet with ETH below its last sweep’s cost kept the seed');
 });
 
-await test(['AF8', 'KM34', 'KM33'], 'KM34 on the fork, for a creator: a derived creator wallet whose campaign still has prize to reclaim — read on the real contract — and a live draft are two rights: its deposit moves, its key stays, the seed stays', async () => {
+await test(['AF8', 'KM34', 'KM33', 'P1-9'], 'KM34 on the fork, for a creator (P1-9): a derived creator wallet whose campaign still has prize to reclaim — read on the real contract — and a live draft are two rights; while the draft lives nothing moves (F2); once it is gone the deposit moves into the creator account, the key stays for the campaign, and the seed stays', async () => {
   const subject = await legacyWithAccount('km34-creator', 912, 'CREATOR');
   const recorded = await read(GIVEAWAY_MANAGER_V2, GIVEAWAY_MANAGER_V2_ABI, 'getGiveaway', [giveawayId]);
   assert.ok(recorded.prizeDelivered < recorded.prizeAmount, 'the campaign has nothing left to reclaim');
-  const campaign = draftFor(subject.creatorRow.id, 'CONFIRMED', { giveaway_id: giveawayId.toString(), creator: { wallet_address: subject.derived } });
+  draftFor(subject.creatorRow.id, 'CONFIRMED', { giveaway_id: giveawayId.toString(), creator: { wallet_address: subject.derived } });
   const live = draftFor(subject.creatorRow.id, 'PENDING_DEPOSIT', { creator: { wallet_address: subject.derived } });
+  await setUsdcBalance(rpc, USDC, subject.derived, 2_000_000n);
   assert.equal(await migration.openRights('CREATOR', subject.derived), 2);
   await accounts.authorizeMigration(912, subject.derived, subject.account.id, 'CREATOR');
+  // While the draft lives, nothing moves: the draft is the wallet's right, and the submit's (F2).
   await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
-  assert.equal(await accounts.isIndexSealed(912), false, 'sealed with rights still open');
+  assert.equal(await usdcOf(subject.derived), 2_000_000n, 'the deposit moved while its draft was alive');
+  assert.equal(await accounts.isIndexSealed(912), false);
+  // The draft gone, the campaign is still a right: the deposit moves, the key stays.
+  live.status = 'FAILED';
+  assert.equal(await migration.openRights('CREATOR', subject.derived), 1);
+  await migration.migrateAuthorizedWallets(log, TEST_FUNDER_KEYS.length, runDeadline());
+  assert.equal(await usdcOf(subject.derived), 0n, 'the deposit did not move');
+  assert.equal(await usdcOf(subject.account.safe), 2_000_000n, 'the deposit did not reach the creator account');
+  assert.equal(await accounts.isIndexSealed(912), false, 'sealed with the campaign’s right still open');
+  // And the seed stays.
   assert.equal((await migration.seedRetirementReadiness(recordingLogger())).ready, false);
 });
 

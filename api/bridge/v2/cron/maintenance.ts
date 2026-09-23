@@ -400,7 +400,7 @@ const route = handle('cron/maintenance', async ({ request, log }) => {
     }
     // M34, 6.6.4 as A8 and E1 rewrite it: whether the derivation seed can be retired.
     const seedRetirable = !deadline.hasTimeFor(READINESS_WALLET_MS) ? null : await safely(log, 'seed_readiness', async () => {
-      const readiness = await seedRetirementReadiness(log, () => deadline.hasTimeFor(READINESS_WALLET_MS));
+      const readiness = await seedRetirementReadiness(log, deadline);
       await log.event('migration.readiness', {
         ready: readiness.ready,
         complete: readiness.complete,

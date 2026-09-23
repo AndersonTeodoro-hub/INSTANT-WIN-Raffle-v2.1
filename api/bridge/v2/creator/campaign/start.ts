@@ -9,6 +9,7 @@ import { findAccount } from '../../../../../lib/bridge-v2/accounts.js';
 import { createDraft, findActiveCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
 import {
   currentCreationFee,
+  erc20BalanceOf,
   isModuleRegistered,
   modulePrizeKind,
   slotPrice,
@@ -21,6 +22,7 @@ import {
   CONTRACT_MAX_WINNERS,
   CONTRACT_MIN_DURATION_SECONDS,
   CONTRACT_MIN_PARTICIPANTS,
+  USDC,
 } from '../../../../../lib/bridge-v2/config.js';
 
 /**
@@ -128,6 +130,13 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
 
   const feeAmount = await currentCreationFee(PrizeKind.TOKEN, prizeAmount);
   const slotsCost = BigInt(slotCap) * (await slotPrice());
+  // P1-3: what the deposit address already holds is not this draft's deposit.
+  // Recorded with the draft, so its expiry counts only what arrives above it.
+  const sameToken = prizeToken.toLowerCase() === (USDC as string).toLowerCase();
+  const [baselinePrize, baselineUsdc] = await Promise.all([
+    erc20BalanceOf(prizeToken, creator.walletAddress),
+    sameToken ? Promise.resolve(null) : erc20BalanceOf(USDC, creator.walletAddress),
+  ]);
 
   const outcome = await createDraft(creator.id, {
     module,
@@ -138,6 +147,8 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
     slotCap,
     feeAmount,
     slotsCost,
+    baselinePrize,
+    baselineUsdc: baselineUsdc ?? baselinePrize,
   });
 
   if (outcome.kind === 'ACTIVE_EXISTS') {

@@ -312,11 +312,15 @@ export const ENTRY_WORST_CASE_MS = 2 * RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
 export const PRIZE_WORST_CASE_MS = 2 * ENTRY_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS;
 
 /**
- * What one step of creator/campaign/submit.ts costs: the quote, then the derived
- * wallet funded with its gas (its balance, the fee and estimate, the broadcast)
- * and that receipt awaited, the lease renewed, then the call itself (the nonce,
- * the broadcast) and its receipt. Three steps — approve the module, approve the
- * core, createGiveaway — each waited on in turn before the next is quoted.
+ * What one step of creator/campaign/submit.ts costs: its unit of the chain
+ * ceiling claimed (P1-7), the quote, then the derived wallet funded with its gas
+ * (its balance, the fee and estimate, the broadcast) and that receipt awaited,
+ * the lease renewed, then the call itself (the nonce, the broadcast), its hash
+ * written on the draft (createGiveaway's, D-FUNDING) and its receipt: six RPC
+ * stages, three database stages and two receipts. Three steps for a USDC prize,
+ * four for any other token (D-B5) — approve the module, approve the core once
+ * or once per token, createGiveaway — each waited on in turn before the next is
+ * quoted.
  *
  * EACH RECEIPT IS AWAITED, DELIBERATELY, RATHER THAN ONLY THE LAST. createGiveaway
  * calls takeCustody, which reverts unless the module's allowance is already
@@ -334,7 +338,7 @@ export const PRIZE_WORST_CASE_MS = 2 * ENTRY_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS;
  * left; otherwise it answers "try again" and the campaign stays in FUNDING,
  * which a retry already resumes.
  */
-export const CREATOR_SUBMIT_STEP_MS = 2 * RECEIPT_TIMEOUT_MS + 6 * RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
+export const CREATOR_SUBMIT_STEP_MS = 2 * RECEIPT_TIMEOUT_MS + 6 * RPC_TIMEOUT_MS + 3 * DB_TIMEOUT_MS;
 /**
  * F7: what may follow a step before the route ends — a failure recorded and
  * alerted (event, alert, webhook), or the confirmation and its event; then the
@@ -486,19 +490,32 @@ export const SWEEP_WORST_CASE_MS = 5 * RPC_TIMEOUT_MS;
  */
 export const MIGRATION_ASSET_MS = ENTRY_WORST_CASE_MS + 2 * RPC_TIMEOUT_MS;
 /**
- * C1: closing one migrated wallet — the sweep of its remaining ETH (H7) and the
- * reads that decide whether it may be sealed (A8): what it still holds, and the
- * rights still tied to it.
+ * C1: closing one migrated wallet — the sweep of its remaining ETH (H7), and
+ * P1-1 the wait for that sweep's receipt, since nothing is sealed before it is
+ * mined — and the reads that decide whether it may be sealed (A8): what it still
+ * holds, and the rows of the rights still tied to it. Each right read from the
+ * chain reserves RIGHT_READ_MS of its own (P1-5).
  */
-export const MIGRATION_SEAL_MS = SWEEP_WORST_CASE_MS + 4 * RPC_TIMEOUT_MS + 2 * DB_TIMEOUT_MS;
+export const MIGRATION_SEAL_MS = SWEEP_WORST_CASE_MS + RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS + 2 * DB_TIMEOUT_MS;
+/**
+ * P1-5, the reads Adenda F3 added: one right of a derived wallet asked of the
+ * chain — for an entry, its campaign, whether it entered, what it can claim and
+ * the core's deadline; for a creator's campaign, the campaign and whether it was
+ * refunded. The migration's seal and the seed readiness reserve it per right, so
+ * a wallet with many entries is read inside the budget or not counted at all.
+ */
+export const RIGHT_READ_MS = 4 * RPC_TIMEOUT_MS;
 
 /**
  * SPEC-BLOCO-03 6.3 and C1: one recovery request confirmed — the new signer
  * created, then one guardian confirmation per account (two, A10), each awaited.
  */
 export const RECOVERY_CONFIRM_MS = 3 * (RECEIPT_TIMEOUT_MS + 3 * RPC_TIMEOUT_MS);
-/** C1: one confirmed request advanced — its state reads and one finalisation, awaited (R-6). */
-export const RECOVERY_ADVANCE_MS = RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS;
+/**
+ * C1: one confirmed request advanced — its state reads and one finalisation,
+ * awaited (R-6) — and P1-10, the spend claims of its two notices.
+ */
+export const RECOVERY_ADVANCE_MS = RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS + 2 * DB_TIMEOUT_MS;
 /**
  * One alert: its event and the webhook post (alert.ts). A building block of the
  * reservations below, and a reservation of its own where an alert is all a
@@ -530,10 +547,12 @@ export const CAMPAIGN_SCAN_PAGES = 5;
  * creator read (up to three stages), then either a bounded wait for its receipt
  * and the node asked about the hash, or, with no hash (F5), the newest id and up
  * to CAMPAIGN_SCAN_PAGES pages of campaigns and the ids already registered —
- * whichever is longer — then the transition and its event.
+ * whichever is longer — then the transition and its event. D-FUNDING adds, for a
+ * derived creator's draft, the creator's lock taken and given back and the draft
+ * read again under it: three stages more.
  */
 export const CAMPAIGN_RECONCILE_MS =
-  Math.max(RECEIPT_TIMEOUT_MS + RPC_TIMEOUT_MS, (1 + CAMPAIGN_SCAN_PAGES) * RPC_TIMEOUT_MS) + 6 * DB_TIMEOUT_MS;
+  Math.max(RECEIPT_TIMEOUT_MS + RPC_TIMEOUT_MS, (1 + CAMPAIGN_SCAN_PAGES) * RPC_TIMEOUT_MS) + 9 * DB_TIMEOUT_MS;
 
 /**
  * SPEC-BLOCO-03 Adenda F1: one page of accounts read for the guardian each holds
@@ -553,9 +572,9 @@ export const DRAFT_EXPIRY_MS = 2 * RPC_TIMEOUT_MS + 5 * DB_TIMEOUT_MS;
 
 /**
  * SPEC-BLOCO-03 Adenda E1, F3, F6: one derived wallet looked at for seed
- * readiness — what it holds and what the ETH would cost to sweep, and its rights.
- * Reads only, an ALLOWANCE in ENTRY_WORST_CASE_MS's sense: a wallet with many
- * entries reads more, and a pass cut short answers "not ready" (F4).
+ * readiness — what it holds and what the ETH would cost to sweep, and the rows of
+ * its rights. Each right it then asks the chain about reserves RIGHT_READ_MS
+ * (P1-5); a pass cut short answers "not ready" (F4).
  */
 export const READINESS_WALLET_MS = 6 * RPC_TIMEOUT_MS + 3 * DB_TIMEOUT_MS;
 
@@ -759,18 +778,21 @@ export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
  * publication and for one SUBMITTED reconciliation, 20_000 for a FUNDING
  * reconciliation, 50_000 for a sweep, 100_000 for an entry, 80_000 for a lifecycle
  * transition, 240_000 for a prize; and in the maintenance pass (C1) 120_000 for
- * one migrated asset, 106_000 for sealing a migrated wallet, 180_000 for a
- * recovery confirmation, 70_000 for advancing one, 44_000 for a page of the
- * recovery scan, 44_000 for recognising one account (E3), 108_000 for one
- * campaign left in FUNDING (E7, F5), 28_000 for a page of the guardian scan and
+ * one migrated asset, 136_000 for sealing a migrated wallet (P1-1: its sweep's
+ * receipt included), 40_000 for each right of a derived wallet read from the
+ * chain (P1-5), 180_000 for a
+ * recovery confirmation, 86_000 for advancing one (P1-10: its notices' claims included), 44_000 for a page of the
+ * recovery scan, 44_000 for recognising one account (E3), 132_000 for one
+ * campaign left in FUNDING (E7, F5, D-FUNDING), 28_000 for a page of the guardian scan and
  * 16_000 for one guardian recorded (F1), 60_000 for one unfunded draft (F2),
  * 84_000 for one wallet of the seed readiness (E1, F6), and in the pipeline
  * 20_000 for a self-custody entry; the steps of F7 — 16_000 for an alert,
  * 24_000 for the cleanup, 32_000 for the relay's retention, 24_000 and 16_000
  * for the two recovery bookkeeping steps, 34_000 per funder, 44_000 for the VRF,
- * 64_000 for the spend, 32_000 for the route errors, 34_000 per contract read,
+ * 80_000 for the spend, 32_000 for the route errors, 34_000 per contract read,
  * 24_000 for the role keys — and the two routes that budget themselves: 232_000
- * for a relayed submission's tail and 184_000 for one step of the creator submit.
+ * for a relayed submission's tail and 216_000 for one step of the creator submit
+ * with the tail after it (P1-8).
  * The largest leaves 40_000 ms of margin, and every one fits the maintenance
  * pass's own budget (MAINTENANCE_BUDGET_MS, 272_000) as well. SPEC-BLOCO-03
  * piece 5 adds, in the pipeline, 62_000 for a page of the orders scan, 80_000
@@ -793,6 +815,7 @@ export const EVERY_RESERVATION_MS: Record<string, number> = {
   passkeyEntry: PASSKEY_ENTRY_RECONCILE_MS,
   migrationAsset: MIGRATION_ASSET_MS,
   migrationSeal: MIGRATION_SEAL_MS,
+  rightRead: RIGHT_READ_MS,
   recoveryConfirm: RECOVERY_CONFIRM_MS,
   recoveryAdvance: RECOVERY_ADVANCE_MS,
   recoveryScan: RECOVERY_SCAN_MS,
@@ -1091,14 +1114,15 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // database stages: the session read and slide, four rate-limit axes, the entry
   // lookup, the transition, its event, and the envelope's.
   'api/bridge/v2/entry/resume.ts': maxDurationSeconds(3, 10),
-  // Six RPC stages, each awaited on its own: isModuleRegistered, modulePrizeKind,
-  // the creator account's state (two, readAccount), currentFee, pricePerSlot.
+  // Seven RPC stages, each awaited on its own: isModuleRegistered, modulePrizeKind,
+  // the creator account's state (two, readAccount), currentFee, pricePerSlot, and
+  // the deposit address's two balances together (P1-3's baseline).
   // Eighteen database stages: the session read and slide, three rate-limit axes,
   // the phone check, the creator read (one; three for a sealed creator), the
   // account read and the two readAccount may write, get-or-create's read, account
   // read, insert and the re-read a lost race takes, the active-draft check, the
   // draft insert, the ops event, and the envelope's.
-  'api/bridge/v2/creator/campaign/start.ts': maxDurationSeconds(6, 18),
+  'api/bridge/v2/creator/campaign/start.ts': maxDurationSeconds(7, 18),
   // Two RPC stages: the creator account's state (readAccount). Fourteen database
   // stages: the session read and slide, three rate-limit axes, the creator read
   // (up to three: the row, whether its index is sealed, the account a sealed one
@@ -1173,12 +1197,14 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // creator account, the insert, the ops event, and the envelope's.
   'api/bridge/v2/store/description.ts': maxDurationSeconds(2, 9),
   // T13. One RPC stage: the USDC and voucher balances of both accounts, read
-  // together. Fourteen database stages outside the addresses: the session read
+  // together. Eighteen database stages outside the addresses: the session read
   // and slide, three rate-limit axes, the accounts, the orders as recipient and
-  // as store, the phone released, the participant tombstoned, the addresses
-  // read, the sessions revoked, the ops event, and the envelope's; and four for
-  // each address erased on the spot (its order, two related tables, itself).
-  'api/bridge/v2/privacy/erase.ts': maxDurationSeconds(1, 14 + 4 * ERASE_ADDRESSES_NOW_MAX),
+  // as store, the changes of access read (P1-11), the phone released, the
+  // participant tombstoned, the notices, the changes of access and the passkeys
+  // deleted (P1-11), the addresses read, the sessions revoked, the ops event, and
+  // the envelope's; and four for each address erased on the spot (its order, two
+  // related tables, itself).
+  'api/bridge/v2/privacy/erase.ts': maxDurationSeconds(1, 18 + 4 * ERASE_ADDRESSES_NOW_MAX),
 };
 
 /**

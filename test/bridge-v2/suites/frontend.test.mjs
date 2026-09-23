@@ -1004,10 +1004,12 @@ await test(['U37', 'AT7', 'AU5'], '19, T7 and U5: the one dependency added is th
   assert.deepEqual(branch.devDependencies, main.devDependencies);
 });
 
-await test(['AT3'], 'T3: the bridge changed only where Adenda T allows it (and the owner’s answers of 22/09 extended it): account status and vouchers, the relay’s summary, ids and USDC transfer, the descriptions, the erasure refusal, the public domain', () => {
+await test(['AT3'], 'T3: piece 6 (d56f499..81f08ce, W1) changed the bridge only where Adenda T allows it (and the owner’s answers of 22/09 extended it): account status and vouchers, the relay’s summary, ids and USDC transfer, the descriptions, the erasure refusal, the public domain', () => {
+  // T3 bounds piece 6's own construction, closed at 81f08ce (W1). What the lot
+  // before the deploy changes in the bridge since is AA4's, not piece 6's.
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
-  const changed = git('diff', '--name-only', 'd56f499', '--', 'api', 'lib/bridge-v2', 'lib/campaign-identity.ts', 'supabase').trim().split('\n').filter(Boolean);
-  const untracked = git('ls-files', '--others', '--exclude-standard', '--', 'api', 'lib/bridge-v2', 'supabase').trim().split('\n').filter(Boolean);
+  const changed = git('diff', '--name-only', 'd56f499', '81f08ce', '--', 'api', 'lib/bridge-v2', 'lib/campaign-identity.ts', 'supabase').trim().split('\n').filter(Boolean);
+  const untracked = [];
   const allowed = new Set([
     'api/bridge/v2/account/status.ts', 'api/bridge/v2/account/vouchers.ts', // T3: the account's state
     'api/bridge/v2/account/relay.ts', 'lib/bridge-v2/relay.ts', 'lib/bridge-v2/escrowChain.ts', 'lib/bridge-v2/abi.ts', // T2, T5, U17

@@ -1403,6 +1403,9 @@ await test(['AD6'], 'D6: each 0012 table is granted exactly the verbs the code u
   walk('api');
   const revoke = migration.search(/REVOKE ALL ON TABLE public\.bridge_v2_passkeys\s+FROM service_role/);
   assert.ok(revoke !== -1, 'nothing revokes the default privileges from service_role');
+  // P1-11: 0015 adds DELETE on three of these tables for the erasure; what it grants counts with 0012's.
+  const later = read('supabase/migrations/0015_keptra_lote.sql');
+  const addedBy0015 = (table) => [...later.matchAll(new RegExp(`GRANT ([A-Z, ]+?)\\s+ON TABLE public\\.${table}\\s+TO service_role`, 'g'))].flatMap((m) => m[1].split(',').map((v) => v.trim()));
   for (const table of created) {
     assert.match(migration, new RegExp(`REVOKE ALL ON TABLE public\\.${table}\\s+FROM service_role;`), `${table} keeps the default privileges`);
     const grant = migration.match(new RegExp(`GRANT ([A-Z, ]+?)\\s+ON TABLE public\\.${table}\\s+TO service_role`));
@@ -1412,7 +1415,7 @@ await test(['AD6'], 'D6: each 0012 table is granted exactly the verbs the code u
     const needed = new Set([...used[table]].flatMap((v) => v.split(', ')));
     assert.ok(needed.size > 0, `${table} is used by nothing`);
     needed.add('SELECT');
-    assert.deepEqual(grant[1].split(',').map((v) => v.trim()).sort(), [...needed].sort(), `${table}: granted more or less than the code uses`);
+    assert.deepEqual([...new Set([...grant[1].split(',').map((v) => v.trim()), ...addedBy0015(table)])].sort(), [...needed].sort(), `${table}: granted more or less than the code uses`);
   }
 });
 
@@ -1851,7 +1854,7 @@ function fundingDraft(creatorId, extra = {}) {
   });
 }
 
-await test(['AE7', 'AE11'], 'E7: the pass settles each relay campaign in FUNDING from the chain — registered if mined, released to PENDING_DEPOSIT if reverted, dropped or never sent, left while pending — and never touches module 2’s', async () => {
+await test(['AE7', 'AE11'], 'E7: the pass settles each relay campaign in FUNDING from the chain — registered if mined, released to PENDING_DEPOSIT if reverted, dropped or never sent, left while pending — and module 2’s only under the creator’s lock (D-FUNDING)', async () => {
   fresh();
   const hash = (digit) => `0x${String(digit).repeat(64)}`;
   const creator = (i, walletIndex = null) =>
@@ -1875,7 +1878,7 @@ await test(['AE7', 'AE11'], 'E7: the pass settles each relay campaign in FUNDING
   for (const row of [reverted, dropped, neverSent]) assert.deepEqual([row.status, row.tx_hash], ['PENDING_DEPOSIT', null]);
   assert.equal(pending.status, 'FUNDING', 'a transaction still in the mempool was given up on');
   assert.equal(inFlight.status, 'FUNDING', 'a request still running had its draft released');
-  assert.equal(derived.status, 'FUNDING', 'module 2’s derived submit was touched (D-FUNDING is not this piece’s)');
+  assert.equal(derived.status, 'FUNDING', 'module 2’s draft was settled without its creator’s lock (D-FUNDING)');
   assert.deepEqual(
     log.events.filter((e) => e.kind === 'creator_campaign.released').map((e) => e.detail.reason).sort(),
     ['dropped', 'never_sent', 'reverted'],
@@ -1978,7 +1981,7 @@ const openLocks = () => {
 
 // --- F1: the guardian the account holds on-chain ------------------------------------
 
-await test(['AF1', 'AE3'], 'F1: R-3 names the guardian the account holds on-chain, never the recorded one a rotation (B6) left behind, and the account is recognised by that guardian too', async () => {
+await test(['AF1', 'AE3', 'P1-4'], 'F1: R-3 names the guardian the account holds on-chain, never the recorded one a rotation (B6) left behind; P1-4 (owner, 23/09): that held key is not the platform’s current one, so E3 does not recognise the account by it', async () => {
   fresh();
   const { passkey } = await registered();
   // The recorded guardian is the platform's current key; the account still holds another one.
@@ -1987,10 +1990,12 @@ await test(['AF1', 'AE3'], 'F1: R-3 names the guardian the account holds on-chai
   assert.equal(row.guardian_address.toLowerCase(), guardianAddress().toLowerCase());
   kchain.set({ accountState: readyState([SIGNER], [HELD]), isValidPasskeySignature: true, hasCode: true });
   const relayLib = await relayLibrary();
-  // E3 read through F1: configured as 6.1 says, with the guardian the chain holds.
+  // P1-4: only the platform's current guardian key makes an account of 6.1 — a held former one is not recognised.
   const view = await relayLib.readAccount(await accounts.findAccount('participant-1', 'PARTICIPANT'));
-  assert.deepEqual([view.recognized, view.configured, view.usable], [true, true, true]);
-  // R-3 revokes the held key, and nothing else is ever named.
+  assert.deepEqual([view.recognized, view.configured], [false, false]);
+  assert.equal(row.deployed_at ?? null, null, 'marked deployed by a guardian that is not the platform’s');
+  // An account the platform configured (marked), holding that key on-chain: R-3 revokes the held key, and nothing else is ever named.
+  markConfigured();
   const prepared = await relayLib.prepareAction('participant-1', { kind: 'revokeGuardian' }, null);
   const revoke = encodeFunctionData({ abi: keptra.RECOVERY_MODULE_ABI, functionName: 'revokeGuardianWithThreshold', args: [keptra.SENTINEL, HELD, 0n] });
   assert.deepEqual(callsOf(prepared.tx).map((c) => c.data.toLowerCase()).slice(-1), [revoke.toLowerCase()]);
@@ -2044,7 +2049,7 @@ await test(['AF1'], 'F1: the maintenance pass brings the recorded guardian into 
 
 // --- F2: a derived creator with a draft alive -------------------------------------------
 
-await test(['AF2', 'AF8', 'KM33'], 'F2: a derived creator’s wallet is not moved while a draft is alive, nor while module 2’s submit holds the creator’s lock; once neither holds, it moves and is sealed', async () => {
+await test(['AF2', 'AF8', 'KM33', 'P1-9'], 'F2: a derived creator’s wallet is not moved while a draft is alive, nor while module 2’s submit holds the creator’s lock; once neither holds, its deposit moves — the USDC it holds, to the creator account — and the index is sealed', async () => {
   fresh();
   await registered();
   markConfigured();
@@ -2088,6 +2093,15 @@ await test(['AF2', 'AF8', 'KM33'], 'F2: a derived creator’s wallet is not move
   openLocks();
   assert.equal(await migrateAuthorizedWallets(recordingLogger(), 2, deadline()), 1);
   assert.equal(chain.calls.filter((c) => c.name === 'submitAsDerived').length, 1);
+  // P1-9: what moved is the deposit, whole, and where it went is the creator account.
+  const [move] = chain.calls.filter((c) => c.name === 'submitAsDerived');
+  assert.equal(move.args[1].toLowerCase(), derived.toLowerCase(), 'signed as another wallet');
+  assert.equal(move.args[2].toLowerCase(), config.USDC.toLowerCase());
+  assert.equal(
+    move.args[3],
+    encodeFunctionData({ abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']), functionName: 'transfer', args: [creatorAccount.safe_address, 12_000_000n] }),
+    'the deposit did not go, whole, to the creator account',
+  );
   assert.equal(await accounts.isIndexSealed(41), true);
   assert.equal(db.callsTo('rpc:bridge_v2_release_lock').filter((c) => c.args.p_name === creatorCampaignLock(creatorRow.id)).length, 2, 'the creator lock was not given back');
 });
@@ -2203,7 +2217,7 @@ await test(['AF4', 'KM34'], 'F4: readiness reads every derived wallet a page at 
   // The time runs out in the middle of the list.
   countReply = () => 1203;
   let asked = 0;
-  const cut = await seedRetirementReadiness(recordingLogger(), () => (asked += 1) < 5);
+  const cut = await seedRetirementReadiness(recordingLogger(), { hasTimeFor: () => (asked += 1) < 5 });
   assert.deepEqual([cut.ready, cut.complete], [false, false]);
 });
 
@@ -2658,6 +2672,405 @@ await test(['AF12'], 'F12: the suite exits non-zero when any test fails that is 
 });
 
 // ===========================================================================
+// Adenda AA4 — the lot before the deploy, piece 1 (P1-1 to P1-11) and module 2 (D-B5, D-FUNDING)
+// ===========================================================================
+
+/** A derived wallet authorised for migration, its account usable on-chain. */
+async function authorisedDerived(index) {
+  await registered();
+  markConfigured();
+  kchain.set({ accountState: readyState() });
+  openLocks();
+  const derived = addressOf(index);
+  const account = store.rows('bridge_v2_accounts').find((r) => r.role === 'PARTICIPANT');
+  store.insert('bridge_v2_participants', { id: `derived-${index}`, email_canonical: `d${index}@example.test`, wallet_index: index, wallet_address: derived, telegram_chat_enc: null });
+  const row = store.insert('bridge_v2_migrations', { wallet_index: index, derived_address: derived, account_id: account.id, kind: 'PARTICIPANT', sealed_at: null });
+  return { derived, account, row };
+}
+
+await test(['P1-1'], 'P1-1: a migrated wallet is sealed only once its last sweep is mined — a sweep that never lands leaves it unsealed and the next pass sweeps and seals it; the seal’s reservation holds the receipt', async () => {
+  fresh();
+  const { row } = await authorisedDerived(61);
+  const sweep = `0x${'6'.repeat(64)}`;
+  chain.set({ sweepAboveCost: { hash: sweep, cost: 7n }, waitForReceipt: (hash) => (hash === sweep ? null : { status: 'success', logs: [] }) });
+  const { migrateAuthorizedWallets } = await migrationLibrary();
+  const log = recordingLogger();
+  assert.equal(await migrateAuthorizedWallets(log, 2, deadline()), 0);
+  assert.equal(row.sealed_at, null, 'sealed on a sweep that was never mined');
+  assert.ok(chain.calls.some((c) => c.name === 'waitForReceipt' && c.args[0] === sweep), 'the sweep’s receipt was not awaited');
+  assert.deepEqual(log.events.filter((e) => e.kind === 'migration.waiting').map((e) => e.detail.reason), ['sweep']);
+  // A reverted sweep seals nothing either.
+  chain.set({ waitForReceipt: (hash) => (hash === sweep ? { status: 'reverted', logs: [] } : { status: 'success', logs: [] }) });
+  assert.equal(await migrateAuthorizedWallets(recordingLogger(), 2, deadline()), 0);
+  assert.equal(row.sealed_at, null);
+  // Mined: sealed, with what it cost.
+  chain.set({ waitForReceipt: { status: 'success', logs: [] } });
+  assert.equal(await migrateAuthorizedWallets(recordingLogger(), 2, deadline()), 1);
+  assert.notEqual(row.sealed_at, null);
+  assert.equal(String(row.sweep_cost_wei), '7');
+  // Nothing to sweep (no hash): nothing to wait for.
+  assert.equal(config.MIGRATION_SEAL_MS, config.SWEEP_WORST_CASE_MS + config.RECEIPT_TIMEOUT_MS + 4 * config.RPC_TIMEOUT_MS + 2 * config.DB_TIMEOUT_MS);
+});
+
+await test(['P1-2'], 'P1-2: every eligible draft expires, however many are ahead of it — fifty-five with their deposit in front of two nobody funded, all read in one pass, and a pass cut short leaves the rest first in line for the next', async () => {
+  fresh();
+  const old = new Date(Date.now() - config.DRAFT_DEPOSIT_TTL_MS - 60_000).toISOString();
+  const funded = [];
+  for (let i = 0; i < 55; i += 1) {
+    const creatorRow = store.insert('bridge_v2_creators', { participant_id: `p2-${i}`, wallet_index: null, wallet_address: `0x${(1000 + i).toString(16).padStart(40, '0')}` });
+    funded.push(draftOf(creatorRow.id, creatorRow.wallet_address, { created_at: old, updated_at: new Date(Date.now() - 3_600_000 + i).toISOString() }));
+  }
+  const behind = [0, 1].map((i) => {
+    const creatorRow = store.insert('bridge_v2_creators', { participant_id: `p2-e${i}`, wallet_index: null, wallet_address: `0x${(2000 + i).toString(16).padStart(40, '0')}` });
+    return draftOf(creatorRow.id, creatorRow.wallet_address, { created_at: old, updated_at: new Date().toISOString() });
+  });
+  const fundedAddresses = new Set(funded.map((d) => store.rows('bridge_v2_creators').find((c) => c.id === d.creator_id).wallet_address));
+  chain.set({ erc20BalanceOf: (_token, holder) => (fundedAddresses.has(holder) ? 5n : 0n) });
+  const drafts = await draftsLibrary();
+  assert.equal(await drafts.expireUnfundedDrafts(recordingLogger(), deadline()), 2);
+  assert.deepEqual(behind.map((d) => d.status), ['EXPIRED', 'EXPIRED'], 'a draft behind fifty others was never reached');
+  assert.ok(funded.every((d) => d.status === 'PENDING_DEPOSIT'));
+  // The ones looked at went to the back: a pass that can read only a few starts, next time, where this one stopped.
+  const before = funded.map((d) => d.updated_at);
+  behind.forEach((d) => {
+    d.status = 'PENDING_DEPOSIT';
+    d.updated_at = new Date(Date.now() - 7_200_000).toISOString();
+  });
+  let allowed = 3;
+  assert.equal(await drafts.expireUnfundedDrafts(recordingLogger(), { hasTimeFor: () => (allowed -= 1) >= 0 }), 2, 'the two untouched drafts were not first');
+  assert.deepEqual(funded.map((d) => d.updated_at), before, 'a pass with time for two touched others');
+});
+
+await test(['P1-3'], 'P1-3: a balance the deposit address already had when the draft was made is no deposit of it — the draft expires; only what arrives above it keeps it; start records that baseline', async () => {
+  fresh();
+  const old = new Date(Date.now() - config.DRAFT_DEPOSIT_TTL_MS - 60_000).toISOString();
+  const WETH = '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1';
+  const make = (i, extra) => {
+    const creatorRow = store.insert('bridge_v2_creators', { participant_id: `p3-${i}`, wallet_index: null, wallet_address: `0x${(3000 + i).toString(16).padStart(40, '0')}` });
+    return { draft: draftOf(creatorRow.id, creatorRow.wallet_address, { created_at: old, ...extra }), holder: creatorRow.wallet_address.toLowerCase() };
+  };
+  const leftover = make(1, { deposit_baseline_usdc: '5000000', deposit_baseline_prize: '5000000' });
+  const arrived = make(2, { deposit_baseline_usdc: '5000000', deposit_baseline_prize: '5000000' });
+  const prizeLeftover = make(3, { prize_token: WETH, deposit_baseline_prize: '9', deposit_baseline_usdc: '0' });
+  const legacy = make(4, {}); // made before 0015: no baseline recorded, read as zero
+  const balances = new Map([
+    [leftover.holder, 5_000_000n],
+    [arrived.holder, 5_000_001n],
+    [prizeLeftover.holder, 9n],
+    [legacy.holder, 1n],
+  ]);
+  chain.set({ erc20BalanceOf: (token, holder) => (token.toLowerCase() === WETH.toLowerCase() || holder.toLowerCase() !== prizeLeftover.holder ? balances.get(holder.toLowerCase()) ?? 0n : 0n) });
+  const drafts = await draftsLibrary();
+  await drafts.expireUnfundedDrafts(recordingLogger(), deadline());
+  assert.deepEqual(
+    [leftover, arrived, prizeLeftover, legacy].map((x) => x.draft.status),
+    ['EXPIRED', 'PENDING_DEPOSIT', 'EXPIRED', 'PENDING_DEPOSIT'],
+  );
+  // start writes the address's balances with the draft.
+  fresh();
+  await registered();
+  store.insert('bridge_v2_phones', { participant_id: 'participant-1', phone_hmac: 'hash', released_at: null });
+  kchain.set({ accountState: readyState() });
+  const creatorAccount = store.rows('bridge_v2_accounts').find((r) => r.role === 'CREATOR');
+  chain.set({ erc20BalanceOf: (token, holder) => (holder.toLowerCase() === creatorAccount.safe_address.toLowerCase() ? (token.toLowerCase() === WETH.toLowerCase() ? 4n : 3n) : 0n) });
+  const startRoute = await import('../../../api/bridge/v2/creator/campaign/start.ts');
+  const response = await startRoute.POST(request(url('creator/campaign/start'), { cookie: SESSION_COOKIE, body: { module: ERC20_PRIZE_MODULE, prizeToken: WETH, prizeAmount: '1000', durationSeconds: 3600, winnersCount: 1, slotCap: 10 } }));
+  assert.equal(response.status, 200, await response.clone().text());
+  const written = store.rows('bridge_v2_creator_campaigns')[0];
+  assert.deepEqual([String(written.deposit_baseline_prize), String(written.deposit_baseline_usdc)], ['4', '3']);
+});
+
+await test(['P1-4'], 'P1-4: the R-4 check after an account is created alerts when the guardian the chain holds is not the platform’s key, and the maintenance pass’s recognition (E3) never marks such an account', async () => {
+  fresh();
+  const { passkey } = await registered();
+  const FOREIGN = '0x4242424242424242424242424242424242424242';
+  let created = false;
+  kchain.set({
+    accountState: () => (created ? readyState([SIGNER], [FOREIGN]) : EMPTY_ACCOUNT),
+    sendRelayed: () => {
+      created = true;
+      return `0x${'a'.repeat(64)}`;
+    },
+    isValidPasskeySignature: true,
+  });
+  const relayLib = await relayLibrary();
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'configure' }, 'PARTICIPANT');
+  const log = recordingLogger();
+  await relayLib.submitAction('participant-1', { kind: 'configure' }, 'PARTICIPANT', prepared.tx.nonce, await passkey.sign(prepared.hash), log);
+  const alerts = log.events.filter((e) => e.kind === 'alert' && e.detail.summary === 'account configuration check failed after creation');
+  assert.deepEqual(alerts.map((e) => e.detail.reason), ['guardians']);
+  const row = store.rows('bridge_v2_accounts').find((r) => r.role === 'PARTICIPANT');
+  assert.equal(row.deployed_at ?? null, null);
+  // The pass: a foreign guardian is never recognised; the platform's is.
+  assert.equal(await relayLib.recognizeDeployedAccounts(recordingLogger(), deadline()), 0);
+  assert.equal(row.deployed_at ?? null, null);
+  kchain.set({ accountState: readyState() });
+  assert.ok((await relayLib.recognizeDeployedAccounts(recordingLogger(), deadline())) >= 1);
+  assert.notEqual(row.deployed_at ?? null, null);
+});
+
+await test(['P1-5'], 'P1-5: the rights Adenda F3 reads from the chain are reserved one by one — a wallet with more entries than the time left is neither sealed nor counted as ready, and RIGHT_READ_MS is a named reservation inside the budget', async () => {
+  fresh();
+  const { row, derived } = await authorisedDerived(62);
+  for (let g = 1; g <= 6; g += 1) store.insert('bridge_v2_entries', { participant_id: `derived-62`, giveaway_id: String(g), wallet_address: derived, passkey: false, status: 'CONFIRMED' });
+  chain.set({ readGiveaway: { ...chain.behaviour.readGiveaway, acceptsEntries: false, status: 6 } });
+  const { openRights, seedRetirementReadiness } = await migrationLibrary();
+  let left = 3;
+  assert.equal(await openRights('PARTICIPANT', derived, () => (left -= 1) >= 0), null, 'a count cut short answered as a number');
+  assert.equal(await openRights('PARTICIPANT', derived), 0);
+  // Readiness: the time for the wallet but not for its rights is a pass that did not look at everything.
+  const reads = [];
+  const readiness = await seedRetirementReadiness(recordingLogger(), { hasTimeFor: (ms) => (reads.push(ms), ms !== config.RIGHT_READ_MS) });
+  assert.equal(readiness.complete, false);
+  assert.equal(readiness.ready, false);
+  assert.ok(reads.includes(config.RIGHT_READ_MS));
+  assert.equal(config.EVERY_RESERVATION_MS.rightRead, config.RIGHT_READ_MS);
+  assert.ok(config.RIGHT_READ_MS < config.MAINTENANCE_BUDGET_MS);
+  assert.equal(row.sealed_at, null);
+});
+
+await test(['P1-6'], 'P1-6: a draft that left PENDING_DEPOSIT is never submitted — module 2’s submit reads it under the creator’s lock and moves it with one conditional statement; the relay refuses a draft that expired between prepare and submit, and sends nothing', async () => {
+  fresh();
+  const derived = addressOf(63);
+  const creatorRow = store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: 63, wallet_address: derived });
+  const draft = draftOf(creatorRow.id, derived);
+  chain.set({ erc20BalanceOf: 100_000_000n });
+  openLocks();
+  // It expires between the page and the submit.
+  draft.status = 'EXPIRED';
+  const submitRoute = await import('../../../api/bridge/v2/creator/campaign/submit.ts');
+  const response = await submitRoute.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+  assert.equal(response.status, 404);
+  assert.equal(chain.calls.filter((c) => ['quoteApprove', 'fundDerivedWallet', 'submitAsDerived'].includes(c.name)).length, 0);
+  assert.equal(draft.status, 'EXPIRED');
+  // The move itself is conditional: from a state it is no longer in, nothing moves.
+  const drafts = await draftsLibrary();
+  assert.equal(await drafts.startSubmission(draft.id, 'PENDING_DEPOSIT'), false);
+  draft.status = 'FUNDING';
+  draft.tx_hash = `0x${'c'.repeat(64)}`;
+  assert.equal(await drafts.startSubmission(draft.id, 'FUNDING'), false, 'a draft already sent for was started again');
+
+  // The relay: a creator account's draft, prepared, then expired before the submit.
+  fresh();
+  const { passkey } = await registered();
+  markConfigured();
+  kchain.set({ accountState: readyState(), isValidPasskeySignature: true });
+  const creatorAccount = store.rows('bridge_v2_accounts').find((r) => r.role === 'CREATOR');
+  const accountCreator = store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: null, wallet_address: creatorAccount.safe_address });
+  const live = draftOf(accountCreator.id, creatorAccount.safe_address);
+  chain.set({ erc20BalanceOf: 100_000_000n });
+  const relayLib = await relayLibrary();
+  const prepared = await relayLib.prepareAction('participant-1', { kind: 'createCampaign' }, 'CREATOR');
+  live.status = 'EXPIRED';
+  await assert.rejects(
+    relayLib.submitAction('participant-1', { kind: 'createCampaign' }, 'CREATOR', prepared.tx.nonce, await passkey.sign(prepared.hash), recordingLogger()),
+    (error) => error.reason === 'no_campaign',
+  );
+  assert.equal(kchain.calls.filter((c) => c.name === 'sendRelayed').length, 0);
+  assert.equal(live.status, 'EXPIRED');
+});
+
+await test(['P1-7'], 'P1-7: a "try again" for lack of time claims nothing from the spend ceiling — module 2’s submit claims one unit per signed call, only once that call has its time', async () => {
+  fresh();
+  const derived = addressOf(64);
+  const creatorRow = store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: 64, wallet_address: derived });
+  draftOf(creatorRow.id, derived);
+  chain.set({ erc20BalanceOf: 100_000_000n, waitForReceipt: { status: 'success', logs: [giveawayCreatedLog(90n)] } });
+  const realNow = Date.now;
+  let jump = null;
+  db.on('rpc:bridge_v2_try_lock', () => {
+    if (jump !== null) Date.now = () => realNow() + jump;
+    return { data: 'holder-abc', error: null };
+  });
+  db.on('rpc:bridge_v2_release_lock', () => ({ data: true, error: null }));
+  const claims = () => db.callsTo('rpc:bridge_v2_claim_spend').filter((c) => c.args.p_provider === 'chain').map((c) => c.args.p_units);
+  const submitRoute = await import('../../../api/bridge/v2/creator/campaign/submit.ts');
+  const submit = () => submitRoute.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+  let response;
+  try {
+    jump = config.RUN_BUDGET_MS - config.CREATOR_SUBMIT_UNIT_MS + 1_000;
+    response = await submit();
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(response.status, 503);
+  assert.deepEqual(claims(), [], 'an answer for lack of time consumed the ceiling');
+  // With the time: one unit per call, as each call starts (two approvals and createGiveaway for a USDC prize).
+  jump = null;
+  response = await submit();
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.deepEqual(claims(), [1, 1, 1]);
+  assert.equal(chain.calls.filter((c) => c.name === 'submitAsDerived').length, 3);
+});
+
+await test(['P1-8'], 'P1-8: the numbers config.ts’s comment gives for the reservations are the ones it declares — the creator submit’s step first among them', () => {
+  const source = read('lib/bridge-v2/config.ts');
+  const start = source.indexOf(' * and every reservation, each strictly under the budget:');
+  const comment = source.slice(start, source.indexOf('*/', start)).replace(/\n \* /g, ' ');
+  const stated = (phrase) => {
+    const found = comment.match(new RegExp(`(\\d{1,3}(?:_\\d{3})*) for ${phrase.replace(/[()]/g, '\\$&')}`));
+    assert.ok(found, `the comment names no figure for “${phrase}”`);
+    return Number(found[1].replaceAll('_', ''));
+  };
+  const pairs = [
+    ['one step of the creator submit', config.CREATOR_SUBMIT_UNIT_MS],
+    ["a relayed submission's tail", config.RELAY_SEND_MS],
+    ['one migrated asset', config.MIGRATION_ASSET_MS],
+    ['sealing a migrated wallet', config.MIGRATION_SEAL_MS],
+    ['each right of a derived wallet', config.RIGHT_READ_MS],
+    ['advancing one', config.RECOVERY_ADVANCE_MS],
+    ['a page of the recovery scan', config.RECOVERY_SCAN_MS],
+    ['recognising one account', config.ACCOUNT_RECOGNITION_MS],
+    ['one campaign left in FUNDING', config.CAMPAIGN_RECONCILE_MS],
+    ['one unfunded draft', config.DRAFT_EXPIRY_MS],
+    ['one wallet of the seed readiness', config.READINESS_WALLET_MS],
+    ['the spend', config.SPEND_CHECK_MS],
+    ['the route errors', config.ROUTE_ERRORS_CHECK_MS],
+  ];
+  for (const [phrase, value] of pairs) assert.equal(stated(phrase), value, `the comment says ${stated(phrase)} for ${phrase}; config.ts declares ${value}`);
+  // The step's own comment counts what the value counts.
+  assert.equal(config.CREATOR_SUBMIT_STEP_MS, 2 * config.RECEIPT_TIMEOUT_MS + 6 * config.RPC_TIMEOUT_MS + 3 * config.DB_TIMEOUT_MS);
+  assert.match(source, /six RPC\s+\* stages, three database stages and two receipts/);
+});
+
+await test(['P1-10'], 'P1-10: each recovery notice claims its unit of the channel’s spend ceiling before it goes — a refused claim sends nothing, records nothing, and the next pass sends it', async () => {
+  fresh();
+  await storeTelegramChat('participant-1', 99);
+  const t0 = new Date('2026-09-18T12:00:00Z');
+  const row = confirmedRecovery(t0);
+  const request1 = { id: row.id, participantId: 'participant-1', passkeyId: 'passkey-new', status: 'CONFIRMED', startedAt: row.started_at, executeAfter: row.execute_after };
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: false, error: null }));
+  assert.equal(await recovery.sendDueNotices(request1, t0, recordingLogger()), 0);
+  assert.equal(mails().length + telegrams().length, 0, 'a notice went out past the ceiling');
+  assert.equal(store.rows('bridge_v2_recovery_notices').length, 0);
+  assert.deepEqual(db.callsTo('rpc:bridge_v2_claim_spend').map((c) => c.args.p_provider).sort(), ['email', 'telegram']);
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: true, error: null }));
+  assert.equal(await recovery.sendDueNotices(request1, t0, recordingLogger()), 2);
+  assert.equal(mails().length + telegrams().length, 2);
+  assert.equal(config.RECOVERY_ADVANCE_MS, config.RECEIPT_TIMEOUT_MS + 4 * config.RPC_TIMEOUT_MS + 2 * config.DB_TIMEOUT_MS);
+});
+
+await test(['P1-11', 'AC5'], 'P1-11: the export returns what 0012 holds about the participant — passkeys, accounts with the relay’s counts, changes of access with their notices, migrations — and the erasure removes the passkeys and the changes of access with their notices, keeps the accounts, and is refused while a change of access is alive', async () => {
+  fresh();
+  const { passkey } = await registered();
+  const [keyRow] = store.rows('bridge_v2_passkeys');
+  const account = store.rows('bridge_v2_accounts').find((r) => r.role === 'PARTICIPANT');
+  const recoveryRow = store.insert('bridge_v2_recoveries', { participant_id: 'participant-1', passkey_id: keyRow.id, status: 'FINALIZED', link_code_hash: 'code-hash', link_expires_at: new Date().toISOString(), telegram_chat_hmac: 'chat-hmac', started_at: new Date().toISOString(), execute_after: new Date().toISOString(), finalized_at: new Date().toISOString() });
+  store.insert('bridge_v2_recovery_notices', { recovery_id: recoveryRow.id, stage: 'START', channel: 'EMAIL', sent_at: new Date().toISOString() });
+  store.insert('bridge_v2_relayed_transactions', { account_id: account.id });
+  store.insert('bridge_v2_migrations', { wallet_index: 70, derived_address: addressOf(70), account_id: account.id, kind: 'PARTICIPANT', sealed_at: null });
+  // Somebody else's rows are never in it.
+  store.insert('bridge_v2_passkeys', { participant_id: 'someone-else', credential_id: 'o'.repeat(22), public_x: '1', public_y: '2', signer_address: '0x5151515151515151515151515151515151515151' });
+  const exportRoute = await import('../../../api/bridge/v2/privacy/export.ts');
+  const exported = await (await exportRoute.POST(request(url('privacy/export'), { cookie: SESSION_COOKIE }))).json();
+  const data = exported.keptraAccounts;
+  assert.deepEqual(data.passkeys.map((p) => p.credentialId), [passkey.credentialId]);
+  assert.deepEqual(data.accounts.map((a) => a.role).sort(), ['CREATOR', 'PARTICIPANT']);
+  assert.equal(data.accounts.find((a) => a.role === 'PARTICIPANT').relayedTransactions.length, 1);
+  assert.deepEqual(data.recoveries.map((r) => [r.status, r.notices.map((n) => `${n.stage}:${n.channel}`)]), [['FINALIZED', ['START:EMAIL']]]);
+  assert.deepEqual(data.migrations.map((m) => m.derivedAddress), [addressOf(70)]);
+  assert.ok(!JSON.stringify(exported).includes('chat-hmac') && !JSON.stringify(exported).includes('code-hash'), 'a keyed hash left in the export');
+
+  // A change of access alive: refused, nothing erased.
+  const eraseRoute = await import('../../../api/bridge/v2/privacy/erase.ts');
+  const live = store.insert('bridge_v2_recoveries', { participant_id: 'participant-1', passkey_id: keyRow.id, status: 'CONFIRMED', link_code_hash: 'live', link_expires_at: new Date().toISOString() });
+  const refused = await eraseRoute.POST(request(url('privacy/erase'), { cookie: SESSION_COOKIE }));
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).error, /change of access/);
+  assert.equal(store.rows('bridge_v2_passkeys').filter((p) => p.participant_id === 'participant-1').length, 1);
+  // Over: erased — passkeys, changes of access, their notices — and the accounts kept.
+  live.status = 'CANCELED';
+  const erased = await eraseRoute.POST(request(url('privacy/erase'), { cookie: SESSION_COOKIE }));
+  assert.equal(erased.status, 200, await erased.clone().text());
+  const body = await erased.json();
+  assert.deepEqual([body.passkeysErased, body.recoveriesErased], [1, 2]);
+  assert.equal(store.rows('bridge_v2_passkeys').filter((p) => p.participant_id === 'participant-1').length, 0);
+  assert.equal(store.rows('bridge_v2_recoveries').length, 0);
+  assert.equal(store.rows('bridge_v2_recovery_notices').length, 0);
+  assert.equal(store.rows('bridge_v2_accounts').length, 2, 'the accounts went with the erasure');
+  assert.equal(store.rows('bridge_v2_passkeys').length, 1, 'another participant’s passkey was erased');
+  // C5 still holds: the Telegram chat goes with the rest.
+  assert.equal(store.rows('bridge_v2_participants').find((p) => p.id === 'participant-1').telegram_chat_enc, null);
+});
+
+await test(['D-B5'], 'D-B5 (B5): module 2’s submit pays the fee in the prize token — for a prize that is not USDC it approves the prize to the module, the fee in the prize token and the slots in USDC to the core, then createGiveaway; for a USDC prize, the core’s two in one', async () => {
+  const WETH = '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1';
+  const run = async (prizeToken) => {
+    fresh();
+    const derived = addressOf(65);
+    const creatorRow = store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: 65, wallet_address: derived });
+    draftOf(creatorRow.id, derived, { prize_token: prizeToken, prize_amount: '10000000', fee_amount: '1000000', slots_cost: '2000000' });
+    chain.set({ erc20BalanceOf: 100_000_000n, waitForReceipt: { status: 'success', logs: [giveawayCreatedLog(91n)] } });
+    openLocks();
+    const submitRoute = await import('../../../api/bridge/v2/creator/campaign/submit.ts');
+    const response = await submitRoute.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+    assert.equal(response.status, 200, await response.clone().text());
+    return chain.calls.filter((c) => c.name === 'quoteApprove').map((c) => [c.args[1].toLowerCase(), c.args[2].toLowerCase(), c.args[3]]);
+  };
+  const core = config.GIVEAWAY_MANAGER_V2.toLowerCase();
+  const usdc = config.USDC.toLowerCase();
+  const module = ERC20_PRIZE_MODULE.toLowerCase();
+  assert.deepEqual(await run(WETH), [
+    [WETH.toLowerCase(), module, 10_000_000n],
+    [WETH.toLowerCase(), core, 1_000_000n],
+    [usdc, core, 2_000_000n],
+  ]);
+  assert.equal(chain.calls.filter((c) => c.name === 'submitAsDerived').length, 4);
+  assert.deepEqual(await run(config.USDC), [
+    [usdc, module, 10_000_000n],
+    [usdc, core, 3_000_000n],
+  ]);
+  assert.equal(chain.calls.filter((c) => c.name === 'submitAsDerived').length, 3);
+});
+
+await test(['D-FUNDING', 'AE7'], 'D-FUNDING (E7): module 2’s submit writes the createGiveaway hash on the draft as it is broadcast and refuses a second one; the maintenance pass settles its draft from the chain under the creator’s lock — registered if mined, released if reverted or never sent — and leaves it while the lock is held', async () => {
+  fresh();
+  const derived = addressOf(66);
+  const creatorRow = store.insert('bridge_v2_creators', { participant_id: 'participant-1', wallet_index: 66, wallet_address: derived });
+  const draft = draftOf(creatorRow.id, derived);
+  const create = `0x${'e'.repeat(64)}`;
+  let sent = 0;
+  chain.set({
+    erc20BalanceOf: 100_000_000n,
+    submitAsDerived: () => ((sent += 1) === 3 ? create : `0x${String(sent).repeat(64)}`),
+    waitForReceipt: (hash) => (hash === create ? null : { status: 'success', logs: [] }),
+  });
+  openLocks();
+  const submitRoute = await import('../../../api/bridge/v2/creator/campaign/submit.ts');
+  const submit = () => submitRoute.POST(request(url('creator/campaign/submit'), { cookie: SESSION_COOKIE }));
+  assert.equal((await submit()).status, 502);
+  assert.deepEqual([draft.status, draft.tx_hash], ['FUNDING', create], 'the hash of the createGiveaway whose receipt never came is not on the draft');
+  // A second submit would sign a second createGiveaway: refused, nothing signed.
+  const before = chain.calls.length;
+  assert.equal((await submit()).status, 409);
+  assert.equal(chain.calls.slice(before).filter((c) => c.name === 'submitAsDerived').length, 0);
+
+  const relayLib = await relayLibrary();
+  // Its lock held (a submit running): left alone.
+  db.on('rpc:bridge_v2_try_lock', (op) => ({ data: op.args.p_name.startsWith('creator-campaign:') ? null : 'holder', error: null }));
+  chain.set({ waitForReceipt: { status: 'success', logs: [giveawayCreatedLog(92n)] } });
+  assert.equal(await relayLib.reconcileRelayedCampaigns(recordingLogger(), deadline()), 0);
+  assert.equal(draft.status, 'FUNDING');
+  // Free: mined, so registered with the id its event carries.
+  openLocks();
+  assert.equal(await relayLib.reconcileRelayedCampaigns(recordingLogger(), deadline()), 1);
+  assert.deepEqual([draft.status, draft.giveaway_id], ['CONFIRMED', '92']);
+  // Reverted: released, the deposit signed for again by a retry.
+  draft.status = 'FUNDING';
+  draft.giveaway_id = null;
+  chain.set({ waitForReceipt: { status: 'reverted', logs: [] } });
+  assert.equal(await relayLib.reconcileRelayedCampaigns(recordingLogger(), deadline()), 1);
+  assert.deepEqual([draft.status, draft.tx_hash], ['PENDING_DEPOSIT', null]);
+  // No hash, and the chain shows no campaign of the wallet since the draft (F5): released.
+  draft.status = 'FUNDING';
+  draft.updated_at = new Date(Date.now() - config.RELAYED_CAMPAIGN_STALE_MS - 1_000).toISOString();
+  chain.set({ campaignsCreatedBy: [] });
+  assert.equal(await relayLib.reconcileRelayedCampaigns(recordingLogger(), deadline()), 1);
+  assert.equal(draft.status, 'PENDING_DEPOSIT');
+  assert.ok(chain.calls.some((c) => c.name === 'campaignsCreatedBy' && c.args[0].toLowerCase() === derived.toLowerCase()));
+});
+
+// ===========================================================================
 // migration 0012, executed — M3, M29, M31, and the grants
 // ===========================================================================
 
@@ -2917,3 +3330,68 @@ if (engine !== null) {
     }
   });
 }
+
+// ===========================================================================
+// migration 0015, executed — P1-3 and P1-11 (Adenda AA4)
+// ===========================================================================
+
+let lote = null;
+try {
+  lote = await createDatabase('bridge_v2_lote', { withCitext: true });
+  for (const file of ['0004_bridge_v2_schema.sql', '0005_bridge_v2_functions.sql', '0006_bridge_v2_grants.sql', '0007_bridge_v2_routes.sql', '0010_bridge_v2_outcomes.sql', '0011_campaign_identity.sql', '0012_keptra_accounts.sql', '0013_keptra_orders.sql', '0014_keptra_descriptions.sql', '0015_keptra_lote.sql', '0015_keptra_lote.sql']) {
+    const applied = await applyMigration(lote, file);
+    if (!applied.ok) throw new Error(`${file} did not apply: ${applied.at} ${applied.text}`);
+  }
+} catch (error) {
+  await test(['P1-3', 'P1-11'], 'migration 0015 applies after 0004 to 0014, twice', () => {
+    throw error;
+  });
+  lote = null;
+}
+
+if (lote !== null) {
+  const q = (text, values) => sql(lote, text, values);
+  await test(['P1-3', 'P1-11'], '0015: a draft keeps its deposit baseline (never negative, NULL on older drafts); the service may delete passkeys, changes of access and their notices — the statements eraseAccountData sends — and still nothing else of 0012', async () => {
+    const participant = (await q(`INSERT INTO bridge_v2_participants (email_canonical) VALUES ('lote@example.test') RETURNING id`)).rows[0].id;
+    const creator = (await q(`INSERT INTO bridge_v2_creators (participant_id, wallet_address) VALUES ($1, '0x1212121212121212121212121212121212121212') RETURNING id`, [participant])).rows[0].id;
+    const draft = (prize, usdc) =>
+      attempt(lote.pool, `INSERT INTO bridge_v2_creator_campaigns (creator_id, status, module, prize_token, prize_amount, duration_seconds, winners_count, slot_cap, fee_amount, slots_cost, deposit_baseline_prize, deposit_baseline_usdc) VALUES ($1, 'EXPIRED', $2, $2, 1, 3600, 1, 10, 1, 1, $3, $4)`, [creator, '0x3434343434343434343434343434343434343434', prize, usdc]);
+    assert.equal((await draft('-1', '0')).code, '23514');
+    assert.equal((await draft('5000000', '3')).ok, true);
+    assert.equal((await draft(null, null)).ok, true, 'a draft with no baseline recorded is refused');
+    const key = (await q(`INSERT INTO bridge_v2_passkeys (participant_id, credential_id, public_x, public_y, signer_address) VALUES ($1, $2, 1, 2, '0x5656565656565656565656565656565656565656') RETURNING id`, [participant, 'l'.repeat(20)])).rows[0].id;
+    const request = (await q(`INSERT INTO bridge_v2_recoveries (participant_id, passkey_id, status, link_code_hash, link_expires_at) VALUES ($1, $2, 'CANCELED', 'lote', now()) RETURNING id`, [participant, key])).rows[0].id;
+    await q(`INSERT INTO bridge_v2_recovery_notices (recovery_id, stage, channel) VALUES ($1, 'START', 'EMAIL')`, [request]);
+    const account = (await q(`INSERT INTO bridge_v2_accounts (participant_id, role, safe_address, initial_signer, guardian_address) VALUES ($1, 'PARTICIPANT', '0x7878787878787878787878787878787878787878', $2, $2) RETURNING id`, [participant, SIGNER])).rows[0].id;
+    // eraseAccountData's three statements, in its order, as the service.
+    const erased = await asRole(lote, 'service_role', async (client) => [
+      await attempt(client, `DELETE FROM bridge_v2_recovery_notices WHERE recovery_id = ANY($1::uuid[])`, [[request]]),
+      await attempt(client, `DELETE FROM bridge_v2_recoveries WHERE participant_id = $1 RETURNING id`, [participant]),
+      await attempt(client, `DELETE FROM bridge_v2_passkeys WHERE participant_id = $1 RETURNING id`, [participant]),
+    ]);
+    assert.deepEqual(erased.map((r) => r.ok), [true, true, true]);
+    assert.deepEqual(erased.slice(1).map((r) => r.rows.length), [1, 1]);
+    for (const table of ['bridge_v2_accounts', 'bridge_v2_migrations', 'bridge_v2_guardian_incidents']) {
+      const denied = await asRole(lote, 'service_role', (client) => attempt(client, `DELETE FROM ${table} WHERE false`));
+      assert.equal(denied.code, '42501', `${table} can be deleted from`);
+    }
+    assert.equal((await q(`SELECT count(*)::int AS n FROM bridge_v2_accounts WHERE id = $1`, [account])).rows[0].n, 1);
+    for (const role of ['anon', 'authenticated']) {
+      const any = await q(`SELECT count(*)::int AS n FROM information_schema.role_table_grants WHERE table_name IN ('bridge_v2_passkeys', 'bridge_v2_recoveries', 'bridge_v2_recovery_notices') AND grantee = $1`, [role]);
+      assert.equal(any.rows[0].n, 0, `${role} was given something`);
+    }
+  });
+}
+
+// The matrix of this lot for piece 1 is in the repository (owner, 23/09), names the spec version, and has a row for every pendente a test declares.
+await test([], 'AA4: the matrix of piece 1 is in this repository, declares the spec version in force (1.30) and Adenda AA, and has a row for every P1-n, D-B5 and D-FUNDING a piece-1 test declares', async () => {
+  const matrix = read('test/bridge-v2/MATRIZ-PECA1-KEPTRA.md');
+  assert.match(matrix, /Versão 1\.30/);
+  assert.ok(matrix.includes('Adenda AA'));
+  const { results } = await import('../harness.mjs');
+  const declared = new Set(results.filter((r) => r.suite === 'keptra').flatMap((r) => r.requirements).filter((tag) => /^(P1-\d+|D-B5|D-FUNDING)$/.test(tag)));
+  for (const tag of [...Array.from({ length: 11 }, (_unused, i) => `P1-${i + 1}`), 'D-B5', 'D-FUNDING']) {
+    assert.ok(declared.has(tag), `no piece-1 test declares ${tag}`);
+    assert.match(matrix, new RegExp(`^\| ${tag} \|`, 'm'), `${tag} has no row in the matrix`);
+  }
+});

@@ -66,6 +66,7 @@ import {
 } from './accounts.js';
 import { guardianAddress, signRecoveryHash } from './guardian.js';
 import { sendAsRelayer } from './relay.js';
+import { claimSpend } from './spend.js';
 import { participantEmail } from './entries.js';
 import { telegramChatOf } from './phone.js';
 import { sendRecoveryNoticeEmail } from './mail.js';
@@ -249,6 +250,11 @@ const TELEGRAM_NOTICE: Record<NoticeStage, string> = {
 /**
  * 6.3.2: every notice due for one confirmed request, each at most once per
  * channel. `now` is a parameter so the schedule can be driven by a test clock.
+ *
+ * P1-10 and B8: each notice claims its unit of the channel's spend ceiling
+ * before it is sent, like every other email and Telegram message the bridge
+ * sends. A notice the ceiling refuses is not recorded as sent, so the next pass
+ * tries it again.
  */
 export async function sendDueNotices(request: Recovery, now: Date, log: Logger): Promise<number> {
   if (request.startedAt === null || request.executeAfter === null) return 0;
@@ -259,14 +265,18 @@ export async function sendDueNotices(request: Recovery, now: Date, log: Logger):
   for (const stage of due) {
     if (!sent.has(`${stage}:EMAIL`)) {
       const email = await participantEmail(request.participantId);
-      if (email !== null && (await sendRecoveryNoticeEmail(email, stage, new Date(request.executeAfter))).sent) {
+      if (
+        email !== null &&
+        (await claimSpend('email', 1, log)) &&
+        (await sendRecoveryNoticeEmail(email, stage, new Date(request.executeAfter))).sent
+      ) {
         await recordRecoveryNotice(request.id, stage, 'EMAIL');
         count += 1;
       }
     }
     if (!sent.has(`${stage}:TELEGRAM`)) {
       const chat = await telegramChatOf(request.participantId);
-      if (chat !== null && (await sendText(chat, TELEGRAM_NOTICE[stage])).ok) {
+      if (chat !== null && (await claimSpend('telegram', 1, log)) && (await sendText(chat, TELEGRAM_NOTICE[stage])).ok) {
         await recordRecoveryNotice(request.id, stage, 'TELEGRAM');
         count += 1;
       }
