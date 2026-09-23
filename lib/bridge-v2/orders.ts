@@ -26,6 +26,7 @@ import {
   KEPTRA_GUARANTEE,
   KEPTRA_VOUCHER,
   ORACLE_PENDING_PAGE,
+  ORACLE_ROTATION_OFFSET_SECONDS,
   ORACLE_ROTATION_SECONDS,
   REGIONS_MAX,
 } from './config.js';
@@ -164,7 +165,91 @@ export async function registerAddress(participantId: string, purpose: AddressPur
   );
 }
 
-/** The oldest address a participant registered for this purpose that no order has taken yet. */
+/**
+ * P5-2: the address one relayed payment or redemption takes — the one its
+ * prepare found unbound and unclaimed — claimed for it alone before the
+ * transaction is sent. One conditional statement, so two submissions never take
+ * the same address, and a submission whose address was taken in between is
+ * refused before anything is signed: one address opens one order, and an order
+ * the relay opens always has one.
+ *
+ * A claim whose transaction was never broadcast, or reverted, is given back
+ * (releaseClaim); one whose transaction was dropped is given back by the orders
+ * pass (bindClaimedAddresses), which also binds every claim the relay did not.
+ */
+export async function claimAddress(addressId: string): Promise<boolean> {
+  const claimed = checked(
+    'order.address_claim',
+    await getDb()
+      .from('bridge_v2_order_addresses')
+      .update({ claimed_at: new Date().toISOString(), claim_tx: null })
+      .eq('id', addressId)
+      .is('order_id', null)
+      .is('claimed_at', null)
+      .select('id')
+      .abortSignal(timeout()),
+  ) as { id: string }[] | null;
+  return (claimed ?? []).length === 1;
+}
+
+/** P5-2: the relayer transaction a claim was sent in, written the moment it is broadcast (K3). */
+export async function setClaimTx(addressId: string, txHash: Hex): Promise<void> {
+  checked(
+    'order.address_claim_tx',
+    await getDb().from('bridge_v2_order_addresses').update({ claim_tx: txHash.toLowerCase() }).eq('id', addressId).is('order_id', null).abortSignal(timeout()),
+  );
+}
+
+/** P5-2: a claim whose transaction opened nothing goes back to the participant. */
+export async function releaseClaim(addressId: string): Promise<void> {
+  checked(
+    'order.address_release',
+    await getDb().from('bridge_v2_order_addresses').update({ claimed_at: null, claim_tx: null }).eq('id', addressId).is('order_id', null).abortSignal(timeout()),
+  );
+}
+
+/** P5-2: the claims whose transaction was sent and whose order is not bound yet — the receipts the relay did not see. */
+export async function claimsAwaitingBind(limit: number): Promise<Array<{ id: string; claimTx: Hex; claimedAt: string }>> {
+  const rows = checked(
+    'order.address_claims',
+    await getDb()
+      .from('bridge_v2_order_addresses')
+      .select('id, claim_tx, claimed_at')
+      .is('order_id', null)
+      .not('claim_tx', 'is', null)
+      .order('claimed_at', { ascending: true })
+      .limit(limit)
+      .abortSignal(timeout()),
+  ) as { id: string; claim_tx: string; claimed_at: string }[] | null;
+  return (rows ?? []).map((row) => ({ id: row.id, claimTx: row.claim_tx as Hex, claimedAt: row.claimed_at }));
+}
+
+/**
+ * P5-2: whether a claim of this participant for this purpose is still waiting
+ * for its order — the pass then leaves the binding to the claim's own receipt.
+ */
+export async function hasPendingClaim(participantId: string, purpose: AddressPurpose): Promise<boolean> {
+  const [column, id] = purposeColumn(purpose);
+  const rows = checked(
+    'order.address_pending_claim',
+    await getDb()
+      .from('bridge_v2_order_addresses')
+      .select('id')
+      .eq('participant_id', participantId)
+      .eq(column, id)
+      .is('order_id', null)
+      .not('claimed_at', 'is', null)
+      .limit(1)
+      .abortSignal(timeout()),
+  ) as { id: string }[] | null;
+  return (rows ?? []).length > 0;
+}
+
+/**
+ * The oldest address a participant registered for this purpose that no order has
+ * taken yet, and — P5-2 — that no submission has claimed: what a new payment can
+ * still be prepared with, and what an order opened outside the relay may take.
+ */
 export async function unboundAddress(participantId: string, purpose: AddressPurpose): Promise<{ id: string } | null> {
   const [column, id] = purposeColumn(purpose);
   const rows = checked(
@@ -175,6 +260,7 @@ export async function unboundAddress(participantId: string, purpose: AddressPurp
       .eq('participant_id', participantId)
       .eq(column, id)
       .is('order_id', null)
+      .is('claimed_at', null)
       .order('created_at', { ascending: true })
       .limit(1)
       .abortSignal(timeout()),
@@ -255,6 +341,8 @@ export interface OrderRow {
   readonly seenBlock: bigint;
   readonly outcome: number | null;
   readonly closedAt: string | null;
+  /** P5-4: when the pass last wrote the row — the least recently synced go first. */
+  readonly syncedAt?: string | null;
 }
 
 interface OrderDbRow {
@@ -276,10 +364,11 @@ interface OrderDbRow {
   seen_block: number | string;
   outcome: number | null;
   closed_at: string | null;
+  updated_at?: string | null;
 }
 
 const ORDER_COLUMNS =
-  'order_id, terms_id, voucher_id, store_address, payer_address, mode, prize, ship_days, delivery_days, state, flags, paid_at, shipped_at, window_ends_at, contested_at, seen_block, outcome, closed_at';
+  'order_id, terms_id, voucher_id, store_address, payer_address, mode, prize, ship_days, delivery_days, state, flags, paid_at, shipped_at, window_ends_at, contested_at, seen_block, outcome, closed_at, updated_at';
 
 const big = (value: number | string | null | undefined): bigint => BigInt(String(value ?? 0));
 
@@ -303,6 +392,7 @@ function toOrderRow(row: OrderDbRow): OrderRow {
     seenBlock: big(row.seen_block),
     outcome: row.outcome ?? null,
     closedAt: row.closed_at ?? null,
+    syncedAt: row.updated_at ?? null,
   };
 }
 
@@ -371,19 +461,80 @@ async function selectOrders(operation: string, filters: readonly OrderFilter[]):
   return (rows ?? []).map(toOrderRow);
 }
 
+/** P5-4: rows per page of the open orders read. */
+const OPEN_ORDERS_PAGE = 500;
+
 /**
- * Every order the pass still has work on, oldest first: not in its final state,
- * or in it with the close not yet recorded (Adenda R1). closed_at is written
- * last, once the erasure date is set and the mark settled, so a close cut short
- * by a failure is read again and finished by a later pass.
+ * Every order the pass still has work on: not in its final state, or in it with
+ * the close not yet recorded (Adenda R1). closed_at is written last, once the
+ * erasure date is set and the mark settled, so a close cut short by a failure is
+ * read again and finished by a later pass.
+ *
+ * P5-4: all of them, whatever their number — a page at a time by id, until a page
+ * comes back empty, so no cap on the rows one answer holds leaves any unread —
+ * and the least recently synced first, so a pass the clock cuts short leaves the
+ * rest at the front of the next one.
  */
-export function openOrders(): Promise<OrderRow[]> {
-  return selectOrders('order.open', [['is', 'closed_at', null]]);
+export async function openOrders(): Promise<OrderRow[]> {
+  const all: OrderRow[] = [];
+  let after = '0';
+  for (;;) {
+    const rows = checked(
+      'order.open',
+      await getDb()
+        .from('bridge_v2_orders')
+        .select(ORDER_COLUMNS)
+        .is('closed_at', null)
+        .gt('order_id', after)
+        .order('order_id', { ascending: true })
+        .limit(OPEN_ORDERS_PAGE)
+        .abortSignal(timeout()),
+    ) as OrderDbRow[] | null;
+    if (rows === null || rows.length === 0) break;
+    all.push(...rows.map(toOrderRow));
+    after = String(rows[rows.length - 1].order_id);
+  }
+  return all.sort((a, b) => (a.syncedAt ?? '').localeCompare(b.syncedAt ?? '') || (a.orderId < b.orderId ? -1 : 1));
 }
 
 export async function orderRow(orderId: bigint): Promise<OrderRow | null> {
   const [row] = await selectOrders('order.one', [['eq', 'order_id', orderId.toString()]]);
   return row ?? null;
+}
+
+/**
+ * P5-12: a new order that cannot be read or written down is kept here, apart,
+ * with how many passes tried it — so the discovery of the orders after it goes
+ * on, and it is read again every pass until it can be.
+ */
+export async function recordUnreadOrder(orderId: bigint): Promise<number> {
+  const existing = checkedMaybe(
+    'order.unread_read',
+    await getDb().from('bridge_v2_order_unread').select('attempts').eq('order_id', orderId.toString()).abortSignal(timeout()).maybeSingle(),
+  ) as { attempts: number } | null;
+  const attempts = (existing?.attempts ?? 0) + 1;
+  checked(
+    'order.unread_record',
+    await getDb()
+      .from('bridge_v2_order_unread')
+      .upsert({ order_id: orderId.toString(), attempts, last_failed_at: new Date().toISOString() }, { onConflict: 'order_id' })
+      .abortSignal(timeout()),
+  );
+  return attempts;
+}
+
+/** P5-12: the orders read aside, to be read again. */
+export async function unreadOrderIds(): Promise<bigint[]> {
+  const rows = checked(
+    'order.unread',
+    await getDb().from('bridge_v2_order_unread').select('order_id').order('order_id', { ascending: true }).abortSignal(timeout()),
+  ) as { order_id: number | string }[] | null;
+  return (rows ?? []).map((row) => big(row.order_id));
+}
+
+/** P5-12: read at last, it leaves the list. */
+export async function clearUnreadOrder(orderId: bigint): Promise<void> {
+  checked('order.unread_clear', await getDb().from('bridge_v2_order_unread').delete().eq('order_id', orderId.toString()).abortSignal(timeout()));
 }
 
 /** The highest order id this side has seen, or zero. */
@@ -547,7 +698,27 @@ export async function setTracker(orderId: bigint, trackerId: string): Promise<vo
   );
 }
 
-/** 9.5.5: shipments the provider has not taken yet, oldest first, with the number to send again. */
+/**
+ * P5-3: a shipment leaves the queue of retries for good — the provider refused it
+ * for what it is (REFUSED), or its order reached its final state (CLOSED).
+ */
+export async function stopTrackerRetry(orderId: bigint, reason: 'REFUSED' | 'CLOSED'): Promise<void> {
+  checked(
+    'order.tracker_stop',
+    await getDb()
+      .from('bridge_v2_order_shipments')
+      .update({ retry_stopped_at: new Date().toISOString(), retry_stop_reason: reason, updated_at: new Date().toISOString() })
+      .eq('order_id', orderId.toString())
+      .is('tracker_id', null)
+      .is('retry_stopped_at', null)
+      .abortSignal(timeout()),
+  );
+}
+
+/**
+ * 9.5.5: shipments the provider has not taken yet, oldest first, with the number
+ * to send again. P5-3: never one whose retries stopped.
+ */
 export async function shipmentsWithoutTracker(limit: number): Promise<Array<Shipment & { trackingNumber: string | null }>> {
   const rows = checked(
     'order.shipment_untracked',
@@ -555,6 +726,7 @@ export async function shipmentsWithoutTracker(limit: number): Promise<Array<Ship
       .from('bridge_v2_order_shipments')
       .select('order_id, tracking_hash, tracking_enc, tracker_id')
       .is('tracker_id', null)
+      .is('retry_stopped_at', null)
       .order('created_at', { ascending: true })
       .limit(limit)
       .abortSignal(timeout()),
@@ -572,10 +744,16 @@ export async function shipmentsWithoutTracker(limit: number): Promise<Array<Ship
  * yet (the oracle's stillWorthAttesting); with a tracker and an address — as
  * {orderId, trackerId, postCode}.
  *
+ * B8 (X10, Y5): an order in a window the store's declaration opened stays on the
+ * list until that window ends — the carrier's refusal still counts there (the
+ * escrow of 5d85a46, _refusableWindow) — and leaves it at the end, when neither a
+ * refusal nor anything else the oracle says changes it any more.
+ *
  * At most ORACLE_PENDING_PAGE of them, rotated by the workflow's schedule slot:
  * the oracle takes the first 13 it is given, and the same 13 every time would
  * leave the rest unasked for ever. Within one slot the answer is the same for
- * every node of the DON, which the identical-aggregation consensus needs.
+ * every node of the DON, which the identical-aggregation consensus needs; P5-10
+ * puts the slot's turn half a slot away from the workflow's firing.
  * ponytail: an order that changes state inside a slot changes the body for the
  * nodes that ask after it; that run of the oracle does nothing and the next one
  * reads the new list.
@@ -586,7 +764,11 @@ export async function oraclePending(nowSeconds: number): Promise<Array<{ orderId
       ['eq', 'mode', OrderMode.CARRIER],
       ['in', 'state', [OrderState.SHIPPED, OrderState.WINDOW]],
     ])
-  ).filter((row) => row.state === OrderState.SHIPPED || (row.flags & (OrderFlag.PROOF | OrderFlag.REFUSAL)) === 0);
+  ).filter(
+    (row) =>
+      row.state === OrderState.SHIPPED ||
+      ((row.flags & (OrderFlag.PROOF | OrderFlag.REFUSAL)) === 0 && BigInt(Math.floor(nowSeconds)) <= row.windowEndsAt),
+  );
   if (rows.length === 0) return [];
 
   const ids = rows.map((row) => row.orderId.toString());
@@ -606,7 +788,7 @@ export async function oraclePending(nowSeconds: number): Promise<Array<{ orderId
 
   let chosen = candidates;
   if (candidates.length > ORACLE_PENDING_PAGE) {
-    const slot = Math.floor(nowSeconds / ORACLE_ROTATION_SECONDS);
+    const slot = rotationSlot(nowSeconds);
     const start = (slot * ORACLE_PENDING_PAGE) % candidates.length;
     chosen = Array.from({ length: ORACLE_PENDING_PAGE }, (_unused, i) => candidates[(start + i) % candidates.length]);
     chosen.sort((a, b) => (a.orderId < b.orderId ? -1 : 1));
@@ -619,6 +801,11 @@ export async function oraclePending(nowSeconds: number): Promise<Array<{ orderId
     out.push({ orderId: row.orderId.toString(), trackerId: trackerOf.get(row.orderId.toString()) as string, postCode: address.postCode });
   }
   return out;
+}
+
+/** P5-10: the rotation's slot at `nowSeconds`, turning half a slot after the oracle fires. */
+export function rotationSlot(nowSeconds: number): number {
+  return Math.floor((nowSeconds - ORACLE_ROTATION_OFFSET_SECONDS) / ORACLE_ROTATION_SECONDS);
 }
 
 // -----------------------------------------------------------------------------
@@ -636,6 +823,37 @@ export async function writeEvidence(orderId: bigint, party: EvidenceParty, body:
   if (error === null) return true;
   if ((error as { code?: string }).code === '23505') return false;
   return checked('order.evidence_insert', { data: null, error }) as never;
+}
+
+/**
+ * P5-7 and D7: the texts a participant wrote as a party — as the recipient of the
+ * orders its participant account paid or redeemed, and as the store of the orders
+ * its creator account sells — decrypted, for the export. Never the other party's.
+ */
+export async function evidenceWrittenBy(
+  recipient: `0x${string}` | null,
+  store: `0x${string}` | null,
+): Promise<Array<{ orderId: string; party: EvidenceParty; text: string | null }>> {
+  const out: Array<{ orderId: string; party: EvidenceParty; text: string | null }> = [];
+  for (const [party, orders] of [
+    ['RECIPIENT', recipient === null ? [] : await ordersOfPayer(recipient)],
+    ['STORE', store === null ? [] : await ordersOfStore(store)],
+  ] as const) {
+    if (orders.length === 0) continue;
+    const rows = checked(
+      'order.evidence_export',
+      await getDb()
+        .from('bridge_v2_order_evidence')
+        .select('order_id, text_enc')
+        .eq('party', party)
+        .in('order_id', orders.map((row) => row.orderId.toString()))
+        .abortSignal(timeout()),
+    ) as { order_id: number | string; text_enc: string }[] | null;
+    for (const row of rows ?? []) {
+      out.push({ orderId: String(row.order_id), party, text: await decryptUnder(ROOT, EVIDENCE_LABEL, row.text_enc) });
+    }
+  }
+  return out;
 }
 
 /** P17: both texts of a contest, decrypted, for the two parties and the arbiter. */
@@ -657,16 +875,27 @@ export async function evidenceOf(orderId: bigint): Promise<{ recipient: string |
 // notices — 8.3, P4, P22
 // -----------------------------------------------------------------------------
 
-export type OrderNoticeKind = 'WINDOW_OPENED' | 'WINDOW_CLOSING' | 'STORE_ORDER' | 'ARBITER_CONTEST';
+/** Y5 adds WINDOW_REFUSED: a declared window the carrier's refusal closed before its end. */
+export type OrderNoticeKind = 'WINDOW_OPENED' | 'WINDOW_CLOSING' | 'STORE_ORDER' | 'ARBITER_CONTEST' | 'WINDOW_REFUSED';
+
+/** P5-4: order ids per read of the notices sent, so a long list of orders stays one short request each. */
+const NOTICE_READ_CHUNK = 200;
 
 /** The notices already sent for these orders, as "orderId:KIND". */
 export async function sentOrderNotices(orderIds: readonly bigint[]): Promise<Set<string>> {
-  if (orderIds.length === 0) return new Set();
-  const rows = checked(
-    'order.notices_sent',
-    await getDb().from('bridge_v2_order_notices').select('order_id, kind').in('order_id', orderIds.map(String)).abortSignal(timeout()),
-  ) as { order_id: number | string; kind: string }[] | null;
-  return new Set((rows ?? []).map((row) => `${row.order_id}:${row.kind}`));
+  const sent = new Set<string>();
+  for (let start = 0; start < orderIds.length; start += NOTICE_READ_CHUNK) {
+    const rows = checked(
+      'order.notices_sent',
+      await getDb()
+        .from('bridge_v2_order_notices')
+        .select('order_id, kind')
+        .in('order_id', orderIds.slice(start, start + NOTICE_READ_CHUNK).map(String))
+        .abortSignal(timeout()),
+    ) as { order_id: number | string; kind: string }[] | null;
+    for (const row of rows ?? []) sent.add(`${row.order_id}:${row.kind}`);
+  }
+  return sent;
 }
 
 /** Recorded after the send succeeded: a duplicate beats a lost notice, as the recovery notices have it. */

@@ -3381,6 +3381,40 @@ if (lote !== null) {
       assert.equal(any.rows[0].n, 0, `${role} was given something`);
     }
   });
+
+  await test(['P5-2', 'P5-3', 'P5-12', 'AA-Y5'], '0015 for piece 5: one transaction claims one address and never one without a claim; a stopped retry says why; the orders read aside are the service’s to write, read and clear, and closed to the browser; WINDOW_REFUSED is a notice kind', async () => {
+    const participant = (await q(`INSERT INTO bridge_v2_participants (email_canonical) VALUES ('lote5@example.test') RETURNING id`)).rows[0].id;
+    const address = (tx, claimed) =>
+      attempt(lote.pool, `INSERT INTO bridge_v2_order_addresses (participant_id, terms_id, address_enc, claimed_at, claim_tx) VALUES ($1, 1, 'v1.a.b', $2, $3)`, [participant, claimed, tx]);
+    const tx = `0x${'ab'.repeat(32)}`;
+    assert.equal((await address(null, null)).ok, true, 'an unclaimed address is refused');
+    assert.equal((await address(tx, null)).code, '23514', 'a transaction with no claim');
+    assert.equal((await address(tx.toUpperCase().replace('0X', '0x'), new Date().toISOString())).code, '23514', 'a hash not in lower-case hex');
+    assert.equal((await address(tx, new Date().toISOString())).ok, true);
+    assert.equal((await address(tx, new Date().toISOString())).code, '23505', 'one transaction claimed two addresses');
+    const stop = (id, reason, at) =>
+      attempt(lote.pool, `INSERT INTO bridge_v2_order_shipments (order_id, tracking_hash, tracking_enc, retry_stopped_at, retry_stop_reason) VALUES ($1, $2, 'v1.a.b', $3, $4)`, [id, `0x${String(id).padStart(64, '0')}`, at, reason]);
+    assert.equal((await stop(1, 'REFUSED', new Date().toISOString())).ok, true);
+    assert.equal((await stop(2, 'CLOSED', new Date().toISOString())).ok, true);
+    assert.equal((await stop(3, 'LOST', new Date().toISOString())).code, '23514');
+    assert.equal((await stop(4, 'REFUSED', null)).code, '23514', 'a reason with no moment');
+    assert.equal((await stop(5, null, null)).ok, true);
+    const aside = await asRole(lote, 'service_role', async (client) => [
+      await attempt(client, `INSERT INTO bridge_v2_order_unread (order_id, attempts) VALUES (9, 1) ON CONFLICT (order_id) DO UPDATE SET attempts = 2`),
+      await attempt(client, `INSERT INTO bridge_v2_order_unread (order_id, attempts) VALUES (9, 1) ON CONFLICT (order_id) DO UPDATE SET attempts = 2`),
+      await attempt(client, `SELECT attempts FROM bridge_v2_order_unread WHERE order_id = 9`),
+      await attempt(client, `DELETE FROM bridge_v2_order_unread WHERE order_id = 9 RETURNING order_id`),
+    ]);
+    assert.deepEqual(aside.map((r) => r.ok), [true, true, true, true]);
+    assert.equal(aside[2].rows[0].attempts, 2);
+    for (const role of ['anon', 'authenticated']) {
+      const any = await q(`SELECT count(*)::int AS n FROM information_schema.role_table_grants WHERE table_name = 'bridge_v2_order_unread' AND grantee = $1`, [role]);
+      assert.equal(any.rows[0].n, 0);
+    }
+    assert.equal((await q(`SELECT relrowsecurity FROM pg_class WHERE relname = 'bridge_v2_order_unread'`)).rows[0].relrowsecurity, true);
+    assert.equal((await attempt(lote.pool, `INSERT INTO bridge_v2_order_notices (order_id, kind) VALUES (1, 'WINDOW_REFUSED')`)).ok, true);
+    assert.equal((await attempt(lote.pool, `INSERT INTO bridge_v2_order_notices (order_id, kind) VALUES (1, 'SOMETHING_ELSE')`)).code, '23514');
+  });
 }
 
 // The matrix of this lot for piece 1 is in the repository (owner, 23/09), names the spec version, and has a row for every pendente a test declares.

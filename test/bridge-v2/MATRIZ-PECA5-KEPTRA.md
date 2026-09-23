@@ -1,10 +1,10 @@
 # Matriz da peça 5 — os fluxos da bridge
 
-Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.19 — 21/09/2026** (Adenda R).
-Cobre a secção 17, ponto 5, a O4 da Adenda O, e as **Adendas P, Q e R**.
+Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.30 — 23/09/2026** (Adenda AA). A construção foi verificada contra a 1.19 (Adenda R); o lote antes do deploy, contra a 1.30.
+Cobre a secção 17, ponto 5, a O4 da Adenda O, as **Adendas P, Q e R**, e o que a **AA4 da Adenda AA** lista para a peça 5: P5-1 a P5-14, B8, Y5 e, com os contratos, T18 e Q7.
 
 Código: este repositório, ramo `feat/keptra-bridge`. A construção está em `d0f49c2`. A correcção da Adenda R está no commit que traz esta matriz.
-Contratos das peças 2 e 3: commit `183a2b4`. O bytecode de criação está em `test/bridge-v2/fork/keptra-183a2b4.json`, e o hash do escrow é o que a peça 4 fixou.
+Contratos das peças 2 e 3: commit `5d85a46` (Z1, o lote dos contratos). O bytecode de criação e a ABI estão em `test/bridge-v2/fork/keptra-5d85a46.json`; o hash do escrow é o da Z1, o que a peça 4 fixa em `df37231`. (Até ao lote era o `183a2b4`, Q7.)
 
 **Nomes.**
 - **Qn** são os requisitos da peça, levantados na Fase A. Os testes usam estes números como etiqueta.
@@ -17,7 +17,7 @@ Cada teste declara as suas etiquetas, e o mapa de requisitos de `test/bridge-v2/
 
 **Suites.**
 - **`orders`** (`test/bridge-v2/suites/orders.test.mjs`): a cadeia está em duplo, a base de dados em memória, e a migration 0013 corre num Postgres embebido.
-- **`fork-orders`** (`test/bridge-v2/fork/orders.fork.mjs`): um fork local de Arbitrum One, com os contratos de 183a2b4, a USDC, a Safe e o GiveawayManagerV2 reais.
+- **`fork-orders`** (`test/bridge-v2/fork/orders.fork.mjs`): um fork local de Arbitrum One, com os contratos de 5d85a46, a USDC, a Safe e o GiveawayManagerV2 reais.
 
 **Ficheiros e linhas.** As referências `ficheiro:linha` são do commit que traz esta matriz. Os caminhos curtos querem dizer:
 - `orders.ts`, `keptraOrders.ts`, `escrowChain.ts`, `config.ts`, `relay.ts`, `chain.ts`, `abi.ts`, `ship24.ts`, `mail.ts` e `log.ts`: estão em `lib/bridge-v2/`;
@@ -142,7 +142,7 @@ Cada teste declara as suas etiquetas, e o mapa de requisitos de `test/bridge-v2/
 | AQ4 | A loja ou a marca é avisada em toda a encomenda que abre, por pagamento ou por resgate | `keptraOrders.ts:418` (`STORE_ORDER` em PAID) | `orders`: "P3: every order notice… the brand is told on a redemption too" | passa |
 | AQ5 | As nove decisões da construção (ver abaixo) | Ver abaixo | `orders`: os testes AQ5 | passam |
 | AQ6 | As migrations 0012 e 0013 são aplicadas por esta ordem antes do deploy | Tarefa do owner. O motor da suite aplica 0004 a 0013, duas vezes | `orders`: os testes do motor Q28 | É um passo do owner, não código |
-| AQ7 | Depois do lote, o código de criação dos testes de fork é gerado outra vez | Tarefa do owner | — | É um passo do owner, não código |
+| AQ7 | Depois do lote, o código de criação dos testes de fork é gerado outra vez | `test/bridge-v2/fork/keptra-5d85a46.json` (gerado de 5d85a46 no lote AA4) | `fork-orders`: "fork (Q7, Z1): pieces 2 and 3 run from the creation code of 5d85a46…" (etiqueta `AA-Q7`) | passa (lote AA4) |
 
 As nove decisões da AQ5:
 
@@ -204,3 +204,29 @@ Juntam-se a G3, J6, K2 e O2:
 - `ANVIL_BIN=<caminho do anvil.exe> npm run test:bridge-v2`
   - Corre todas as suites e o fork, e imprime o mapa de requisitos.
   - O código de saída só é diferente de zero quando falha um teste fora das três falhas de base declaradas (I5, J2 e G4).
+
+## 8. Adenda AA — o lote antes do deploy (AA4)
+
+Perguntas ao owner nesta sessão: nenhuma sobre a peça 5 (as três da sessão estão na matriz da peça 1). A etiqueta dos pendentes é o seu nome; B8, Y5, Q7 e T18 levam o prefixo `AA-` (os nomes nus já são de outras linhas).
+
+| # | Pendente | Onde está | Teste | Resultado |
+|---|---|---|---|---|
+| P5-1 | Um fecho entre as duas leituras do passe nunca deixa a marca por resolver | `keptraOrders.ts:650` (o bloco mais recente, lido depois das encomendas, é o limite da busca); `escrowChain.ts:111` | `orders`: "P5-1: a close that lands between the pass’s two reads…" (`orders.test.mjs:1558`) | passa |
+| P5-2 | Uma morada não abre duas encomendas; uma encomenda paga tem sempre morada | `orders.ts:180` (reclamação exclusiva, uma escrita condicional); `relay.ts:1169` (reclamada antes do envio, devolvida sem envio ou com revert, ligada pelo recibo); `keptraOrders.ts:355` (a passagem liga pelo recibo da própria reclamação) e `:335` (fora da relay, só uma morada não reclamada); `0015:48` | `orders`: "P5-2: one address opens one order…" (`:1589`); "P5-2: the orders pass settles every claim…" (`:1623`); "Q14 and P5-2…" (`:893`); `keptra`: "0015 for piece 5…" | passam |
+| P5-3 | Um envio recusado de forma permanente sai da fila; as encomendas fechadas nunca entram nela | `ship24.ts:32` (400, 404, 422 = recusa); `orders.ts:719`; `keptraOrders.ts:753`; o fecho pára as novas tentativas (`keptraOrders.ts`, `closeOne`); `0015:63` | `orders`: "P5-3: a shipment the provider refuses for what it is…" (`:1654`) | passa |
+| P5-4 | O passe processa todas as encomendas abertas, qualquer que seja o número | `orders.ts:492` (o índice lido por páginas, a menos recente primeiro); `keptraOrders.ts:201` (páginas alternadas entre conhecidas e novas); `orders.ts:896` (avisos lidos em blocos) | `orders`: "P5-4: the pass reads every open order whatever their number…" (`:1688`) | passa |
+| P5-5 | O pior caso da rota de processamento é medido e declarado por item | `config.ts:752` (`ORDER_SYNC_MS`) e `:787` (`VOUCHER_CHECK_MS`); `keptraOrders.ts:230` e `:530` | `orders`: "P5-5: the processing route’s worst case is declared per item…" (`:1716`) | passa |
+| P5-6 | O teste da P13 conta os locais onde a bridge assina | o próprio teste: percorre `lib/bridge-v2` e `api` e lê as formas das funções que assinam | `orders`: "P5-6 (P13): the places the bridge signs are counted in its own source…" (`:1737`) | passa |
+| P5-7 | A exportação inclui as evidências escritas pelo próprio participante | `orders.ts:847`; `api/bridge/v2/privacy/export.ts:73` | `orders`: "P5-7 (D7): the export carries the evidence the participant wrote…" (`:1783`) | passa |
+| P5-8 | A documentação da migration diz com que etiqueta é cifrado o número de tracking | `supabase/migrations/0013_keptra_orders.sql:15` e a linha do `tracking_enc` (`order-address-enc-v1`) | `orders`: "P5-8: migration 0013 says with which label…" (`:1799`) | passa |
+| P5-9 | Os títulos dizem o que o teste demonstra; nenhum teste lê ficheiros de outro repositório | `test/bridge-v2/giveaway-core.json` (cópia do núcleo); `contracts.test.mjs:55`; `orders.test.mjs` (a typehash e o domínio lidos da fixture de 5d85a46); títulos revistos: Q9 (B8), B4 (P5-10), Q14 (P5-2), R2 (P5-12), P13 (P5-6), F1 (P1-4), E7 (D-FUNDING), F2 e KM34 (P1-9) | `orders`: "P5-9: no test reads a file of another repository…" (`:1811`) | passa |
+| P5-10 | As janelas de rotação da lista do oráculo não coincidem com o disparo do oráculo | `config.ts:721` (meia janela de desvio); `orders.ts:821` | `orders`: "P5-10: the rotation of the oracle’s list turns half a slot away…" (`:1822`); "B4…" (`:629`) | passam |
+| P5-11 | A reserva de um fecho cobre todo o trabalho depois da última leitura do registo | `config.ts:766` (o que falta ao fecho) e `:777` | `orders`: "P5-11: a further read of the log reserves the whole rest of the close…" (`:1833`) | passa |
+| P5-12 | Uma encomenda nova que falhe sempre não impede a descoberta das seguintes; fica à parte, com alerta | `keptraOrders.ts:251` (página lida uma a uma quando falha) e `:284`; `orders.ts:524`; `0015:75` | `orders`: "R2 (B1) and P5-12…" (`:1430`); `keptra`: "0015 for piece 5…" | passam |
+| P5-13 | Um bloco actual anterior ao guardado nunca conta como fecho sem resultado | `keptraOrders.ts:678` | `orders`: "P5-13: a node answering with a block before…" (`:1575`) | passa |
+| P5-14 | Nenhum teste passa ou falha por acaso; o código postal em claro não coincide com um identificador aleatório | `orders.test.mjs` (`ADDRESS` com espaços em todos os valores; o número de tracking verificado campo a campo e pela decifra) | `orders`: "10.2 and P19… (P5-14)" (`:301`); "P5-14: what is searched for “in clear” can never be matched by chance…" (`:1844`) | passam |
+| AA-B8 | A bridge mantém na lista do oráculo uma encomenda numa janela aberta por declaração, até ao fim dessa janela (X10, Y5) | `orders.ts:761` e `:784` | `orders`: "N7 and B5, B6, B7… (B8)" (`:611`); `fork-orders`: "B8 and Y5 on the fork, against the escrow of 5d85a46 (X10)…" (`orders.fork.mjs:492`) | passam |
+| AA-Y5 | Os avisos tratam uma janela declarada que fecha por recusa do oráculo antes do fim | `keptraOrders.ts:709` e `:719` (o fecho só é gravado depois de avisado); `mail.ts:410`; `0015:90` | `orders`: "Y5 (X10)…" (`:1860`); `fork-orders`: "B8 and Y5 on the fork…" | passam |
+| AA-Q7 | O código de criação dos testes de fork passa a ser o de 5d85a46 | `test/bridge-v2/fork/keptra-5d85a46.json` | `fork-orders`: "fork (Q7, Z1)…"; `fork-orders`: "B8 and Y5 on the fork…" | passam |
+
+O que muda para o owner antes do deploy: a migration `0015_keptra_lote.sql` também traz a parte da peça 5; `vercel.json` passa `store/tracking` a 158 s.

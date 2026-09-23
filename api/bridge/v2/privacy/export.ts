@@ -4,7 +4,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { checked, checkedMaybe, getDb } from '../../../../lib/bridge-v2/db.js';
 import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
-import { addressesOf } from '../../../../lib/bridge-v2/orders.js';
+import { addressesOf, evidenceWrittenBy } from '../../../../lib/bridge-v2/orders.js';
 import { accountDataOf } from '../../../../lib/bridge-v2/accounts.js';
 
 /**
@@ -70,6 +70,11 @@ const route = handle('privacy/export', async ({ request, log }) => {
   const addresses = await addressesOf(session.participantId);
   // SPEC-BLOCO-03 P1-11: what migration 0012 holds about the participant.
   const keptraAccounts = await accountDataOf(session.participantId);
+  // SPEC-BLOCO-03 P5-7: the evidence the participant wrote — as the recipient
+  // (its participant account) and as the store (its creator account) — decrypted.
+  // Never the other party's text.
+  const accountOf = (role: string) => keptraAccounts.accounts.find((account) => account.role === role)?.address ?? null;
+  const evidence = await evidenceWrittenBy(accountOf('PARTICIPANT') as `0x${string}` | null, accountOf('CREATOR') as `0x${string}` | null);
 
   await log.event('route.ok');
   return ok({
@@ -81,6 +86,7 @@ const route = handle('privacy/export', async ({ request, log }) => {
     entries: Array.isArray(entries) ? entries : [],
     deliveryAddresses: addresses,
     keptraAccounts,
+    evidence,
     // Stated rather than omitted, so the export is honest about what exists.
     notIncluded: {
       phoneNumber: 'never stored; only a non-reversible keyed hash is held (C5)',

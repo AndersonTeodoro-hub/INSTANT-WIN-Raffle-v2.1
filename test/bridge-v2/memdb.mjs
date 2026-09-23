@@ -19,6 +19,22 @@ import { randomUUID } from 'node:crypto';
 const get = (row, path) => path.split('.').reduce((value, key) => (value == null ? undefined : value[key]), row);
 const same = (a, b) => (a === null || a === undefined ? b === null : String(a).toLowerCase() === String(b).toLowerCase());
 
+/**
+ * Ordering as Postgres has it for the columns the Keptra tables hold: a bigint or
+ * numeric column compares as a number (P5-4 pages the orders by order_id past
+ * 9, where '10' < '9' as text), anything else — a timestamp, a uuid — as text.
+ */
+const INTEGER = /^-?\d+$/;
+function compare(a, b) {
+  if ((typeof a === 'bigint' || typeof a === 'number' || (typeof a === 'string' && INTEGER.test(a))) &&
+      (typeof b === 'bigint' || typeof b === 'number' || (typeof b === 'string' && INTEGER.test(b)))) {
+    const x = BigInt(a);
+    const y = BigInt(b);
+    return x > y ? 1 : x < y ? -1 : 0;
+  }
+  return a > b ? 1 : a < b ? -1 : 0;
+}
+
 function matches(row, filter) {
   const [kind, column] = filter;
   const value = get(row, column);
@@ -34,13 +50,13 @@ function matches(row, filter) {
     case 'in':
       return filter[2].some((item) => same(value, item));
     case 'gt':
-      return value !== undefined && value !== null && value > filter[2];
+      return value !== undefined && value !== null && compare(value, filter[2]) > 0;
     case 'lt':
-      return value !== undefined && value !== null && value < filter[2];
+      return value !== undefined && value !== null && compare(value, filter[2]) < 0;
     case 'gte':
-      return value !== undefined && value !== null && value >= filter[2];
+      return value !== undefined && value !== null && compare(value, filter[2]) >= 0;
     case 'lte':
-      return value !== undefined && value !== null && value <= filter[2];
+      return value !== undefined && value !== null && compare(value, filter[2]) <= 0;
     default:
       return true;
   }
@@ -57,7 +73,7 @@ export function memdb(db, tables, unique = {}) {
     let rows = data.get(table).filter((row) => op.filters.every((filter) => matches(row, filter)));
     for (const [column, options] of [...op.order].reverse()) {
       const direction = options?.ascending === false ? -1 : 1;
-      rows = [...rows].sort((a, b) => (get(a, column) > get(b, column) ? direction : get(a, column) < get(b, column) ? -direction : 0));
+      rows = [...rows].sort((a, b) => direction * compare(get(a, column), get(b, column)));
     }
     if (op.limit !== undefined) rows = rows.slice(0, op.limit);
     return rows;
@@ -176,6 +192,8 @@ export const KEPTRA_TABLES = [
   'bridge_v2_finished_vouchers',
   // SPEC-BLOCO-03 piece 6, migration 0014 (T4).
   'bridge_v2_offer_descriptions',
+  // SPEC-BLOCO-03 AA4, migration 0015: the new orders read aside (P5-12).
+  'bridge_v2_order_unread',
 ];
 
 export const KEPTRA_UNIQUE = {
@@ -205,4 +223,5 @@ export const KEPTRA_UNIQUE = {
   bridge_v2_finished_vouchers: [['voucher_id']],
   // 0014: one description per set of terms, written once (T4).
   bridge_v2_offer_descriptions: [['terms_id']],
+  bridge_v2_order_unread: [['order_id']],
 };

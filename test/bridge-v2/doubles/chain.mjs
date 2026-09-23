@@ -56,6 +56,8 @@ const DEFAULTS = () => ({
   isPaused: false,
   roleAddress: '0x0000000000000000000000000000000000000000',
   waitForReceipt: { status: 'success', logs: [] },
+  // SPEC-BLOCO-03 P5-2: a receipt read without waiting — nothing mined unless a test says so.
+  receiptOf: null,
   transactionKnown: true,
   submitAsDerived: '0x'.padEnd(66, '1'),
   publishEligibilityRoot: '0x'.padEnd(66, '2'),
@@ -156,6 +158,7 @@ export const vrfSubscriptionLink = (...args) => answer('vrfSubscriptionLink', ar
 export const isPaused = (...args) => answer('isPaused', args);
 export const waitForReceipt = (...args) => answer('waitForReceipt', args);
 export const transactionKnown = (...args) => answer('transactionKnown', args);
+export const receiptOf = (...args) => answer('receiptOf', args);
 export const publishEligibilityRoot = (...args) => answer('publishEligibilityRoot', args);
 export const sweepRemainder = (...args) => answer('sweepRemainder', args);
 export const sweepQuote = (...args) => answer('sweepQuote', args);

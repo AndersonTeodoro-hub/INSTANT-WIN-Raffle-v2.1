@@ -49,7 +49,10 @@ import { planGas } from '../doubles/chain.mjs';
 
 suite('contracts');
 
-const AUDIT = 'C:/Users/User/Documents/instant-win-audit/v2';
+// SPEC-BLOCO-03 P5-9: what the audited core says is read from this repository's
+// copy of it (test/bridge-v2/giveaway-core.json), never from another repository
+// by an absolute path.
+const CORE = JSON.parse(readFileSync(new URL('../giveaway-core.json', import.meta.url), 'utf8'));
 const MANAGER = config.GIVEAWAY_MANAGER_V2;
 
 /** The three prize modules deployed on Arbitrum One, from the session brief. */
@@ -66,8 +69,7 @@ const DESTINATION = addressOf(9);
 // the ABI against the artifact that produced the bytecode
 // ---------------------------------------------------------------------------
 
-const artifactAbi = (name) =>
-  JSON.parse(readFileSync(`${AUDIT}/out/${name}.sol/${name}.json`, 'utf8')).abi;
+const artifactAbi = (name) => CORE.abis[name];
 
 /** A canonical signature, so two spellings of one entry compare equal. */
 function signatureOf(entry) {
@@ -139,7 +141,7 @@ await test(['K5'], 'every error the bridge decodes is an error the manager can r
 });
 
 await test(['C8'], 'the leaf the bridge builds is the leaf the contract computes', () => {
-  const source = readFileSync(`${AUDIT}/src/GiveawayManagerV2.sol`, 'utf8');
+  const source = CORE.sources['GiveawayManagerV2.sol'];
   assert.match(source, /bytes32 leaf = keccak256\(abi\.encodePacked\(msg\.sender\)\);/);
   // Hashed once, not twice: the contract notes that an address leaf is 20 bytes
   // and an internal node is 64, so the two can never be confused.
@@ -148,7 +150,7 @@ await test(['C8'], 'the leaf the bridge builds is the leaf the contract computes
 });
 
 await test(['C8'], 'the contract verifies against a root it holds by index, append only', () => {
-  const source = readFileSync(`${AUDIT}/src/GiveawayManagerV2.sol`, 'utf8');
+  const source = CORE.sources['GiveawayManagerV2.sol'];
   assert.match(source, /emit EligibilityRootAdded\(giveawayId, roots\.length - 1, root\)/);
   // Nothing removes or replaces an entry, which is what makes "eligible once,
   // eligible for ever" structural rather than a promise.

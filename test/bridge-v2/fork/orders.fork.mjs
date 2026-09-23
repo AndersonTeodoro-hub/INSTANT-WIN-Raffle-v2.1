@@ -484,3 +484,46 @@ await test(['Q30'], '2.3 and I12 on the fork: no server key moves an account’s
   const reason = await rpc.revertOf({ from: funderAddress(0), to: buyer.participant.safe, data: keptra.execTransactionData(tx, signature) });
   assert.match(reason ?? '', /GS026/);
 });
+
+// ===========================================================================
+// Adenda AA4 — B8 and Y5, against the escrow of 5d85a46 (X10)
+// ===========================================================================
+
+await test(['AA-B8', 'AA-Y5', 'AA-Q7'], 'B8 and Y5 on the fork, against the escrow of 5d85a46 (X10): an order in a window the store’s declaration opened stays on the oracle’s list until that window ends; the carrier’s refusal attested inside it closes it at once with T8, and the recipient is told; past the end it leaves the list and a refusal no longer applies', async () => {
+  const chainNow = async () => Number((await client.getBlock({ blockTag: 'latest' })).timestamp);
+  const listed = async () => (await orders.oraclePending(await chainNow())).map((item) => item.orderId);
+  // Declared, then refused by the carrier inside the window.
+  const refused = await paid();
+  await track(refused, 'AA4 B8 REFUSED 0001');
+  await relayAs(shop, { kind: 'ship', orderId: refused });
+  await relayAs(shop, { kind: 'declareDelivered', orderId: refused });
+  await pass();
+  assert.equal(Number((await order(refused)).state), OrderState.WINDOW);
+  assert.ok((await listed()).includes(String(refused)), 'a declared window left the oracle’s list before its end');
+  const buyerBefore = await usdcOf(buyer.participant.safe);
+  await attest(refused, false);
+  assert.equal(Number((await order(refused)).state), OrderState.CLOSED, 'the escrow of 5d85a46 did not take the refusal inside a declared window');
+  // T8: 22 paid, less shipping (2), the return (1) and the refusal fee (5% of 20).
+  assert.equal((await usdcOf(buyer.participant.safe)) - buyerBefore, 18_000_000n);
+  await pass();
+  const kinds = store.rows('bridge_v2_order_notices').filter((n) => String(n.order_id) === String(refused)).map((n) => n.kind).sort();
+  assert.ok(kinds.includes('WINDOW_REFUSED'), `the recipient was not told: ${kinds}`);
+  assert.ok(http.requests.some((r) => r.url.includes('resend') && /closed by the carrier/.test(JSON.parse(r.body).subject)));
+  const closed = store.rows('bridge_v2_orders').find((r) => String(r.order_id) === String(refused));
+  assert.notEqual(closed.closed_at ?? null, null);
+  assert.equal(Number(closed.outcome), 2);
+  // Declared, and the window runs out: it leaves the list, and a refusal after it changes nothing.
+  const ended = await paid();
+  await track(ended, 'AA4 B8 ENDED 0002');
+  await relayAs(shop, { kind: 'ship', orderId: ended });
+  await relayAs(shop, { kind: 'declareDelivered', orderId: ended });
+  await pass();
+  assert.ok((await listed()).includes(String(ended)));
+  await rpc.increaseTime(5 * DAY + 60);
+  assert.ok(!(await listed()).includes(String(ended)), 'a declared window stayed on the list past its end');
+  await attest(ended, false);
+  assert.equal(Number((await order(ended)).state), OrderState.WINDOW, 'a refusal applied past the end of the window');
+  await pass();
+  assert.equal(Number((await order(ended)).state), OrderState.CLOSED, 'the keeper did not close the window');
+  assert.ok(!store.rows('bridge_v2_order_notices').some((n) => String(n.order_id) === String(ended) && n.kind === 'WINDOW_REFUSED'));
+});

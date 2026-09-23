@@ -402,6 +402,26 @@ export function sendOrderClosingEmail(to: string, orderId: bigint, refusal: bool
   );
 }
 
+/**
+ * Y5 (X10): a window the store's declaration opened was closed before its end by
+ * the carrier's refusal, which the oracle attested. The refusal terms were
+ * applied at once (T8): there is nothing left to confirm or contest.
+ */
+export function sendOrderRefusedEmail(to: string, orderId: bigint, windowEndsAt: bigint): Promise<MailResult> {
+  return post(
+    to,
+    `Your Keptra order #${orderId}: closed by the carrier's refusal`,
+    [
+      'The store said your order was delivered, and the carrier has since reported it refused or returned.',
+      `The carrier's report prevails, so the window that was to close on ${utc(windowEndsAt)} UTC closed now,`,
+      'and the refusal terms shown before you paid were applied: what comes back to you has been paid to the account that paid.',
+      'There is nothing left to confirm or contest on this order.',
+      '',
+      `  ${KEPTRA_BASE}/orders/${orderId}`,
+    ].join('\n'),
+  );
+}
+
 /** P22: the store is told of an order it has to ship, and by when (7.7). */
 export function sendStoreOrderEmail(to: string, orderId: bigint, shipBy: bigint): Promise<MailResult> {
   return post(

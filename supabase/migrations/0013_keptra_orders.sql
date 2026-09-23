@@ -12,7 +12,11 @@
 --
 -- NEVER stored here in clear (section 10, P20): an address, a tracking number or
 -- the text of the evidence. Each is ciphertext under a key derived from
--- BRIDGE_V2_PHONE_HMAC_KEY with a label of its own, held outside the database.
+-- BRIDGE_V2_PHONE_HMAC_KEY and a label, held outside the database (P5-8): the
+-- address under 'order-address-enc-v1'; the tracking number under that SAME
+-- label, 'order-address-enc-v1', because it travels with the address and is
+-- erased with it; the evidence under 'order-evidence-enc-v1'. The tracking hash's
+-- own label, 'order-tracking-hmac-v1', keys the hash and encrypts nothing.
 -- The tracking hash is the keyed hash the escrow holds (H17); the phone is the
 -- keyed hash bridge_v2_phones already holds.
 --
@@ -91,6 +95,7 @@ CREATE INDEX IF NOT EXISTS bridge_v2_orders_store ON bridge_v2_orders (store_add
 CREATE TABLE IF NOT EXISTS bridge_v2_order_shipments (
   order_id      bigint      PRIMARY KEY CHECK (order_id > 0),
   tracking_hash text        NOT NULL UNIQUE CHECK (tracking_hash ~ '^0x[0-9a-f]{64}$'),
+  -- P5-8: ciphertext under 'order-address-enc-v1', the address's label (orders.ts registerShipment).
   tracking_enc  text        NOT NULL CHECK (tracking_enc LIKE 'v1.%'),
   tracker_id    text        CHECK (tracker_id ~ '^[A-Za-z0-9-]{8,64}$'),
   erase_after   timestamptz,

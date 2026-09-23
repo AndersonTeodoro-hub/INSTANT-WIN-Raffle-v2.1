@@ -102,6 +102,16 @@ export async function ordersHead(): Promise<OrdersHead> {
   return { orderCount, now: block.timestamp, block: block.number };
 }
 
+/**
+ * P5-1: the chain's latest block, read after the orders were. An order the pass
+ * read in its final state closed at or before it, so the search for its
+ * OrderClosed goes that far — never only to the block ordersHead read first, which
+ * a close that landed between the two reads is past.
+ */
+export async function latestBlock(): Promise<bigint> {
+  return publicClient().getBlockNumber({ cacheTime: 0 });
+}
+
 export async function readTerms(termsId: bigint): Promise<TermsView> {
   return toTerms(
     (await publicClient().readContract({ address: KEPTRA_ESCROW, abi: KEPTRA_ESCROW_ABI, functionName: 'getTerms', args: [termsId] })) as unknown as Record<string, unknown>,

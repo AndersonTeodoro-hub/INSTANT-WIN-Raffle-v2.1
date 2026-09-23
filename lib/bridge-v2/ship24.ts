@@ -19,10 +19,23 @@ import { requireKeptraEnv } from './env.js';
 const TRACKERS_ENDPOINT = 'https://api.ship24.com/public/v1/trackers';
 
 /**
- * POST /trackers — idempotent on the provider's side for the same fields (docs.ship24.com/trackers),
- * so asking again after a lost answer creates nothing twice. The tracker id, or null.
+ * What the provider answered: the tracker, a refusal of the shipment itself, or a
+ * failure worth asking again.
+ *
+ * P5-3: a 4xx that is about the request — 400, 404, 422 — is the provider saying
+ * this shipment will not be taken, and it will say so every time; the retries
+ * stop. A 401 or 403 is the bridge's key, 408 and 429 are the moment, and a 5xx
+ * or no answer is the provider: those are asked again.
  */
-export async function createTracker(trackingNumber: string, postCode: string, country: string): Promise<string | null> {
+export type TrackerResult = { readonly kind: 'created'; readonly trackerId: string } | { readonly kind: 'refused' } | { readonly kind: 'failed' };
+
+const REFUSED_STATUSES = new Set([400, 404, 422]);
+
+/**
+ * POST /trackers — idempotent on the provider's side for the same fields (docs.ship24.com/trackers),
+ * so asking again after a lost answer creates nothing twice.
+ */
+export async function createTracker(trackingNumber: string, postCode: string, country: string): Promise<TrackerResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
   try {
@@ -35,13 +48,13 @@ export async function createTracker(trackingNumber: string, postCode: string, co
       body: JSON.stringify({ trackingNumber, destinationPostCode: postCode, destinationCountryCode: country }),
       signal: controller.signal,
     });
-    if (!response.ok) return null;
+    if (!response.ok) return { kind: REFUSED_STATUSES.has(response.status) ? 'refused' : 'failed' };
     const body = (await response.json()) as { data?: { tracker?: { trackerId?: unknown } } };
     const trackerId = body?.data?.tracker?.trackerId;
     // An identifier is what the oracle puts in a URL path; anything else is not one.
-    return typeof trackerId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(trackerId) ? trackerId : null;
+    return typeof trackerId === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(trackerId) ? { kind: 'created', trackerId } : { kind: 'failed' };
   } catch {
-    return null;
+    return { kind: 'failed' };
   } finally {
     clearTimeout(timer);
   }

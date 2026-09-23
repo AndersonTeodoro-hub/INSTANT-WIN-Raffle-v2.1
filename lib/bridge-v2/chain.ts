@@ -48,6 +48,7 @@ import {
   http,
   parseEventLogs,
   TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
   type Hex,
   type Log,
   type TransactionSerializable,
@@ -416,6 +417,20 @@ export async function waitForReceipt(hash: Hex): Promise<MinedReceipt | null> {
  * entry back in the queue and buys a second funding for a transaction that was
  * about to be mined.
  */
+/**
+ * SPEC-BLOCO-03 P5-2: the receipt of a transaction if it is mined now, or null —
+ * without the wait waitForReceipt makes, for a pass that looks at many.
+ */
+export async function receiptOf(hash: Hex): Promise<MinedReceipt | null> {
+  try {
+    const receipt = await publicClient().getTransactionReceipt({ hash });
+    return { status: receipt.status, logs: receipt.logs };
+  } catch (error) {
+    if (error instanceof TransactionReceiptNotFoundError) return null;
+    throw error;
+  }
+}
+
 export async function transactionKnown(hash: Hex): Promise<boolean> {
   try {
     await publicClient().getTransaction({ hash });

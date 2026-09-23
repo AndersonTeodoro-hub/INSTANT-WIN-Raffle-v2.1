@@ -119,7 +119,16 @@ import {
   type OrderWithTerms,
   type TermsView,
 } from './escrowChain.js';
-import { bindAddress, keptraContractsConfigured, orderHasAddress, shipmentOf, unboundAddress, type AddressPurpose } from './orders.js';
+import {
+  bindAddress,
+  claimAddress,
+  keptraContractsConfigured,
+  orderHasAddress,
+  releaseClaim,
+  setClaimTx,
+  shipmentOf,
+  unboundAddress,
+} from './orders.js';
 import { hasVerifiedPhone } from './phone.js';
 import {
   accountState,
@@ -443,6 +452,8 @@ export interface Prepared {
   readonly campaign: CreatorCampaign | null;
   /** redeem: the attestation's deadline, which the submit echoes (H7). */
   readonly redeemDeadline: bigint | null;
+  /** pay and redeem (P5-2): the unbound, unclaimed address the submission claims. */
+  readonly addressId: string | null;
   /** C12 and T2: what the transaction does, for the page to show before the passkey. */
   readonly summary: ActionSummary;
 }
@@ -456,7 +467,7 @@ async function actionCalls(
   account: Account,
   state: AccountState,
   action: Action,
-): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null; summary: ActionSummary; campaign?: CreatorCampaign; redeemDeadline?: bigint }> {
+): Promise<{ calls: SafeCall[]; extraSigner: Passkey | null; summary: ActionSummary; campaign?: CreatorCampaign; redeemDeadline?: bigint; addressId?: string }> {
   const safe = account.safe;
   if (RECIPIENT_ACTIONS.has(action.kind) || STORE_ACTIONS.has(action.kind)) {
     return { ...(await orderCalls(participantId, safe, action)), extraSigner: null };
@@ -721,7 +732,7 @@ async function orderCalls(
   participantId: string,
   safe: `0x${string}`,
   action: Action,
-): Promise<{ calls: SafeCall[]; summary: ActionSummary; redeemDeadline?: bigint }> {
+): Promise<{ calls: SafeCall[]; summary: ActionSummary; redeemDeadline?: bigint; addressId?: string }> {
   // P24: no order action while the contracts are not configured.
   if (!keptraContractsConfigured()) throw new RelayRefusal('orders_not_configured');
   switch (action.kind) {
@@ -734,7 +745,8 @@ async function orderCalls(
       }
       if (!terms.active || terms.prize || terms.store.toLowerCase() === '0x0000000000000000000000000000000000000000') throw new RelayRefusal('no_offer');
       // P15: the address, in a region the store accepts, is registered before the payment.
-      if ((await unboundAddress(participantId, { termsId: action.termsId })) === null) throw new RelayRefusal('no_address');
+      const address = await unboundAddress(participantId, { termsId: action.termsId });
+      if (address === null) throw new RelayRefusal('no_address');
       checkCommit(terms.mode, action.codeCommit);
       if (action.quantity < 1 || action.quantity > 0xffffffff) throw new RelayRefusal('amount');
       const total = terms.price * BigInt(action.quantity) + terms.shipping;
@@ -746,6 +758,7 @@ async function orderCalls(
           escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'pay', args: [action.termsId, action.quantity, action.codeCommit] })),
         ],
         summary: summaryOf('pay', [usdcAmount(total)], KEPTRA_ESCROW, 'ESCROW'),
+        addressId: address.id,
       };
     }
     case 'redeem': {
@@ -755,7 +768,8 @@ async function orderCalls(
       if (voucher.claimedAt === 0n || (await nowSeconds()) > voucher.claimedAt + 30n * DAY_SECONDS) throw new RelayRefusal('voucher_expired');
       const terms = await readTerms((await readObligation(voucher.obligationId)).termsId);
       // H7: the attestation is for an address registered for this voucher, in a region the brand accepts.
-      if ((await unboundAddress(participantId, { voucherId: action.voucherId })) === null) throw new RelayRefusal('no_address');
+      const address = await unboundAddress(participantId, { voucherId: action.voucherId });
+      if (address === null) throw new RelayRefusal('no_address');
       checkCommit(terms.mode, action.codeCommit);
       const now = await nowSeconds();
       const deadline = action.deadline ?? now + BigInt(REDEMPTION_ATTESTATION_TTL_SECONDS);
@@ -770,6 +784,7 @@ async function orderCalls(
         // The voucher goes into the guarantee's custody until the order ends.
         summary: summaryOf('redeem', [{ kind: 'NFT', token: KEPTRA_VOUCHER, tokenIds: [action.voucherId] }], KEPTRA_GUARANTEE, 'GUARANTEE'),
         redeemDeadline: deadline,
+        addressId: address.id,
       };
     }
     case 'cancelOrder': {
@@ -965,11 +980,6 @@ async function orderCalls(
 }
 
 /** What address a recipient action binds to the order it opens (P15, H7). */
-function purposeOf(action: Action): AddressPurpose | null {
-  if (action.kind === 'pay') return { termsId: action.termsId };
-  if (action.kind === 'redeem') return { voucherId: action.voucherId };
-  return null;
-}
 
 /**
  * The guardian a transaction may name. Adding one back (A6) names the platform's
@@ -1035,14 +1045,14 @@ export async function prepareAction(
     throw new RelayRefusal('relay_limit');
   }
 
-  const { calls, extraSigner, summary, campaign = null, redeemDeadline = null } = await actionCalls(participantId, account, state, action);
+  const { calls, extraSigner, summary, campaign = null, redeemDeadline = null, addressId = null } = await actionCalls(participantId, account, state, action);
   // F10: the closed list reads the calls before they are encoded, not a decoding of them.
   const all = [...(configuration ?? []), ...calls];
   const refusal = refusalFor(account.safe, all, state.nonce, configuration, guardianFor(state, action));
   if (refusal !== null) throw new RelayRefusal(refusal);
   const tx = safeTxFor(all, state.nonce);
 
-  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign, redeemDeadline, summary };
+  return { account, state, tx, hash: safeTxHash(account.safe, tx), extraSigner, guardianChange, campaign, redeemDeadline, addressId, summary };
 }
 
 /** A browser assertion over the prepared hash, as the route received it. */
@@ -1152,6 +1162,33 @@ export async function submitAction(
   // F7: from here on nothing can be taken back; it starts only if it can finish.
   if (!deadline.hasTimeFor(RELAY_SEND_MS)) throw new RelayRefusal('relayer_unavailable');
 
+  // P5-2: a payment or a redemption takes its address now — the one prepare found —
+  // for itself alone: one address never opens two orders, and an order the relay
+  // opens always has one. Given back below if nothing is sent, or what was sent
+  // opened no order.
+  const claimId = prepared.addressId;
+  if (claimId !== null && !(await claimAddress(claimId))) throw new RelayRefusal('no_address');
+  // Past the broadcast the claim stays with its transaction, whatever fails after,
+  // for the orders pass to bind or give back from the chain.
+  const progress = { broadcast: false };
+  try {
+    return await sendClaimed(action, prepared, batch, claimId, progress, log);
+  } catch (error) {
+    if (claimId !== null && !progress.broadcast) await releaseClaim(claimId);
+    throw error;
+  }
+}
+
+async function sendClaimed(
+  action: Action,
+  prepared: Prepared,
+  batch: SafeCall[],
+  claimId: string | null,
+  progress: { broadcast: boolean },
+  log: Logger,
+): Promise<Submitted> {
+  const { account, state } = prepared;
+
   // E2: counted before it is sent, so one that then fails still counts. Every
   // submission passed prepareAction's count on its own; counted again once this
   // one is written, a burst sent at once cannot go past the limit either.
@@ -1175,11 +1212,18 @@ export async function submitAction(
   const sent = await sendAsRelayer(batch, log, {
     spend: !alwaysPossible,
     // E7: the hash is on the draft before the wait (K3), so the maintenance pass
-    // can settle it from the chain if the receipt never comes.
-    onBroadcast: campaign === null ? undefined : (txHash) => advanceCampaign(campaign.id, 'FUNDING', 'FUNDING', { tx_hash: txHash }),
+    // can settle it from the chain if the receipt never comes. P5-2: and on the
+    // address claimed, so the orders pass can bind it from the same receipt.
+    onBroadcast: async (txHash) => {
+      progress.broadcast = true;
+      if (campaign !== null) await advanceCampaign(campaign.id, 'FUNDING', 'FUNDING', { tx_hash: txHash });
+      if (claimId !== null) await setClaimTx(claimId, txHash);
+    },
   });
   if (sent === null) throw new RelayRefusal('relayer_unavailable');
   if (sent.receipt === null || sent.receipt.status !== 'success') {
+    // Reverted: it opened nothing, and the address goes back. Not seen: the pass decides from the chain.
+    if (claimId !== null && sent.receipt?.status === 'reverted') await releaseClaim(claimId);
     return { txHash: sent.hash, receipt: sent.receipt, giveawayId: null, orderId: null, created: null };
   }
 
@@ -1208,15 +1252,17 @@ export async function submitAction(
   }
   if (action.kind === 'createVoucherCampaign') giveawayId = giveawayIdFromLogs(sent.receipt.logs);
 
-  // Q14: the order a pay or a redemption opened takes its address now; the orders
-  // pass does it from the chain when this receipt never came (bindRecipientAddress).
+  // Q14 and P5-2: the order a pay or a redemption opened takes the address this
+  // submission claimed; the orders pass does it from the chain when this receipt
+  // never came (bindClaimedAddresses). One that opened no order — the account's
+  // call failed inside the transaction — gives the address back.
   let orderId: bigint | null = null;
-  const purpose = purposeOf(action);
-  if (purpose !== null) {
+  if (claimId !== null) {
     orderId = orderIdFromLogs(sent.receipt.logs);
     try {
-      const draft = orderId === null || (await orderHasAddress(orderId)) ? null : await unboundAddress(participantId, purpose);
-      if (orderId !== null && draft !== null && (await bindAddress(draft.id, orderId))) {
+      if (orderId === null || (await orderHasAddress(orderId))) {
+        await releaseClaim(claimId);
+      } else if (await bindAddress(claimId, orderId)) {
         await log.event('order.address_bound', { order_id: orderId.toString(), reconciled: false });
       }
     } catch (error) {

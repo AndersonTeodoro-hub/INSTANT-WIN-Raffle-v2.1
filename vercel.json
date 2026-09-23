@@ -34,7 +34,7 @@
     "api/bridge/v2/account/relay.ts": { "maxDuration": 300 },
     "api/bridge/v2/order/address.ts": { "maxDuration": 110 },
     "api/bridge/v2/order/evidence.ts": { "maxDuration": 116 },
-    "api/bridge/v2/store/tracking.ts": { "maxDuration": 142 },
+    "api/bridge/v2/store/tracking.ts": { "maxDuration": 158 },
     "api/bridge/v2/arbiter/evidence.ts": { "maxDuration": 66 },
     "api/bridge/v2/account/status.ts": { "maxDuration": 188 },
     "api/bridge/v2/account/vouchers.ts": { "maxDuration": 142 },

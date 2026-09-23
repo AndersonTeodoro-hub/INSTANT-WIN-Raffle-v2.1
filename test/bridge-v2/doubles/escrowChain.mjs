@@ -26,6 +26,8 @@ const ZERO = '0x0000000000000000000000000000000000000000';
 /** Nothing exists unless a test says so: no order, no voucher. */
 const DEFAULTS = () => ({
   ordersHead: { orderCount: 1n, now: BigInt(Math.floor(Date.now() / 1000)), block: 1_000n },
+  // P5-1: the block read after the orders; by default the head's.
+  latestBlock: () => behaviour.ordersHead.block ?? 1_000n,
   readOrders: [],
   readTerms: new Error('no terms'),
   regionsOf: [],
@@ -64,6 +66,7 @@ async function answer(name, args) {
 }
 
 export const ordersHead = (...args) => answer('ordersHead', args);
+export const latestBlock = (...args) => answer('latestBlock', args);
 export const readOrders = (...args) => answer('readOrders', args);
 export const readTerms = (...args) => answer('readTerms', args);
 export const regionsOf = (...args) => answer('regionsOf', args);

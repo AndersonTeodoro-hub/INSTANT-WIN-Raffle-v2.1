@@ -10,7 +10,7 @@
  * and APn, AQn and ARn for the decisions of Adendas P, Q and R.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   decodeFunctionData,
@@ -22,6 +22,7 @@ import {
   recoverTypedDataAddress,
   stringToHex,
   toFunctionSelector,
+  toHex,
 } from 'viem';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import {
@@ -209,7 +210,8 @@ function chainShows(list, now = T0) {
 const pass = (log = recordingLogger()) => advanceOrders(log, deadline()).then((done) => ({ done, log }));
 const mails = () => http.requests.filter((r) => r.url.includes('resend')).map((r) => JSON.parse(r.body));
 const post = (route, path, body, cookie = SESSION_COOKIE) => route.POST(request(url(path), { cookie, body }));
-const ADDRESS = { name: 'Ana Silva', street: 'Rua das Flores 12', postCode: '1000-001', city: 'Lisboa', country: 'PT', phone: '+351 912 345 678' };
+// P5-14: every value a test looks for "in clear" holds a space, which no identifier, hash or ciphertext of the bridge has.
+const ADDRESS = { name: 'Ana Silva', street: 'Rua das Flores 12', postCode: '1000 001', city: 'Vila Nova', country: 'PT', phone: '+351 912 345 678' };
 
 /** The offer the doubled chain holds: active, COMPRA, accepting PT and ES. */
 function offer(termsId = 1n, extra = {}) {
@@ -296,7 +298,7 @@ await test(['AP24', 'AQ1'], 'P24: KEPTRA_ENV missing refuses the orders the same
 // section 10 — addresses: Q1 Q2 Q3, P15 P19 P20 P21
 // ===========================================================================
 
-await test(['Q1', 'AP19', 'AP20', 'AQ5'], '10.2 and P19: an address is kept as ciphertext under its own label, with exactly the six fields, and nothing of it in clear', async () => {
+await test(['Q1', 'AP19', 'AP20', 'AQ5', 'P5-14'], '10.2 and P19: an address is kept as ciphertext under its own label, with exactly the six fields, and nothing of it in clear — looked for with values no random identifier can hold (P5-14)', async () => {
   fresh();
   await person('participant-1', '0x2222222222222222222222222222222222222222');
   offer();
@@ -304,7 +306,7 @@ await test(['Q1', 'AP19', 'AP20', 'AQ5'], '10.2 and P19: an address is kept as c
   assert.equal(response.status, 200);
   const [row] = store.rows('bridge_v2_order_addresses');
   assert.match(row.address_enc, /^v1\.[\w-]+\.[\w-]+$/);
-  for (const value of ['Ana Silva', 'Rua das Flores', '1000-001', 'Lisboa', '912']) {
+  for (const value of ['Ana Silva', 'Rua das Flores', '1000 001', 'Vila Nova', '+351 912']) {
     assert.ok(!JSON.stringify(row).includes(value), `${value} is stored in clear`);
   }
   assert.equal(row.order_id ?? null, null);
@@ -512,12 +514,15 @@ await test(['Q7', 'AP7'], 'M9 and P7: the shipment is registered with the provid
   assert.equal(body.tracked, true);
   const [call] = http.requests.filter((r) => r.url.includes('ship24'));
   assert.equal(call.url, 'https://api.ship24.com/public/v1/trackers');
-  assert.deepEqual(JSON.parse(call.body), { trackingNumber: 'AB123456789', destinationPostCode: '1000-001', destinationCountryCode: 'PT' });
+  assert.deepEqual(JSON.parse(call.body), { trackingNumber: 'AB123456789', destinationPostCode: '1000 001', destinationCountryCode: 'PT' });
   assert.equal(call.init.headers.authorization, `Bearer ${process.env.BRIDGE_V2_SHIP24_KEY}`);
   const [row] = store.rows('bridge_v2_order_shipments');
   assert.equal(row.tracker_id, 'tracker-0001-aaaa');
   assert.equal(row.tracking_hash, body.trackingHash);
-  assert.ok(!JSON.stringify(row).includes('AB123456789'), 'the number is kept in clear');
+  // P5-14: field by field, not a search through random text — the only column that holds the number is its ciphertext.
+  const { decryptUnder } = await import('../../../lib/bridge-v2/crypto.ts');
+  for (const [column, value] of Object.entries(row)) if (column !== 'tracking_enc') assert.notEqual(String(value), 'AB123456789', `${column} holds the number in clear`);
+  assert.equal(await decryptUnder('BRIDGE_V2_PHONE_HMAC_KEY', 'order-address-enc-v1', row.tracking_enc), 'AB123456789');
   void shop;
 });
 
@@ -552,7 +557,7 @@ await test(['Q8', 'Q18'], '9.5.5: a provider that fails blocks nothing — the s
   http.routes.splice(http.routes.findIndex(([pattern]) => pattern === 'api.ship24.com'), 1);
   http.on('api.ship24.com', () => jsonResponse({ data: { tracker: { trackerId: 'tracker-0002-bbbb' } } }, 201));
   assert.equal(await retryTrackers(recordingLogger(), deadline()), 1);
-  assert.deepEqual(await orders.oraclePending(Number(T0)), [{ orderId: '1', trackerId: 'tracker-0002-bbbb', postCode: '1000-001' }]);
+  assert.deepEqual(await orders.oraclePending(Number(T0)), [{ orderId: '1', trackerId: 'tracker-0002-bbbb', postCode: '1000 001' }]);
 });
 
 await test(['Q10', 'AP7'], 'M1 and P7: the bridge uses its own provider key — never the oracle’s — reads it at use, and no log line carries a number, a post code or an address', async () => {
@@ -566,9 +571,10 @@ await test(['Q10', 'AP7'], 'M1 and P7: the bridge uses its own provider key — 
   assert.ok(!/recipient\s*:/.test(source));
   await shippingSetup();
   const log = recordingLogger();
-  await post(trackingRoute, 'store/tracking', { orderId: '1', trackingNumber: 'AB123456789' });
+  // P5-14: a number with letters no hex, uuid or hash has (Z, X), and address values with spaces.
+  await post(trackingRoute, 'store/tracking', { orderId: '1', trackingNumber: 'ZX123456789' });
   const logged = JSON.stringify([...db.callsTo('bridge_v2_ops_events:insert').map((c) => c.payload), ...log.events]);
-  for (const value of ['AB123456789', '1000-001', 'Lisboa', 'Ana']) assert.ok(!logged.includes(value), `${value} reached a log`);
+  for (const value of ['ZX123456789', '1000 001', 'Vila Nova', 'Ana Silva']) assert.ok(!logged.includes(value), `${value} reached a log`);
 });
 
 // ===========================================================================
@@ -581,7 +587,7 @@ async function oracleRows(list) {
     store.insert('bridge_v2_orders', {
       order_id: String(item.id), terms_id: '1', voucher_id: '0', store_address: '0x3333333333333333333333333333333333333333', payer_address: '0x2222222222222222222222222222222222222222',
       mode: item.mode ?? 0, prize: false, ship_days: 5, delivery_days: 10, state: item.state ?? OrderState.SHIPPED, flags: item.flags ?? 0,
-      paid_at: String(T0), shipped_at: String(T0), window_ends_at: '0', contested_at: '0', seen_block: '1', outcome: null, closed_at: null,
+      paid_at: String(T0), shipped_at: String(T0), window_ends_at: String(item.windowEndsAt ?? 0n), contested_at: '0', seen_block: '1', outcome: null, closed_at: null,
     });
     if (item.tracker !== null) store.insert('bridge_v2_order_shipments', { order_id: String(item.id), tracking_hash: `0x${String(item.id).padStart(64, '0')}`, tracking_enc: 'v1.x.y', tracker_id: item.tracker ?? `tracker-${String(item.id).padStart(4, '0')}-xx` });
     store.insert('bridge_v2_order_addresses', { participant_id: 'p', terms_id: '1', order_id: String(item.id), address_enc: await (await import('../../../lib/bridge-v2/crypto.ts')).encryptUnder('BRIDGE_V2_PHONE_HMAC_KEY', 'order-address-enc-v1', JSON.stringify({ ...ADDRESS, postCode: `PC${item.id}` })) });
@@ -602,12 +608,13 @@ await test(['Q9', 'AP1'], 'M9 and O4: the oracle’s list needs its own credenti
   assert.match(read('api/bridge/v2/oracle/pending.ts'), /timingSafeEqualHex/);
 });
 
-await test(['Q9', 'AP1'], 'N7 and B5, B6, B7: only TRANSPORTADORA orders still waiting for a proof — shipped, or in a declared window with no proof — with a tracker, and never one tracker for two orders', async () => {
+await test(['Q9', 'AP1', 'AA-B8'], 'N7 and B5, B6, B7: only TRANSPORTADORA orders still waiting for a proof — shipped, or in a declared window with no proof until that window ends (B8) — with a tracker, and never one tracker for two orders', async () => {
   await oracleRows([
     { id: 1 },
     { id: 2, mode: 1 },
     { id: 3, state: OrderState.PAID },
-    { id: 4, state: OrderState.WINDOW, flags: 0 },
+    { id: 4, state: OrderState.WINDOW, flags: 0, windowEndsAt: T0 + 5n * DAY },
+    { id: 11, state: OrderState.WINDOW, flags: 0, windowEndsAt: T0 - 1n },
     { id: 5, state: OrderState.WINDOW, flags: OrderFlag.PROOF },
     { id: 6, state: OrderState.WINDOW, flags: OrderFlag.REFUSAL },
     { id: 7, state: OrderState.CLOSED },
@@ -619,8 +626,9 @@ await test(['Q9', 'AP1'], 'N7 and B5, B6, B7: only TRANSPORTADORA orders still w
   assert.deepEqual(ids, ['1', '4']);
 });
 
-await test(['Q9', 'AQ5'], 'B4: past 13 the list rotates by the oracle’s 15-minute slot — every order within ceil(n/13) slots — and two nodes asking within one slot read the same bytes', async () => {
+await test(['Q9', 'AQ5', 'P5-10'], 'B4: past 13 the list rotates once per firing of the oracle — every order within ceil(n/13) firings — and the nodes of one firing, asking within its first minute, read the same bytes (P5-10)', async () => {
   await oracleRows(Array.from({ length: 30 }, (_unused, i) => ({ id: i + 1 })));
+  // The workflow fires at every quarter hour, second 0.
   const slot = (k) => Number(config.ORACLE_ROTATION_SECONDS) * (1_000 + k);
   const seen = new Set();
   for (let k = 0; k < 3; k += 1) {
@@ -630,7 +638,7 @@ await test(['Q9', 'AQ5'], 'B4: past 13 the list rotates by the oracle’s 15-min
     for (const item of list) seen.add(item.orderId);
   }
   assert.equal(seen.size, 30, 'an order was never asked about');
-  assert.equal(JSON.stringify(await orders.oraclePending(slot(5))), JSON.stringify(await orders.oraclePending(slot(5) + 899)));
+  assert.equal(JSON.stringify(await orders.oraclePending(slot(5))), JSON.stringify(await orders.oraclePending(slot(5) + 59)));
 });
 
 // ===========================================================================
@@ -762,10 +770,12 @@ await test(['Q12', 'AP13'], 'H7 and I6: the attestation is the bridge role’s E
     signature,
   });
   assert.equal(signer, privateKeyToAccount(TEST_ROLE_KEY).address);
-  // The typehash is the escrow's own string (KeptraEscrow.sol:73-74).
-  const escrowSource = readFileSync('C:/Users/User/Documents/instant-win-audit/v2/src/KeptraEscrow.sol', 'utf8');
-  assert.match(escrowSource, /keccak256\("Redemption\(uint256 voucherId,address recipient,uint256 deadline\)"\)/);
-  assert.match(escrowSource, /EIP712\("Keptra", "1"\)/);
+  // The typehash and the domain are the escrow's own (KeptraEscrow.sol:73-74): the
+  // typehash of that exact string, and the name "Keptra", are constants of the
+  // creation code of 5d85a46 — read from this repository's fixture (P5-9).
+  const escrowCode = JSON.parse(read('test/bridge-v2/fork/keptra-5d85a46.json')).contracts.KeptraEscrow.creationCode.toLowerCase();
+  assert.ok(escrowCode.includes(keccak256(toHex('Redemption(uint256 voucherId,address recipient,uint256 deadline)')).slice(2)), 'the escrow signs another Redemption');
+  assert.ok(escrowCode.includes(toHex('Keptra').slice(2)), 'the escrow’s domain is not named Keptra');
 });
 
 async function redeemSetup() {
@@ -880,7 +890,7 @@ await test(['Q15', 'AP16'], 'P16: contesting, confirming and cancelling pass wit
   assert.match(read('lib/bridge-v2/relay.ts'), /new Set\(\['cancelRecovery', 'revokeGuardian', 'cancelOrder', 'confirm', 'contest'\]\)/);
 });
 
-await test(['Q14', 'Q13'], 'Q14: a relayed payment binds the recipient’s address to the order its receipt names; with the receipt lost, the orders pass binds it from the chain', async () => {
+await test(['Q14', 'Q13', 'P5-2'], 'Q14 and P5-2: a relayed payment binds the address it claimed to the order its receipt names; with the receipt lost, the orders pass binds that same claimed address from the claim’s own receipt', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
@@ -898,11 +908,15 @@ await test(['Q14', 'Q13'], 'Q14: a relayed payment binds the recipient’s addre
   const paid = await relayed(buyer.passkey, { kind: 'pay', termsId: '1', quantity: 1 });
   assert.equal(paid.status, 200, JSON.stringify(paid.body));
   assert.equal(paid.body.orderId, '1');
-  assert.equal((await orders.addressOfOrder(1n)).city, 'Lisboa', 'the oldest address was not the one bound');
+  assert.equal((await orders.addressOfOrder(1n)).city, 'Vila Nova', 'the oldest address was not the one bound');
   // The second payment's receipt never came: the pass binds from the chain.
   chain.set({ waitForReceipt: null });
   await relayed(buyer.passkey, { kind: 'pay', termsId: '1', quantity: 1 });
   assert.equal(await orders.orderHasAddress(2n), false);
+  const porto = store.rows('bridge_v2_order_addresses').find((row) => row.order_id == null);
+  assert.ok(porto.claimed_at && /^0x[0-9a-f]{64}$/.test(porto.claim_tx), 'the second payment did not claim the address it was sent with');
+  const opened2 = { ...opened, topics: encodeEventTopics({ abi: KEPTRA_ESCROW_ABI, eventName: 'OrderOpened', args: { orderId: 2n, termsId: 1n, payer: buyer.participant } }) };
+  chain.set({ receiptOf: (hash) => (hash.toLowerCase() === porto.claim_tx ? { status: 'success', logs: [opened2] } : null) });
   chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator }), fx({ id: 2, payer: buyer.participant, store: shop.creator })]);
   await pass();
   assert.equal((await orders.addressOfOrder(2n)).city, 'Porto');
@@ -1413,7 +1427,7 @@ await test(['AR2', 'Q20', 'Q16', 'Q11', 'AP11', 'AP22'], 'R2 (B1): an order whos
   assert.deepEqual(alerted(log, 'orders step failed'), [], 'a whole step stopped');
 });
 
-await test(['AR2', 'Q20', 'Q21'], 'R2 (B1): an order whose scan fails does not stop the pass — the others’ exits go, and a failed voucher scan stops none; a new order that fails holds the new ones after it for the next pass, which reads them all', async () => {
+await test(['AR2', 'Q20', 'Q21', 'P5-12'], 'R2 (B1) and P5-12: an order whose scan fails does not stop the pass — the others’ exits go, and a failed voucher scan stops none; a new order that fails is kept aside with an alert, the new ones after it are written, and the next pass reads it again and takes it off the side list', async () => {
   fresh();
   const payer = '0x1234567890123456789012345678901234567890';
   const shop = '0x0987654321098765432109876543210987654321';
@@ -1426,16 +1440,19 @@ await test(['AR2', 'Q20', 'Q21'], 'R2 (B1): an order whose scan fails does not s
   const failing = new Set(['2', '4']);
   failWhen('bridge_v2_orders:upsert', (op) => failing.has(String(op.payload.order_id)));
   const { log } = await pass();
-  assert.deepEqual(exitsSent(), [1n, 3n]);
+  assert.deepEqual(exitsSent().sort(), [1n, 3n, 5n]);
   assert.deepEqual(alerted(log, 'order scan failed'), ['2', '4']);
+  assert.deepEqual(alerted(log, 'order read aside'), ['4']);
   assert.equal(alerted(log, 'voucher scan failed').length, 1);
-  // Order 5 is not written past order 4: the index never skips an order it does not hold.
-  assert.deepEqual(store.rows('bridge_v2_orders').map((r) => String(r.order_id)).sort(), ['1', '2', '3']);
+  // P5-12: order 5 is written past order 4, which is kept aside — so it is never lost.
+  assert.deepEqual(store.rows('bridge_v2_orders').map((r) => String(r.order_id)).sort(), ['1', '2', '3', '5']);
+  assert.deepEqual(store.rows('bridge_v2_order_unread').map((r) => [String(r.order_id), r.attempts]), [['4', 1]]);
   failing.clear();
   chain.reset();
   await pass();
-  assert.deepEqual(exitsSent(), [1n, 2n, 3n, 4n, 5n]);
+  assert.deepEqual(exitsSent().sort(), [1n, 2n, 3n, 4n, 5n]);
   assert.deepEqual(store.rows('bridge_v2_orders').map((r) => String(r.order_id)).sort(), ['1', '2', '3', '4', '5']);
+  assert.equal(store.rows('bridge_v2_order_unread').length, 0, 'an order read at last stayed on the side list');
 });
 
 /** A provider that refuses more than `limit` blocks per request, and holds order 1's OrderClosed at `closedIn`. */
@@ -1519,18 +1536,361 @@ await test(['AR4'], 'R4: what no flow reads is gone — the contest window param
   assert.ok(!JSON.stringify(listed).includes('a'.repeat(64)));
 });
 
-await test(['AR3'], 'R3: this matrix is in the repository, names the spec version it was checked against (1.19) and the Adendas P, Q and R, and has a row for every Qn, APn, AQn and ARn a piece-5 test declares', () => {
+await test(['AR3'], 'R3 and AA4: this matrix is in the repository, names the spec version in force (1.30) and the Adendas P, Q, R and AA, and has a row for every Qn, APn, AQn, ARn, P5-n and AA- tag a piece-5 test declares', () => {
   const matrix = read('test/bridge-v2/MATRIZ-PECA5-KEPTRA.md');
-  assert.match(matrix, /linha 3: \*\*Versão 1\.19 — 21\/09\/2026\*\*/);
-  for (const heading of ['## 2. Adenda P', '## 3. Adenda Q', '## 4. Adenda R']) assert.ok(matrix.includes(heading), heading);
+  assert.match(matrix, /linha 3: \*\*Versão 1\.30 — 23\/09\/2026\*\*/);
+  for (const heading of ['## 2. Adenda P', '## 3. Adenda Q', '## 4. Adenda R', '## 8. Adenda AA']) assert.ok(matrix.includes(heading), heading);
   const declared = new Set();
   for (const path of ['test/bridge-v2/suites/orders.test.mjs', 'test/bridge-v2/fork/orders.fork.mjs']) {
     for (const [, list] of read(path).matchAll(/await test\(\s*\[([^\]]*)\]/g)) {
-      for (const tag of list.split(',').map((part) => part.trim().replace(/'/g, ''))) if (/^(Q|AP|AQ|AR)\d+$/.test(tag)) declared.add(tag);
+      for (const tag of list.split(',').map((part) => part.trim().replace(/'/g, ''))) if (/^(Q|AP|AQ|AR)\d+$|^P5-\d+$|^AA-(B8|Y5|Q7)$/.test(tag)) declared.add(tag);
     }
   }
   assert.ok(declared.has('AR3') && declared.has('Q31') && declared.has('AQ5'), 'the tags were not all read');
+  for (let n = 1; n <= 14; n += 1) assert.ok(declared.has(`P5-${n}`), `no piece-5 test declares P5-${n}`);
   for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
+});
+
+
+// ===========================================================================
+// Adenda AA4 — the lot before the deploy, piece 5 (P5-1 to P5-14), B8 and Y5
+// ===========================================================================
+
+await test(['P5-1'], 'P5-1: a close that lands between the pass’s two reads — the head block, then the orders — is searched up to a block read after the orders, so its outcome is found and the recipient’s mark is settled by it, never left as it was', async () => {
+  const { buyer, shop } = await closingSetup();
+  // The head is read at block 1 000; the order closes at block 1 005, before the orders are read; the chain is at 1 010 after.
+  escrow.set({
+    ordersHead: { orderCount: 2n, now: T0, block: 1_000n },
+    latestBlock: 1_010n,
+    orderOutcome: (_id, _from, to) => (to >= 1_005n ? { outcome: 1, searchedTo: to } : { outcome: null, searchedTo: to }),
+  });
+  await pass();
+  const close = closeOfOne();
+  assert.equal(close.outcome, 1, 'the outcome was searched only up to the head block');
+  assert.equal(close.mark, 'RELEASED', 'the mark kept counting a delivery that did not count');
+  assert.ok(escrow.calls.some((c) => c.name === 'orderOutcome' && c.args[2] === 1_010n));
+  void buyer;
+  void shop;
+});
+
+await test(['P5-13'], 'P5-13: a node answering with a block before the one the order was last seen open at — or before the pass’s head — has searched nothing: the close is not recorded as “closed with no outcome”, and the next pass finishes it', async () => {
+  await closingSetup();
+  const seen = store.rows('bridge_v2_orders').find((r) => String(r.order_id) === '1');
+  seen.seen_block = '1000';
+  escrow.set({ ordersHead: { orderCount: 2n, now: T0, block: 1_000n }, latestBlock: 990n, orderOutcome: (_id, _from, to) => ({ outcome: null, searchedTo: to }) });
+  const { log } = await pass();
+  assert.equal(closeOfOne().closedAt, null, 'a search that never happened was recorded as a close');
+  assert.ok(log.events.some((e) => e.kind === 'orders.deferred' && e.detail.reason === 'close_search_behind'));
+  assert.equal(escrow.calls.filter((c) => c.name === 'orderOutcome').length, 0);
+  escrow.set({ latestBlock: 1_020n, orderOutcome: () => ({ outcome: 0, searchedTo: 1_020n }) });
+  await pass();
+  assert.deepEqual([closeOfOne().outcome, closeOfOne().closedAt !== null], [0, true]);
+});
+
+await test(['P5-2'], 'P5-2: one address opens one order — two payments prepared with the only address: the first claims it, the second is refused before anything is signed; a payment that reverts gives its address back, and one never broadcast too', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  offer();
+  asParticipant('participant-1');
+  await post(addressRoute, 'order/address', { ...ADDRESS, termsId: '1' });
+  chain.set({ erc20BalanceOf: 100_000_000n });
+  const body = { kind: 'pay', termsId: '1', quantity: 1 };
+  const first = await relay(body);
+  const second = await relay(body);
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200, 'the second was refused at prepare; the race needs both prepared');
+  chain.set({ waitForReceipt: { status: 'reverted', logs: [] } });
+  const a = await relay({ ...body, nonce: first.body.nonce, ...(await buyer.passkey.sign(first.body.safeTxHash)) });
+  assert.equal(a.status, 200);
+  const [address] = store.rows('bridge_v2_order_addresses');
+  assert.equal(address.claimed_at ?? null, null, 'a reverted payment kept the address');
+  // Claimed and pending: a second submission finds nothing to claim.
+  address.claimed_at = new Date().toISOString();
+  address.claim_tx = `0x${'e'.repeat(64)}`;
+  const b = await relay({ ...body, nonce: second.body.nonce, ...(await buyer.passkey.sign(second.body.safeTxHash)) });
+  assert.equal(b.status, 409);
+  assert.equal(b.body.error, 'Add a delivery address for this first.');
+  assert.equal(kchain.calls.filter((c) => c.name === 'sendRelayed').length, 1, 'the second payment was sent');
+  // Refused before the broadcast (the relayer busy): the address is given back.
+  address.claimed_at = null;
+  address.claim_tx = null;
+  db.on('rpc:bridge_v2_acquire_funder', () => ({ data: [], error: null }));
+  const busy = await relay(body);
+  const c = await relay({ ...body, nonce: busy.body.nonce, ...(await buyer.passkey.sign(busy.body.safeTxHash)) });
+  assert.notEqual(c.status, 200);
+  assert.equal(store.rows('bridge_v2_order_addresses')[0].claimed_at ?? null, null, 'nothing was sent and the address stayed claimed');
+});
+
+await test(['P5-2'], 'P5-2: the orders pass settles every claim the relay did not see — bound to the order its transaction opened, given back when that transaction reverted or opened none, and given back once a stale one is unknown to the node; a pending one waits', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  offer();
+  asParticipant('participant-1');
+  for (let i = 0; i < 4; i += 1) await post(addressRoute, 'order/address', { ...ADDRESS, termsId: '1' });
+  const rows = store.rows('bridge_v2_order_addresses');
+  const hashes = ['a', 'b', 'c', 'd'].map((h) => `0x${h.repeat(64)}`);
+  const old = new Date(Date.now() - config.RELAYED_CAMPAIGN_STALE_MS - 1_000).toISOString();
+  rows.forEach((row, i) => {
+    row.claimed_at = i === 3 ? old : new Date().toISOString();
+    row.claim_tx = hashes[i];
+  });
+  const openedLog = (orderId) => ({
+    address: ESCROW,
+    topics: encodeEventTopics({ abi: KEPTRA_ESCROW_ABI, eventName: 'OrderOpened', args: { orderId, termsId: 1n, payer: buyer.participant } }),
+    data: encodeAbiParameters([{ type: 'uint96' }, { type: 'uint256' }], [11_000_000n, 0n]),
+  });
+  chain.set({
+    receiptOf: (hash) => ({ [hashes[0]]: { status: 'success', logs: [openedLog(7n)] }, [hashes[1]]: { status: 'reverted', logs: [] }, [hashes[2]]: null, [hashes[3]]: null })[hash],
+    transactionKnown: (hash) => hash === hashes[2],
+  });
+  chainShows([]);
+  const { log } = await pass();
+  assert.equal(String(rows[0].order_id), '7');
+  assert.deepEqual([rows[1].claimed_at ?? null, rows[1].claim_tx ?? null], [null, null], 'a reverted claim was kept');
+  assert.equal(rows[2].claim_tx, hashes[2], 'a pending claim was given up on');
+  assert.deepEqual([rows[3].claimed_at ?? null, rows[3].order_id ?? null], [null, null], 'a stale claim the node does not know was kept');
+  assert.deepEqual(log.events.filter((e) => e.kind === 'order.address_released').map((e) => e.detail.reason).sort(), ['dropped', 'reverted']);
+});
+
+await test(['P5-3'], 'P5-3: a shipment the provider refuses for what it is (400, 404, 422) leaves the retries for good, with an alert; one refused for the moment (429, 5xx, no answer) is asked again; a closed order’s shipment never enters them', async () => {
+  const { buyer, shop } = await shippingSetup();
+  let status = 400;
+  // The first route that matches answers: these go in front of fresh()'s.
+  http.routes.unshift(['api.ship24.com', () => jsonResponse({ errors: [] }, status)]);
+  assert.equal((await post(trackingRoute, 'store/tracking', { orderId: '1', trackingNumber: 'ZX1234567' })).status, 200);
+  const shipment = () => store.rows('bridge_v2_order_shipments').find((r) => String(r.order_id) === '1');
+  assert.deepEqual([shipment().retry_stop_reason, shipment().tracker_id ?? null], ['REFUSED', null]);
+  const asked = () => http.requests.filter((r) => r.url.includes('ship24')).length;
+  const before = asked();
+  const log = recordingLogger();
+  assert.equal(await retryTrackers(log, deadline()), 0);
+  assert.equal(asked(), before, 'a refused shipment was asked again');
+  // A transient refusal stays in the queue and is asked again.
+  status = 503;
+  assert.equal((await post(trackingRoute, 'store/tracking', { orderId: '2', trackingNumber: 'ZX7654321' })).status, 200);
+  const other = () => store.rows('bridge_v2_order_shipments').find((r) => String(r.order_id) === '2');
+  assert.equal(other().retry_stopped_at ?? null, null);
+  http.routes.unshift(['api.ship24.com', () => jsonResponse({ data: { tracker: { trackerId: 'tracker-0002-cccc' } } }, 201)]);
+  // Order 2 closes before its retry: it never goes to the provider again.
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator }), fx({ id: 2, state: OrderState.CLOSED, payer: buyer.participant, store: shop.creator })]);
+  await pass();
+  const beforeRetry = asked();
+  await retryTrackers(recordingLogger(), deadline());
+  assert.equal(asked(), beforeRetry, 'a closed order’s shipment was asked again');
+  assert.equal(other().retry_stop_reason, 'CLOSED');
+  // A shipment still open and refused for the moment is asked again.
+  const store3 = store.rows('bridge_v2_order_shipments');
+  store3.push({ order_id: '9', tracking_hash: `0x${'9'.repeat(64)}`, tracking_enc: shipment().tracking_enc, tracker_id: null, created_at: new Date().toISOString() });
+  store.insert('bridge_v2_order_addresses', { participant_id: 'participant-1', terms_id: '1', order_id: '9', address_enc: store.rows('bridge_v2_order_addresses')[0].address_enc });
+  await retryTrackers(recordingLogger(), deadline());
+  assert.equal(store.rows('bridge_v2_order_shipments').find((r) => String(r.order_id) === '9').tracker_id, 'tracker-0002-cccc');
+});
+
+await test(['P5-4'], 'P5-4: the pass reads every open order whatever their number — pages of the index past any cap on one answer — the least recently read first, and the pages of the new ones alternate with the known ones', async () => {
+  fresh();
+  const payer = '0x1234567890123456789012345678901234567890';
+  const shop = '0x0987654321098765432109876543210987654321';
+  const base = Date.now() - 3_600_000;
+  for (let id = 1; id <= 520; id += 1) {
+    store.insert('bridge_v2_orders', {
+      order_id: String(id), terms_id: '1', voucher_id: '0', store_address: shop, payer_address: payer, mode: 0, prize: false, ship_days: 5, delivery_days: 10,
+      state: OrderState.PAID, flags: 0, paid_at: String(T0), shipped_at: '0', window_ends_at: '0', contested_at: '0', seen_block: '1', outcome: null, closed_at: null,
+      // Order 520 was read longest ago.
+      updated_at: new Date(base + (id === 520 ? -60_000 : id)).toISOString(),
+    });
+  }
+  const open = await orders.openOrders();
+  assert.equal(open.length, 520, 'the index was read only as far as one answer goes');
+  assert.equal(open[0].orderId, 520n, 'the least recently read is not first');
+  assert.ok(db.callsTo('bridge_v2_orders:select').length >= 2, 'the index was read in one request');
+  // Pages alternate: with time for two pages, one page of the known and one of the new are read.
+  chainShows([...Array.from({ length: 525 }, (_unused, i) => fx({ id: i + 1, payer, store: shop }))]);
+  let pages = 0;
+  const limited = { hasTimeFor: (ms) => ms !== config.ORDER_SCAN_MS || (pages += 1) <= 2 };
+  await advanceOrders(recordingLogger(), limited);
+  const read = escrow.calls.filter((c) => c.name === 'readOrders').map((c) => c.args[0]);
+  assert.equal(read.length, 2);
+  assert.equal(read[0][0], 520n);
+  assert.deepEqual(read[1], [521n, 522n, 523n, 524n, 525n]);
+});
+
+await test(['P5-5'], 'P5-5: the processing route’s worst case is declared per item — each order of a scan page and each voucher of a voucher page starts only with its own reservation, and those reservations are named in config.ts and inside the budget', async () => {
+  fresh();
+  const payer = '0x1234567890123456789012345678901234567890';
+  const shop = '0x0987654321098765432109876543210987654321';
+  chainShows([1, 2, 3].map((id) => fx({ id, payer, store: shop })));
+  let orderUnits = 0;
+  await advanceOrders(recordingLogger(), { hasTimeFor: (ms) => ms !== config.ORDER_SYNC_MS || (orderUnits += 1) <= 2 });
+  assert.equal(store.rows('bridge_v2_orders').length, 2, 'an order was written without its reservation');
+  // Vouchers: one decision per reservation.
+  escrow.set({ voucherLastId: 3n, readVouchers: (ids) => ids.map((voucherId) => ({ voucherId, owner: '0x5151515151515151515151515151515151515151', voided: false, claimedAt: 0n, giveawayId: 0n, obligationId: 1n })), voucherReleasable: true });
+  let voucherUnits = 0;
+  await advanceOrders(recordingLogger(), { hasTimeFor: (ms) => ms !== config.VOUCHER_CHECK_MS || (voucherUnits += 1) <= 1 });
+  assert.equal(escrow.calls.filter((c) => c.name === 'voucherReleasable').length, 1);
+  for (const name of ['ORDER_SCAN_MS', 'ORDER_SYNC_MS', 'VOUCHER_SCAN_MS', 'VOUCHER_CHECK_MS', 'ORDER_CLAIM_MS', 'ORDER_EXIT_MS', 'ORDER_NOTICE_MS', 'ORDER_CLOSE_MS', 'ORDER_LOG_CHUNK_MS', 'ORDER_MARK_MS']) {
+    assert.ok(Object.values(config.EVERY_RESERVATION_MS).includes(config[name]), `${name} is not in the reservations`);
+    assert.ok(config[name] < config.RUN_BUDGET_MS, name);
+  }
+  assert.equal(config.ORDER_SYNC_MS, 9 * config.DB_TIMEOUT_MS + config.ALERT_MS);
+  assert.equal(config.VOUCHER_CHECK_MS, 2 * config.RPC_TIMEOUT_MS + config.DB_TIMEOUT_MS);
+});
+
+await test(['P5-6', 'Q29', 'AP13'], 'P5-6 (P13): the places the bridge signs are counted in its own source — every call that signs with a key in lib/bridge-v2 and api/ is found and belongs to one of eight functions, and the shapes the keeper and the bridge role sign are read from those functions: the root, four lifecycle calls, four exits, the mark and the redemption', () => {
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(`${root}${dir}`)) {
+      const path = `${dir}/${name}`;
+      if (statSync(`${root}${path}`).isDirectory()) walk(path);
+      else if (path.endsWith('.ts')) files.push(path);
+    }
+  };
+  // The bridge: lib/bridge-v2 and its routes (lib/keptra is the page, which holds no key).
+  walk('lib/bridge-v2');
+  walk('api');
+  const sites = [];
+  for (const path of files) {
+    const text = read(path);
+    for (const match of text.matchAll(/\.(signTransaction|signTypedData|signMessage|sign)\(/g)) {
+      if (text.slice(0, match.index).endsWith('crypto.subtle')) continue; // an HMAC, not a key's signature
+      const before = text.slice(0, match.index);
+      const fn = [...before.matchAll(/(?:export )?(?:async )?function (\w+)\(/g)].pop()?.[1];
+      sites.push(`${path}#${fn}`);
+    }
+  }
+  assert.deepEqual([...new Set(sites)].sort(), [
+    'lib/bridge-v2/chain.ts#publishEligibilityRoot',
+    'lib/bridge-v2/chain.ts#sendKeeperExit',
+    'lib/bridge-v2/chain.ts#sendLifecycleCall',
+    'lib/bridge-v2/chain.ts#sendRecipientMark',
+    'lib/bridge-v2/chain.ts#signRedemption',
+    'lib/bridge-v2/funders.ts#signAsFunder',
+    'lib/bridge-v2/guardian.ts#signRecoveryHash',
+    'lib/bridge-v2/wallet.ts#signAsDerived',
+  ]);
+  const chainSource = read('lib/bridge-v2/chain.ts').replace(/\r\n/g, '\n');
+  const body = (name) => chainSource.slice(chainSource.indexOf(`function ${name}(`), chainSource.indexOf('\n}\n', chainSource.indexOf(`function ${name}(`)));
+  const written = (text, abi) => [...text.matchAll(new RegExp(`abi: ${abi}, functionName: '(\\w+)'`, 'g'))].map((m) => m[1]);
+  const lifecycleBuilder = chainSource.slice(chainSource.lastIndexOf('function ', chainSource.indexOf("functionName: 'closeGiveaway'")), chainSource.indexOf('export async function sendLifecycleCall'));
+  const shapes = [
+    ...[...body('publishEligibilityRoot').matchAll(/functionName: '(\w+)'/g)].map((m) => m[1]),
+    ...written(lifecycleBuilder, 'GIVEAWAY_LIFECYCLE_ABI'),
+    ...written(body('exitCall'), 'KEPTRA_KEEPER_ABI'),
+    ...written(body('sendRecipientMark'), 'KEPTRA_BRIDGE_ROLE_ABI'),
+    ...[...body('signRedemption').matchAll(/primaryType: '(\w+)'/g)].map((m) => m[1]),
+  ];
+  assert.deepEqual(shapes, ['addEligibilityRoot', 'closeGiveaway', 'requestDraw', 'expireDrawRequest', 'finalizeWinners', 'expire', 'closeWindow', 'resolveAbsentArbiter', 'voidVoucher', 'markVerifiedRecipient', 'Redemption']);
+});
+
+await test(['P5-7'], 'P5-7 (D7): the export carries the evidence the participant wrote — as the recipient of its orders and as the store of its sales — decrypted, and never the other party’s text', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator }), fx({ id: 2, payer: shop.participant, store: buyer.creator })]);
+  await pass();
+  await orders.writeEvidence(1n, 'RECIPIENT', 'The box was empty.');
+  await orders.writeEvidence(1n, 'STORE', 'It was sealed when it left.');
+  await orders.writeEvidence(2n, 'STORE', 'Shipped on Monday.');
+  await orders.writeEvidence(2n, 'RECIPIENT', 'Never came.');
+  asParticipant('participant-1');
+  const body = await (await exportRoute.POST(request(url('privacy/export'), { cookie: SESSION_COOKIE }))).json();
+  assert.deepEqual(body.evidence.map((e) => [e.orderId, e.party, e.text]).sort(), [['1', 'RECIPIENT', 'The box was empty.'], ['2', 'STORE', 'Shipped on Monday.']]);
+  assert.ok(!JSON.stringify(body).includes('It was sealed') && !JSON.stringify(body).includes('Never came'), 'the other party’s text is in the export');
+});
+
+await test(['P5-8'], 'P5-8: migration 0013 says with which label the tracking number is encrypted, and it is the label orders.ts encrypts it with', () => {
+  const source = read('lib/bridge-v2/orders.ts');
+  const labelOf = (constant) => source.match(new RegExp(`const ${constant} = '([^']+)'`))[1];
+  const used = source.match(/tracking_enc: await encryptUnder\(ROOT, (\w+), trackingNumber\)/)[1];
+  const label = labelOf(used);
+  assert.equal(label, 'order-address-enc-v1');
+  const migration = read('supabase/migrations/0013_keptra_orders.sql');
+  assert.match(migration, new RegExp(`the tracking number under that SAME\\s+-- label, '${label}'`));
+  assert.match(migration, new RegExp(`-- P5-8: ciphertext under '${label}'[^\\n]*\\n\\s+tracking_enc`));
+  assert.ok(!/Each is ciphertext under a key derived from\s+-- BRIDGE_V2_PHONE_HMAC_KEY with a label of its own/.test(migration), 'the old sentence that gave each its own label is still there');
+});
+
+await test(['P5-9'], 'P5-9: no test reads a file of another repository by an absolute path — what the audited contracts say is read from this repository’s fixture of 5d85a46', () => {
+  for (const dir of ['test/bridge-v2/suites', 'test/bridge-v2/fork', 'test/bridge-v2']) {
+    for (const name of readdirSync(`${root}${dir}`)) {
+      if (!name.endsWith('.mjs')) continue;
+      const text = read(`${dir}/${name}`);
+      assert.ok(!/['"`][A-Za-z]:[\\/]/.test(text) && !/['"`]\/(?:c|Users|home)\//.test(text), `${dir}/${name} reads by an absolute path`);
+      assert.ok(!/readFileSync\([^)]*instant-win-(?:audit|cre)/.test(text), `${dir}/${name} reads another repository`);
+    }
+  }
+});
+
+await test(['P5-10'], 'P5-10: the rotation of the oracle’s list turns half a slot away from the oracle’s firing — every node of one firing reads the same list, and consecutive firings read different slots', () => {
+  const period = config.ORACLE_ROTATION_SECONDS;
+  assert.equal(config.ORACLE_ROTATION_OFFSET_SECONDS, period / 2);
+  for (let n = 1_000; n < 1_010; n += 1) {
+    const firing = n * period;
+    const slot = orders.rotationSlot(firing);
+    for (let skew = -60; skew <= 120; skew += 15) assert.equal(orders.rotationSlot(firing + skew), slot, `a node ${skew}s from the firing read another list`);
+    assert.equal(orders.rotationSlot(firing + period), slot + 1, 'the next firing reads the same slot');
+  }
+});
+
+await test(['P5-11'], 'P5-11: a further read of the log reserves the whole rest of the close — the mark, Y5’s notice, the retries stopped and the row — so a close whose last read fits always finishes', () => {
+  const tail = 9 * config.DB_TIMEOUT_MS + config.HTTP_TIMEOUT_MS;
+  assert.equal(config.ORDER_LOG_CHUNK_MS, config.RPC_TIMEOUT_MS + tail);
+  assert.equal(config.ORDER_CLOSE_MS, 2 * config.RPC_TIMEOUT_MS + 3 * config.DB_TIMEOUT_MS + tail);
+  const source = read('lib/bridge-v2/keptraOrders.ts');
+  assert.match(source, /orderOutcome\(row\.orderId, row\.seenBlock, tip, \(\) => deadline\.hasTimeFor\(ORDER_LOG_CHUNK_MS\)\)/);
+  // Between the log and the recorded close nothing asks for more time.
+  const close = source.slice(source.indexOf('async function closeOne('), source.indexOf('export function refusedDeclaredWindow'));
+  assert.equal([...close.matchAll(/hasTimeFor\(/g)].length, 1);
+});
+
+await test(['P5-14', 'Q1'], 'P5-14: what is searched for “in clear” can never be matched by chance — every needle holds a character no identifier, hash or ciphertext of the bridge has (a space), so a random value never turns a pass into a failure or the reverse', async () => {
+  fresh();
+  await person('participant-1', '0x2222222222222222222222222222222222222222');
+  offer();
+  const clear = { name: 'Ana Silva', street: 'Rua das Flores 12', postCode: '1000 001', city: 'Vila Nova', country: 'PT', phone: '+351 912 345 678' };
+  assert.equal((await post(addressRoute, 'order/address', { ...clear, termsId: '1' })).status, 200);
+  const [row] = store.rows('bridge_v2_order_addresses');
+  const needles = ['Ana Silva', 'Rua das Flores', '1000 001', 'Vila Nova', '+351 912'];
+  for (const needle of needles) assert.ok(/ /.test(needle), `${needle} could be matched by chance`);
+  // The alphabets of what else is stored: base64url ciphertext, hex, uuids, ISO dates. None has a space.
+  for (const value of Object.values(row)) if (value !== null && value !== undefined) assert.ok(!/ /.test(String(value)), `a stored value holds a space: ${value}`);
+  for (const needle of needles) assert.ok(!JSON.stringify(row).includes(needle), `${needle} is stored in clear`);
+  const { decryptUnder } = await import('../../../lib/bridge-v2/crypto.ts');
+  assert.deepEqual(JSON.parse(await decryptUnder('BRIDGE_V2_PHONE_HMAC_KEY', 'order-address-enc-v1', row.address_enc)), clear);
+});
+
+await test(['AA-Y5'], 'Y5 (X10): a window the store’s declaration opened, closed by the carrier’s refusal before its end, is told to the recipient once — and the close is recorded only once it is; the 24-hour reminder never follows; a window that simply ends is told nothing of the kind', async () => {
+  const { buyer, shop } = await markSetup();
+  offer();
+  const declared = { payer: buyer.participant, store: shop.creator, state: OrderState.WINDOW, flags: 0, shippedAt: T0 - DAY, windowEndsAt: T0 + 4n * DAY };
+  chainShows([fx({ id: 1, ...declared }), fx({ id: 2, ...declared })]);
+  await pass();
+  const kinds = () => store.rows('bridge_v2_order_notices').map((r) => `${r.order_id}:${r.kind}`).sort();
+  assert.deepEqual(kinds(), ['1:WINDOW_OPENED', '2:WINDOW_OPENED']);
+  // The oracle attests a refusal of order 1 (T8); order 2's window is closed by the keeper after its end (T7).
+  chainShows([fx({ id: 1, ...declared, state: OrderState.CLOSED }), fx({ id: 2, ...declared, state: OrderState.CLOSED })], T0 + DAY);
+  escrow.set({ orderOutcome: (id, _from, to) => ({ outcome: id === 1n ? 2 : 0, searchedTo: to }) });
+  // The email refused once: the close waits for it.
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: false, error: null }));
+  await pass();
+  const row1 = () => store.rows('bridge_v2_orders').find((r) => String(r.order_id) === '1');
+  assert.equal(row1().closed_at ?? null, null, 'the close was recorded before the recipient was told');
+  db.on('rpc:bridge_v2_claim_spend', () => ({ data: true, error: null }));
+  await pass();
+  assert.notEqual(row1().closed_at ?? null, null);
+  assert.deepEqual(kinds(), ['1:WINDOW_OPENED', '1:WINDOW_REFUSED', '2:WINDOW_OPENED']);
+  const refused = mails().filter((m) => /closed by the carrier/.test(m.subject));
+  assert.equal(refused.length, 1);
+  assert.match(refused[0].text, /nothing left to confirm or contest/);
+  assert.ok(!mails().some((m) => /closes in less than 24 hours/.test(m.subject)), 'the 24-hour reminder went for a closed window');
+  // The rule itself: SPLIT from a declared window, no proof, no store refusal, no contest.
+  const { refusedDeclaredWindow } = await import('../../../lib/bridge-v2/keptraOrders.ts');
+  const base = { outcome: 2, windowEndsAt: T0, contestedAt: 0n, flags: 0 };
+  assert.equal(refusedDeclaredWindow(base), true);
+  assert.equal(refusedDeclaredWindow({ ...base, flags: OrderFlag.REFUSAL }), false);
+  assert.equal(refusedDeclaredWindow({ ...base, flags: OrderFlag.PROOF }), false);
+  assert.equal(refusedDeclaredWindow({ ...base, contestedAt: T0 }), false);
+  assert.equal(refusedDeclaredWindow({ ...base, windowEndsAt: 0n }), false);
+  assert.equal(refusedDeclaredWindow({ ...base, outcome: 0 }), false);
 });
 
 // ===========================================================================

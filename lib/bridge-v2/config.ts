@@ -616,21 +616,24 @@ export const ROLE_KEYS_CHECK_MS = ALERT_MS + DB_TIMEOUT_MS;
  * SPEC-BLOCO-03 Adenda F7, as the owner decided on 19/09/2026: the part of a
  * relayed submission that cannot be taken back once begun, which account/relay
  * starts only with this much of its own budget (RUN_BUDGET_MS, from the moment
- * the request arrived) left. Counted over the action that needs most of it:
+ * the request arrived) left. Counted over the action that needs most of it —
+ * since P5-2, a payment or a redemption:
  *
- *   database, 17: the transaction counted and counted again (E2), the draft or
- *   the guardian change recorded, the spend claimed, the funder leased and its
- *   nonce reconciled (two), the hash on the draft, the lease released — and if
+ *   database, 18: the address claimed (one conditional write, P5-2), the
+ *   transaction counted and counted again (E2), the spend claimed, the funder leased and its
+ *   nonce reconciled (two), the hash on the claim, the lease released — and if
  *   that fails the funder disabled, an event and an alert (three) — the account
- *   read back (two) and its alert, the campaign confirmed and its event (two),
- *   and the last event;
+ *   read back (two) and its alert, the order's address checked, bound and its
+ *   event (three), and the last event; a campaign's draft or a guardian change
+ *   takes no more (the draft's move and its hash, the confirmation and its
+ *   event, in place of the claim and the binding);
  *   RPC, 5: the funder's nonce, the fee with the estimate, the broadcast, and
  *   the account read back (two);
  *   HTTP, 2: the two alerts' webhook; and one receipt wait.
  *
  * A receipt that does not come within its wait leaves the state for E3 and E7.
  */
-export const RELAY_SEND_MS = RECEIPT_TIMEOUT_MS + 5 * RPC_TIMEOUT_MS + 17 * DB_TIMEOUT_MS + 2 * HTTP_TIMEOUT_MS;
+export const RELAY_SEND_MS = RECEIPT_TIMEOUT_MS + 5 * RPC_TIMEOUT_MS + 18 * DB_TIMEOUT_MS + 2 * HTTP_TIMEOUT_MS;
 
 /**
  * SPEC-BLOCO-03 Adenda F10: bridge_v2_relayed_transactions and
@@ -707,6 +710,16 @@ export const ERASE_ADDRESSES_NOW_MAX = 4;
 export const ORACLE_PENDING_PAGE = 13;
 export const ORACLE_ROTATION_SECONDS = 15 * 60;
 /**
+ * P5-10: where the rotation's windows begin, against the oracle's schedule. The
+ * workflow fires every fifteen minutes, at second 0 of the quarter hour (MATRIZ-PECA4
+ * and config.production.json at df37231), and the nodes of the DON ask within a
+ * few seconds of it. A window that turned over at that same instant would hand
+ * the nodes that asked either side of it two different lists, and no consensus.
+ * Shifted by half a window, the turn falls midway between two firings, so every
+ * node of one firing reads the same list — and each firing still reads the next.
+ */
+export const ORACLE_ROTATION_OFFSET_SECONDS = ORACLE_ROTATION_SECONDS / 2;
+/**
  * P1: the vouchers one relayed campaign may deposit. takeCustody moves each with
  * safeTransferFrom (about 100 000 gas apiece), and the batch has to fit the
  * relayer's ACCOUNT band. ponytail: a larger obligation runs several campaigns.
@@ -722,22 +735,56 @@ export const ORDER_SCAN_PAGE = 50;
 export const ORDER_LOG_SPAN_BLOCKS = 10_000n;
 
 /**
- * P12: what one pass over the orders reserves before a unit — the order count and
- * the latest block, one page of orders and their terms, and the rows written.
+ * P12: what one pass over the orders reserves before a page of its scan — the
+ * order count and the latest block, the open orders read (a page of the index,
+ * the last id known, the orders read aside, P5-12), one page of orders and their
+ * terms read from the chain. P5-5: each order of the page then reserves its own
+ * ORDER_SYNC_MS before it is written.
  */
 export const ORDER_SCAN_MS = 3 * RPC_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
 /**
- * Adenda R1: one order seen in its final state, closed on this side — its erasure
- * date on three tables, the first read of its OrderClosed log, its mark settled
- * (read and written), and the row that records the close.
+ * P5-5: one order of a page written down — for a new one, its address bound when
+ * no claim waits on it (whether it has one, its payer's account, a pending claim,
+ * the address, the binding and its event); its row; or, when it fails, the
+ * failure recorded (an event and an alert) and its place in the list read aside
+ * (P5-12).
  */
-export const ORDER_CLOSE_MS = RPC_TIMEOUT_MS + 6 * DB_TIMEOUT_MS;
-/** Adenda R2: each further read of that log, and the row that keeps how far the search got. */
-export const ORDER_LOG_CHUNK_MS = RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
+export const ORDER_SYNC_MS = 9 * DB_TIMEOUT_MS + ALERT_MS;
+/**
+ * P5-2: one address a relayed payment or redemption claimed, whose receipt the
+ * relay never saw, bound from that transaction's receipt — the receipt read, the
+ * order's address checked, the address bound or given back, and its event.
+ */
+export const ORDER_CLAIM_MS = RPC_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
+/**
+ * What a close still has to do after its last read of the log (P5-11): its mark
+ * settled (read and written), Y5's notice when the carrier's refusal closed a
+ * declared window (the address to send to, two stages; the spend; the email; the
+ * record and its event), the shipment's retry stopped (P5-3), and the row that
+ * records the close. A search the time cuts short writes one row instead.
+ */
+const ORDER_CLOSE_TAIL_MS = 9 * DB_TIMEOUT_MS + HTTP_TIMEOUT_MS;
+/**
+ * Adenda R1: one order seen in its final state, closed on this side — the chain's
+ * latest block read once for the pass's closes (P5-1), its erasure date on three
+ * tables, the first read of its OrderClosed log, and what the close does after it.
+ */
+export const ORDER_CLOSE_MS = 2 * RPC_TIMEOUT_MS + 3 * DB_TIMEOUT_MS + ORDER_CLOSE_TAIL_MS;
+/**
+ * Adenda R2 and P5-11: each further read of that log — and all the close still
+ * has to do after it, should it be the last (ORDER_CLOSE_TAIL_MS).
+ */
+export const ORDER_LOG_CHUNK_MS = RPC_TIMEOUT_MS + ORDER_CLOSE_TAIL_MS;
 /** P11 and P12: one exit by time signed by the keeper — the account read, the quote, the broadcast, the receipt. */
 export const ORDER_EXIT_MS = RECEIPT_TIMEOUT_MS + 5 * RPC_TIMEOUT_MS;
 /** P11: one page of vouchers read for the ones the core can no longer deliver (ownership, the clocks, itemsOf). */
 export const VOUCHER_SCAN_MS = 3 * RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
+/**
+ * P5-5: one voucher of that page decided on — the campaign's deposit list the
+ * first time its campaign is met, whether the voucher contract lets it go, and a
+ * finished one written down.
+ */
+export const VOUCHER_CHECK_MS = 2 * RPC_TIMEOUT_MS + DB_TIMEOUT_MS;
 /**
  * 13.1, P5, P14: one recipient marked — the payer's and the store's accounts and
  * numbers, the mark reserved, the spend claimed, the bridge role's transaction
@@ -748,8 +795,12 @@ export const ORDER_MARK_MS = RECEIPT_TIMEOUT_MS + 4 * RPC_TIMEOUT_MS + 8 * DB_TI
 export const ORDER_NOTICE_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
 /** 10.3: the erasure of what outlived its orders — four deletes and the event. */
 export const ORDER_ERASURE_MS = 5 * DB_TIMEOUT_MS;
-/** 9.5.5: one tracker the provider did not take, asked again — the shipment, the address, the spend, the post, the row. */
-export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
+/**
+ * 9.5.5: one tracker the provider did not take, asked again — the shipment, its
+ * order (P5-3: a closed order leaves the queue), the address, the spend, the post,
+ * and the row: the tracker kept, or the retries stopped.
+ */
+export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 5 * DB_TIMEOUT_MS;
 
 /**
  * G4 and §7/G4, checked rather than declared.
@@ -790,16 +841,18 @@ export const TRACKER_RETRY_MS = HTTP_TIMEOUT_MS + 4 * DB_TIMEOUT_MS;
  * 24_000 for the cleanup, 32_000 for the relay's retention, 24_000 and 16_000
  * for the two recovery bookkeeping steps, 34_000 per funder, 44_000 for the VRF,
  * 80_000 for the spend, 32_000 for the route errors, 34_000 per contract read,
- * 24_000 for the role keys — and the two routes that budget themselves: 232_000
+ * 24_000 for the role keys — and the two routes that budget themselves: 240_000
  * for a relayed submission's tail and 216_000 for one step of the creator submit
  * with the tail after it (P1-8).
  * The largest leaves 40_000 ms of margin, and every one fits the maintenance
  * pass's own budget (MAINTENANCE_BUDGET_MS, 272_000) as well. SPEC-BLOCO-03
- * piece 5 adds, in the pipeline, 62_000 for a page of the orders scan, 80_000
- * for one exit by the keeper, 38_000 for a page of vouchers, 134_000 for one
- * recipient mark, 40_000 for one notice, 58_000 for one order closed and 18_000
- * for each further read of its log (Adenda R); and in the maintenance pass 40_000
- * for the erasure and 40_000 for one tracker asked again.
+ * piece 5 adds, in the pipeline, 62_000 for a page of the orders scan, 88_000
+ * for each order of it written (P5-5), 42_000 for one address bound from its
+ * transaction (P5-2), 80_000 for one exit by the keeper, 38_000 for a page of
+ * vouchers, 28_000 for each voucher of it (P5-5), 134_000 for one recipient mark,
+ * 40_000 for one notice, 124_000 for one order closed and 90_000 for each further
+ * read of its log (Adenda R, P5-11); and in the maintenance pass 40_000 for the
+ * erasure and 48_000 for one tracker asked again.
  *
  * Adenda C1 as F8 extends it: EVERY reservation a maintenance step passes to
  * hasTimeFor — in any file the maintenance route reaches — is in this map. The
@@ -843,8 +896,11 @@ export const EVERY_RESERVATION_MS: Record<string, number> = {
   creatorSubmitUnit: CREATOR_SUBMIT_UNIT_MS,
   // SPEC-BLOCO-03 piece 5: the orders pass (under advanceLifecycle) and its two maintenance steps.
   orderScan: ORDER_SCAN_MS,
+  orderSync: ORDER_SYNC_MS,
+  orderClaim: ORDER_CLAIM_MS,
   orderExit: ORDER_EXIT_MS,
   voucherScan: VOUCHER_SCAN_MS,
+  voucherCheck: VOUCHER_CHECK_MS,
   orderMark: ORDER_MARK_MS,
   orderNotice: ORDER_NOTICE_MS,
   orderClose: ORDER_CLOSE_MS,
@@ -1173,10 +1229,11 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // read, the insert, the re-read, the ops event, and the envelope's.
   'api/bridge/v2/order/evidence.ts': maxDurationSeconds(2, 12),
   // Three RPC stages: the order, its terms, then whether the hash is used.
-  // Twelve database stages: the session read and slide, three rate-limit axes,
-  // the account, the shipment and the address, the spend, the insert, the ops
-  // event and the envelope's. Two HTTP stages: the provider, and an alert.
-  'api/bridge/v2/store/tracking.ts': maxDurationSeconds(3, 12, 2),
+  // Fourteen database stages: the session read and slide, three rate-limit axes,
+  // the account, the shipment and the address, the spend, the insert, the tracker
+  // kept or its retries stopped and that event (P5-3), the ops event and the
+  // envelope's. Two HTTP stages: the provider, and an alert.
+  'api/bridge/v2/store/tracking.ts': maxDurationSeconds(3, 14, 2),
   // One RPC stage: the escrow's arbiter. Seven database stages: two rate-limit
   // axes, the evidence, the order row and its description (SPEC-BLOCO-03 T4),
   // the ops event, and the envelope's.

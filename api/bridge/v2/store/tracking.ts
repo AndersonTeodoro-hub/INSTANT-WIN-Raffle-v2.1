@@ -14,6 +14,7 @@ import {
   ordersConfigured,
   registerShipment,
   setTracker,
+  stopTrackerRetry,
   trackingHashOf,
 } from '../../../../lib/bridge-v2/orders.js';
 
@@ -82,11 +83,15 @@ const route = handle('store/tracking', async ({ request, log }) => {
 
   let tracked = false;
   if (await claimSpend('tracking', 1, log)) {
-    const trackerId = await createTracker(trackingNumber, address.postCode, address.country);
-    if (trackerId !== null) {
-      await setTracker(orderId, trackerId);
+    const result = await createTracker(trackingNumber, address.postCode, address.country);
+    if (result.kind === 'created') {
+      await setTracker(orderId, result.trackerId);
       await log.event('order.tracker_created', { order_id: orderId.toString() });
       tracked = true;
+    } else if (result.kind === 'refused') {
+      // P5-3: refused for what it is — never asked again (the maintenance retries skip it).
+      await stopTrackerRetry(orderId, 'REFUSED');
+      await log.event('order.tracker_stopped', { order_id: orderId.toString(), reason: 'refused' });
     }
   }
   return ok({ trackingHash, tracked });

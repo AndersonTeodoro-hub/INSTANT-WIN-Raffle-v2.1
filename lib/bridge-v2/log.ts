@@ -118,6 +118,10 @@ export type OpsKind =
   | 'order.recipient_marked'
   | 'order.tracking_registered'
   | 'order.tracker_created'
+  // SPEC-BLOCO-03 AA4: a claim given back (P5-2), a shipment out of the retries (P5-3), an order read aside (P5-12).
+  | 'order.address_released'
+  | 'order.tracker_stopped'
+  | 'order.read_aside'
   | 'order.evidence_written'
   // SPEC-BLOCO-03 piece 6: a description written once (T4); an erasure refused while value is left (T13).
   | 'offer.description_written'
