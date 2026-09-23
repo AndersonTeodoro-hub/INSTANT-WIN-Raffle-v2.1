@@ -2,7 +2,7 @@
  * The orders, the on-chain half — reads only. SPEC-BLOCO-03 piece 5.
  *
  * What the bridge reads of KeptraEscrow, KeptraGuarantee and KeptraVoucher
- * (pieces 2 and 3, commit 183a2b4). Nothing here signs: the keeper's exits and
+ * (pieces 2 and 3, commit 5d85a46). Nothing here signs: the keeper's exits and
  * the bridge role's mark and attestation live in chain.ts with the keys (H1, §18
  * M2), and everything a Keptra account does is built by the relay and signed by
  * its passkey. The addresses are config.ts's literals (P24).

@@ -4,7 +4,7 @@
  * actions, the orders pass driven by a doubled chain, the notices, the evidence
  * and the arbiter, the erasure, and migration 0013 executed on the embedded
  * Postgres. The on-chain half is test/bridge-v2/fork/orders.fork.mjs, against the
- * contracts of commit 183a2b4.
+ * contracts of commit 5d85a46.
  *
  * Tags: Qn for the rows of the piece's matrix (test/bridge-v2/MATRIZ-PECA5-KEPTRA.md),
  * and APn, AQn and ARn for the decisions of Adendas P, Q and R.
@@ -1310,7 +1310,7 @@ await test(['Q29', 'AP13', 'H1'], 'P13: the list of what the bridge signs is clo
   for (const name of ['expire', 'closeWindow', 'resolveAbsentArbiter', 'voidVoucher', 'markVerifiedRecipient']) {
     assert.match(chainSource, new RegExp(`functionName: '${name}'`), name);
   }
-  // Selectors of the audited contracts (KeptraEscrow.sol, KeptraGuarantee.sol at 183a2b4).
+  // Selectors of the audited contracts (KeptraEscrow.sol, KeptraGuarantee.sol at 5d85a46).
   assert.equal(toFunctionSelector('expire(uint256)'), encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'expire', args: [1n] }).slice(0, 10));
   assert.equal(toFunctionSelector('voidVoucher(uint256,uint256)'), encodeFunctionData({ abi: KEPTRA_KEEPER_ABI, functionName: 'voidVoucher', args: [1n, 0n] }).slice(0, 10));
 });

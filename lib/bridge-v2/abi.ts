@@ -1042,7 +1042,7 @@ export const ERC1155_PRIZE_MODULE_ABI = [
 export const ERC1155_RECEIVER_INTERFACE_ID = '0x4e2312e0' as const;
 
 // -----------------------------------------------------------------------------
-// SPEC-BLOCO-03 piece 5 — KeptraEscrow, KeptraGuarantee, KeptraVoucher (183a2b4)
+// SPEC-BLOCO-03 piece 5 — KeptraEscrow, KeptraGuarantee, KeptraVoucher (5d85a46)
 // -----------------------------------------------------------------------------
 
 /** KeptraEscrow.State, the values the bridge branches on. */

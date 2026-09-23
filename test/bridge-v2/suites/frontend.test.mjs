@@ -863,8 +863,8 @@ await test(['AT12'], 'T12: what left this build has no screen — no second pass
   assert.ok(!/call<[^>]*>\('account\/recovery'/.test(codeOf('lib/keptra/api.ts')));
 });
 
-await test(['U29', 'U30', 'AT15'], '12.7 and T15: every figure the pool panel and the tier read is a function the 183a2b4 contracts have — capital, coverage, capacity, utilisation, reserve, fees, losses, shares, debts; the escrow’s ceilings', () => {
-  const fixture = JSON.parse(read('test/bridge-v2/fork/keptra-183a2b4.json'));
+await test(['U29', 'U30', 'AT15'], '12.7 and T15: every figure the pool panel and the tier read is a function the 5d85a46 contracts have — capital, coverage, capacity, utilisation, reserve, fees, losses, shares, debts; the escrow’s ceilings', () => {
+  const fixture = JSON.parse(read('test/bridge-v2/fork/keptra-5d85a46.json'));
   const has = (contract, abi) => {
     for (const item of abi.filter((entry) => entry.type === 'function')) {
       const signature = toFunctionSignature(item).replace(/\s/g, '');
@@ -876,6 +876,31 @@ await test(['U29', 'U30', 'AT15'], '12.7 and T15: every figure the pool panel an
   has('KeptraEscrow', contracts.ESCROW_READ_ABI);
   assert.match(codeOf('pages/keptra/OfferPage.tsx'), /useTier\(terms\?\.store/);
   assert.match(codeOf('components/keptra/hooks.ts'), /functionName: 'tierOf'/);
+});
+
+await test(['AA-T18', 'AA-Q7', 'AT18'], 'T18 and Q7 (Z1): every function, event and error of the bridge’s Keptra ABIs and of the page’s read ABIs is in the ABI compiled from 5d85a46 — same inputs, same outputs, same indexed topics — and the fixture is that commit’s, with Z1’s escrow hash', () => {
+  const fixture = JSON.parse(read('test/bridge-v2/fork/keptra-5d85a46.json'));
+  assert.equal(fixture.commit, '5d85a46');
+  assert.equal(keccak256(fixture.contracts.KeptraEscrow.creationCode), `0x${'7f269f74cc6a659f906194f4d87635a8d0cfa56a10d1fe774047c91e023890c4'}`);
+  assert.equal(existsSync(`${root}test/bridge-v2/fork/keptra-183a2b4.json`), false, 'the fixture of 183a2b4 is still there');
+  const types = (params) => JSON.stringify((params ?? []).map((p) => (p.components ? { t: p.type, c: JSON.parse(types(p.components)) } : p.type)));
+  const shape = (item) => `${item.type} ${item.name}${types(item.inputs)}${item.type === 'function' ? `->${types(item.outputs)}` : ''}${item.type === 'event' ? JSON.stringify(item.inputs.map((i) => Boolean(i.indexed))) : ''}`;
+  const against = (label, abi, names) => {
+    const compiled = new Set(names.flatMap((name) => fixture.contracts[name].abi.map(shape)));
+    for (const item of abi.filter((entry) => ['function', 'event', 'error'].includes(entry.type))) {
+      assert.ok(compiled.has(shape(item)), `${label}: ${shape(item)} is not in ${names.join('/')} at 5d85a46`);
+    }
+  };
+  against('KEPTRA_ESCROW_ABI', bridgeAbi.KEPTRA_ESCROW_ABI, ['KeptraEscrow']);
+  against('KEPTRA_GUARANTEE_ABI', bridgeAbi.KEPTRA_GUARANTEE_ABI, ['KeptraGuarantee']);
+  against('KEPTRA_VOUCHER_ABI', bridgeAbi.KEPTRA_VOUCHER_ABI, ['KeptraVoucher']);
+  against('KEPTRA_REPUTATION_ABI', bridgeAbi.KEPTRA_REPUTATION_ABI, ['KeptraReputation']);
+  against('KEPTRA_KEEPER_ABI', bridgeAbi.KEPTRA_KEEPER_ABI, ['KeptraEscrow', 'KeptraGuarantee']);
+  against('KEPTRA_BRIDGE_ROLE_ABI', bridgeAbi.KEPTRA_BRIDGE_ROLE_ABI, ['KeptraEscrow']);
+  against('ESCROW_READ_ABI', contracts.ESCROW_READ_ABI, ['KeptraEscrow']);
+  against('REPUTATION_READ_ABI', contracts.REPUTATION_READ_ABI, ['KeptraReputation']);
+  against('GUARANTEE_READ_ABI', contracts.GUARANTEE_READ_ABI, ['KeptraGuarantee']);
+  against('POOL_READ_ABI', contracts.POOL_READ_ABI, ['KeptraPool']);
 });
 
 await test(['AT14', 'U32'], 'T14: the privacy page is a route with the owner’s text — empty today — and every address form is locked while it is empty', () => {
@@ -1002,6 +1027,52 @@ await test(['AT10', 'AT11', 'AU6'], 'T10, T11 and U6: the arbiter and the pool�
   const provider = read('docs/keptra/POOL-PROVIDER.md');
   for (const needle of ['deposit(uint256,address)', 'requestWithdraw(uint256)', 'cancelWithdraw(uint256)', 'processQueue(uint256)', 'defaultSource()']) assert.ok(provider.includes(needle), needle);
   for (const text of [arbiter, provider]) assert.ok(!/0x[0-9a-fA-F]{64}/.test(text), 'a 32-byte hex value in the instructions');
+});
+
+/** Every `cast call|send <CONTRACT> "sig(...)(...)"` of an instruction file, against the ABI compiled from 5d85a46. */
+function castCallsHold(path) {
+  const fixture = JSON.parse(read('test/bridge-v2/fork/keptra-5d85a46.json'));
+  const contractOf = { ESCROW: 'KeptraEscrow', GUARANTEE: 'KeptraGuarantee', POOL: 'KeptraPool', REPUTATION: 'KeptraReputation', VOUCHER: 'KeptraVoucher' };
+  const text = read(path);
+  const calls = [...text.matchAll(/cast (call|send) <([A-Z_]+)> "([A-Za-z0-9_]+)\(([^)]*)\)(?:\(([^)]*)\))?"/g)];
+  let checked = 0;
+  for (const [, verb, target, name, inputs, outputs] of calls) {
+    const contract = contractOf[target];
+    if (contract === undefined) continue;
+    const split = (list) => (list === undefined || list === '' ? [] : list.split(','));
+    const found = fixture.contracts[contract].abi.find((item) => item.type === 'function' && item.name === name && item.inputs.map((i) => i.type).join(',') === split(inputs).join(','));
+    assert.ok(found !== undefined, `${path}: ${target} has no ${name}(${inputs}) at 5d85a46`);
+    const view = found.stateMutability === 'view' || found.stateMutability === 'pure';
+    assert.equal(view, verb === 'call', `${path}: ${name} is sent with cast ${verb}`);
+    if (outputs !== undefined) {
+      const flat = (params) => params.flatMap((p) => (p.type === 'tuple' ? flat(p.components) : [p.type]));
+      assert.equal(flat(found.outputs).join(','), split(outputs).join(','), `${path}: ${name} does not return (${outputs})`);
+    }
+    checked += 1;
+  }
+  assert.ok(!/0x[0-9a-fA-F]{64}/.test(text), `${path}: a 32-byte hex value`);
+  return { text, checked };
+}
+
+await test(['AA-X8'], 'X8 (Y5): the provider’s instructions describe the withdrawal queue of 5d85a46 — the index is a row of queue and never changes, row 0 is a sentinel, a request reads as (provider, shares, previous, next), queueHead and queueTail, pendingRequests counts the live ones, processQueue serves live requests only — and every call they name is in that commit’s pool with those types', () => {
+  const { text, checked } = castCallsHold('docs/keptra/POOL-PROVIDER.md');
+  assert.ok(checked >= 12, `only ${checked} calls checked`);
+  for (const needle of ['5d85a46', 'X8', '"queue(uint256)(address,uint256,uint256,uint256)"', '"queueHead()(uint256)"', '"queueTail()(uint256)"', '"pendingRequests()(uint256)"', 'WithdrawQueued', 'sentinela', 'P23-11', 'NotQueued']) {
+    assert.ok(text.includes(needle), `the provider’s instructions do not say ${needle}`);
+  }
+  assert.ok(!/cancelWithdraw[^\n]*<INDICE>[^\n]*\n[^\n]*queue\.length - queueHead/.test(text));
+  castCallsHold('docs/keptra/ARBITER.md');
+});
+
+await test(['P23-15'], 'P23-15 (Z3): the owner’s operating instructions are in docs/keptra/OWNER.md, hold no key, name only calls the 5d85a46 contracts have, and carry Z3’s check — the six escrow roles read, isProvider asked of each in every authorised pool, before a second pool or any change of a role or a provider', () => {
+  const { text, checked } = castCallsHold('docs/keptra/OWNER.md');
+  assert.ok(checked >= 20, `only ${checked} calls checked`);
+  for (const role of ['owner', 'pendingOwner', 'oracle', 'arbiter', 'bridge', 'platform']) assert.ok(text.includes(`"${role}()(address)"`), `the check does not read ${role}`);
+  for (const needle of ['## 5. Verificação da Z3', '"isProvider(address)(bool)"', '"defaultSource()(address)"', '"isSource(address)(bool)"', 'segundo pool', 'um provedor de um pool que não seja o por defeito', 'um provedor com o mesmo endereço de um papel do escrow', '--account <owner>']) {
+    assert.ok(text.includes(needle), `OWNER.md does not say ${needle}`);
+  }
+  assert.ok(text.indexOf('## 5. Verificação da Z3') > text.indexOf('## 4. Mudar um papel'), 'the check is not tied to the changes it guards');
+  assert.ok(!/--private-key|PRIVATE_KEY|mnemonic/i.test(text), 'the instructions reach for a key');
 });
 
 // ===========================================================================

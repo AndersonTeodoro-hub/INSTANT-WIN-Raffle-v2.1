@@ -5,7 +5,7 @@
  *   ANVIL_BIN=<anvil.exe> node --experimental-strip-types --import ./test/bridge-v2/fork/register.mjs test/preview/server.mjs
  *
  * T20: nothing here talks to production. The chain is an anvil fork of Arbitrum One
- * on 127.0.0.1 (the fork harness's own M44 check), with the contracts of 183a2b4
+ * on 127.0.0.1 (the fork harness's own M44 check), with the contracts of 5d85a46
  * deployed on it from their creation code; the database is the suites' in-memory
  * tables; the bridge's routes run in this process; mail and Telegram are doubled.
  *
@@ -85,7 +85,7 @@ db.on('bridge_v2_sessions:select', () => ({
 }));
 
 // --- pieces 2 and 3, from the audited creation code (as orders.fork.mjs) -------------------
-const FIXTURE = JSON.parse(readFileSync(new URL('../bridge-v2/fork/keptra-183a2b4.json', import.meta.url), 'utf8'));
+const FIXTURE = JSON.parse(readFileSync(new URL('../bridge-v2/fork/keptra-5d85a46.json', import.meta.url), 'utf8'));
 const ABI = parseAbi([
   'function approve(address,uint256) returns (bool)', 'function deposit(uint256,address) returns (uint256)', 'function setGuarantee(address)',
   'function setSource(address,bool)', 'function setDefaultSource(address)', 'function setProvider(address,bool)', 'function setStore(address,bool)',

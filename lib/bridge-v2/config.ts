@@ -37,7 +37,7 @@ export const USDC_DECIMALS = 6 as const;
 
 /**
  * SPEC-BLOCO-03 piece 5, Adenda P24: the escrow, the guarantee and the voucher of
- * pieces 2 and 3 (commit 183a2b4). Literals, as H1 wants every contract address —
+ * pieces 2 and 3 (commit 5d85a46). Literals, as H1 wants every contract address —
  * and zero until the owner fills them in after the deploy. While any is zero
  * every route and cron step of the orders refuses with "configuration incomplete"
  * (keptraContractsConfigured in orders.ts), and the general rehearsal fails.

@@ -2,7 +2,7 @@
  * SPEC-BLOCO-03 piece 5, on-chain: the orders against the real contracts of
  * pieces 2 and 3 — KeptraEscrow, KeptraGuarantee (with its KeptraVoucher) and
  * KeptraPool, deployed on the local fork from the creation code of commit
- * 183a2b4 (keptra-183a2b4.json, whose escrow hash is the one piece 4 pins) — and
+ * 5d85a46 (keptra-5d85a46.json, whose escrow hash is Z1's, the one piece 4 pins) — and
  * the real GiveawayManagerV2, its ERC-721 prize module, USDC and the Safe
  * contracts of Arbitrum One.
  *
@@ -55,12 +55,13 @@ const ZERO_HASH = `0x${'0'.repeat(64)}`;
 const DAY = 86_400;
 const ADDRESS = { name: 'Ana Silva', street: 'Rua das Flores 12', postCode: '1000-001', city: 'Lisboa', country: 'PT', phone: null };
 
-const FIXTURE = JSON.parse(readFileSync(new URL('./keptra-183a2b4.json', import.meta.url), 'utf8'));
+const FIXTURE = JSON.parse(readFileSync(new URL('./keptra-5d85a46.json', import.meta.url), 'utf8'));
 /**
- * Piece 4's pin of the audited escrow (OracleReceiver.fork.t.sol, ESCROW_CREATION_CODE_HASH).
+ * Z1's hash of the escrow of 5d85a46, which piece 4 pins at df37231 (OracleReceiver.fork.t.sol,
+ * ESCROW_CREATION_CODE_HASH).
  * Written without its 0x: the repository refuses any 32-byte hex literal, the shape of a private key (F2).
  */
-const PIECE4_ESCROW_HASH = `0x${'9f0144449865a4007328d41428294f9352777f0f82b4d8993310dcde3c1dac37'}`;
+const PIECE4_ESCROW_HASH = `0x${'7f269f74cc6a659f906194f4d87635a8d0cfa56a10d1fe774047c91e023890c4'}`;
 
 const ABI = parseAbi([
   'function balanceOf(address) view returns (uint256)',
@@ -237,7 +238,7 @@ const gas = {};
 // the contracts under test
 // ===========================================================================
 
-await test(['Q28', 'AP24'], 'fork: pieces 2 and 3 run from the creation code of 183a2b4 — the escrow’s hash is piece 4’s pin — wired as DeployKeptra wires them, and the bridge points at them by configuration', async () => {
+await test(['Q28', 'AP24', 'AA-Q7', 'AA-T18'], 'fork (Q7, Z1): pieces 2 and 3 run from the creation code of 5d85a46 — the escrow’s hash is Z1’s and piece 4’s pin at df37231 — wired as DeployKeptra wires them, and the bridge points at them by configuration', async () => {
   assert.equal(`0x${FIXTURE.contracts.KeptraEscrow.keccak256}`, PIECE4_ESCROW_HASH);
   assert.equal(keccak256(FIXTURE.contracts.KeptraEscrow.creationCode), PIECE4_ESCROW_HASH);
   assert.equal(getAddress(await read(GUARANTEE, 'escrow')), ESCROW);

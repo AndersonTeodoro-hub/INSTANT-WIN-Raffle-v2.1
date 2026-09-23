@@ -56,7 +56,7 @@ if (bin === undefined || bin.length === 0) {
     http.on('api.resend.com', () => jsonResponse({ id: 'test-mail' }));
     http.on('api.telegram.org', () => jsonResponse({ ok: true, result: {} }));
     await import('./keptra.fork.mjs');
-    // SPEC-BLOCO-03 piece 5: the orders, against the contracts of 183a2b4
+    // SPEC-BLOCO-03 piece 5: the orders, against the contracts of 5d85a46
     // deployed on this fork. Its own catch, so a failure to load it is a failing
     // test of its own and does not hide the piece 1 results above.
     try {

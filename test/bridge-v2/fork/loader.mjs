@@ -13,7 +13,7 @@ const DOUBLES = new URL('../doubles/', import.meta.url).href;
 const REDIRECTS = new Map([
   [`${ROOT}lib/bridge-v2/db.ts`, `${DOUBLES}db.mjs`],
   // SPEC-BLOCO-03 P24: the three contract addresses, pointed at the contracts
-  // the fork suite deploys from the 183a2b4 artifacts. Everything else is config.ts.
+  // the fork suite deploys from the 5d85a46 artifacts. Everything else is config.ts.
   [`${ROOT}lib/bridge-v2/config.ts`, `${DOUBLES}config.mjs`],
 ]);
 

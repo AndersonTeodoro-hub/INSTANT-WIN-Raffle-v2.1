@@ -1,7 +1,7 @@
 /**
  * The double of lib/bridge-v2/escrowChain.ts, for the suites that run under the
  * loader. SPEC-BLOCO-03 piece 5. The real reads run against the contracts of
- * 183a2b4 on the fork (test/bridge-v2/fork/orders.fork.mjs); here only what the
+ * 5d85a46 on the fork (test/bridge-v2/fork/orders.fork.mjs); here only what the
  * relay, the routes and the orders pass DO with the answers is under test.
  *
  * The pure half (orderIdFromLogs) is the real module's. So is realOrderOutcome,

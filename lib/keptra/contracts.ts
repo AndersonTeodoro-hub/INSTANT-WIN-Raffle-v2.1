@@ -5,8 +5,11 @@
  * voucher are literals, zero until the owner fills them in after the deploy — the
  * same three config.ts holds for the bridge (a test keeps the two equal). While
  * they are zero the order, offer and pool screens say "not available yet" (U35).
- * After the batch before the deploy, these addresses and the ABIs below are
- * generated again, as Q7 has the fork tests do (T18).
+ * T18 and Q7, after the batch before the deploy: every ABI entry here and in
+ * lib/bridge-v2/abi.ts is held by a test against the ABI compiled from 5d85a46
+ * (test/bridge-v2/fork/keptra-5d85a46.json). The addresses stay zero: DeployKeptra
+ * puts the contracts at CREATE2 addresses whose creation code carries the role
+ * addresses of the deploy, so they are known only then.
  *
  * The ABIs the bridge already reads with are re-exported from lib/bridge-v2/abi.ts
  * (it imports viem and nothing else), so there is one copy of each; what only the

@@ -104,6 +104,14 @@ const REQUIREMENTS = [
   'AU1', 'AU2', 'AU3', 'AU4', 'AU5', 'AU6',
   // SPEC-BLOCO-03 Adenda V, as AVn. V7 lists what goes to the lot before the deploy.
   'AV1', 'AV2', 'AV3', 'AV4', 'AV5', 'AV6',
+  // SPEC-BLOCO-03 Adenda AA4: the lot of the bridge and the frontend before the
+  // deploy. The pendentes keep their own names; the decisions they come from are
+  // AA-prefixed where the bare name is taken (Q7, B8 and T18 already are).
+  'AA-T18', 'AA-Q7', 'AA-B8', 'AA-Y5', 'AA-X8', 'P23-15',
+  ...Array.from({ length: 11 }, (_unused, index) => `P1-${index + 1}`),
+  'D-B5', 'D-FUNDING',
+  ...Array.from({ length: 14 }, (_unused, index) => `P5-${index + 1}`),
+  ...Array.from({ length: 21 }, (_unused, index) => `P6-${index + 1}`),
 ];
 
 for (const path of SUITES) {
