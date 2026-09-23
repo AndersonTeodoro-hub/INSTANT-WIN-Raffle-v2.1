@@ -136,7 +136,8 @@ export function OfferPage() {
               </div>
               {tier.tier !== null && (
                 <p className="mt-2 text-xs text-gray-400">
-                  Store tier from its on-chain record: {tier.delivered ?? 0} verified deliveries, {tier.materialFailures ?? 0} material failures.
+                  {/* P6-21: counters that were not read are not shown — never a 0 standing in for them. */}
+                  Store tier from its on-chain record{tier.delivered !== null && tier.materialFailures !== null ? `: ${tier.delivered} verified deliveries, ${tier.materialFailures} material failures.` : `; its counters ${tier.failed ? "could not be read" : "are still being read"}.`}
                 </p>
               )}
               {tier.failed && (

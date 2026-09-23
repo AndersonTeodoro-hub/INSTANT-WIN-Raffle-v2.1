@@ -43,12 +43,15 @@ export function keptraConfigured(): boolean {
   return [KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_VOUCHER].every((address) => address.toLowerCase() !== ZERO);
 }
 
-/** What the page reads of the escrow besides the bridge's ABI: the section 7 ceilings, the fee, the pause, the reputation. */
+/**
+ * What the page reads of the escrow besides the bridge's ABI: the section 7
+ * ceilings, the pause, the stores, the reputation. P6-19: the fee is not read by
+ * the page (the bridge computes what a store receives, P6-1), so it is not here.
+ */
 export const ESCROW_READ_ABI = parseAbi([
   'function MAX_REFUSAL_BPS() view returns (uint16)',
   'function MAX_SHIP_DAYS() view returns (uint16)',
   'function MAX_DELIVERY_DAYS() view returns (uint16)',
-  'function feeBps() view returns (uint16)',
   'function paused() view returns (bool)',
   'function isStore(address) view returns (bool)',
   'function reputation() view returns (address)',
@@ -68,6 +71,8 @@ export const GUARANTEE_READ_ABI = parseAbi([
   'function platformShareBps() view returns (uint16)',
   'function totalDebtOf(address brand) view returns (uint256)',
   'event DebtRecorded(address indexed brand, address indexed source, uint256 amount)',
+  // P6-4: every protection fee charged, and the source that took its share.
+  'event ObligationCreated(uint256 indexed obligationId, uint256 indexed termsId, address indexed brand, address source, uint32 units, uint96 bond, uint96 coverage, uint256 protectionFee, uint8 tier)',
 ]);
 
 /** 12.7: the pool's public state, every figure the panel shows. */
@@ -85,6 +90,8 @@ export const POOL_READ_ABI = parseAbi([
   'function balanceOf(address) view returns (uint256)',
   'function debtOf(address brand) view returns (uint256)',
   'event ProviderSet(address indexed provider, bool allowed)',
+  // P6-4: what the pool took of each fee, into its capital and its risk reserve.
+  'event FeeReceived(uint256 indexed obligationId, uint256 capitalAmount, uint256 reserveAmount)',
 ]);
 
 /** 13.2: the tiers as the reputation contract numbers them. */

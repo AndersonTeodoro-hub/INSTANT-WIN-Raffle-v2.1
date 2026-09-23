@@ -400,7 +400,7 @@ await test(['U7'], 'a transaction that landed in between (stale_nonce): the page
   assert.equal(signs, 2);
 });
 
-await test(['AT2', 'U16', 'U15'], 'T2: every action’s summary is the bridge’s — claim brings the prize into the account, enter names the core, cancel returns the payment, confirm releases it to the store, refund goes to the buyer, contest moves nothing', async () => {
+await test(['AT2', 'U16', 'U15'], 'T2: every action’s summary is the bridge’s — claim brings the prize into the account, enter names the core, cancel returns the payment, confirm releases it to the store, refund goes to the buyer, contest moves nothing (the page’s part checked in the source)', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
   const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
@@ -827,7 +827,7 @@ await test(['U24', 'U25', 'U27'], 'the lists and the evidence through the page: 
 // what the page shows — U19, U29, U35, AT18, AT15, AT14, U32, U33
 // ===========================================================================
 
-await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with their cents, the countries from the escrow’s bytes, the destination named when it is a Keptra contract', () => {
+await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with their cents, the countries from the escrow’s bytes, the destination named when it is a Keptra contract (the page’s part checked in the source)', () => {
   assert.equal(format.formatUsdc('31000000'), '31.00 USDC');
   assert.equal(format.formatUsdc(1_234_567_891n), '1,234.567891 USDC');
   assert.equal(format.parseUsdc('12.5'), 12_500_000n);
@@ -843,7 +843,7 @@ await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with thei
   }
 });
 
-await test(['U35', 'AT18'], 'Q1 and T18: the page’s contract addresses are config.ts’s literals — zero until the deploy, so every Keptra screen says “not available yet” — and its ABIs are the bridge’s own objects', () => {
+await test(['U35', 'AT18'], 'Q1 and T18: the page’s contract addresses are config.ts’s literals — zero until the deploy, so every Keptra screen says “not available yet” — and its ABIs are the bridge’s own objects (the page’s part checked in the source)', () => {
   assert.deepEqual([contracts.KEPTRA_ESCROW, contracts.KEPTRA_GUARANTEE, contracts.KEPTRA_VOUCHER], [REAL_KEPTRA.escrow, REAL_KEPTRA.guarantee, REAL_KEPTRA.voucher]);
   assert.equal(contracts.keptraConfigured(), false);
   assert.equal(contracts.KEPTRA_ESCROW_ABI, bridgeAbi.KEPTRA_ESCROW_ABI);
@@ -853,7 +853,7 @@ await test(['U35', 'AT18'], 'Q1 and T18: the page’s contract addresses are con
   }
 });
 
-await test(['AT12'], 'T12: what left this build has no screen — no second passkey, no recovery started from the page, no guardian revocation, no creator campaign by passkey, no voucher transfer', () => {
+await test(['AT12'], 'T12: what left this build has no screen — no second passkey, no recovery started from the page, no guardian revocation, no creator campaign by passkey, no voucher transfer (checked in the source)', () => {
   const pages = [...readdirSync(`${root}pages/keptra`).map((n) => `pages/keptra/${n}`), ...readdirSync(`${root}components/keptra`).map((n) => `components/keptra/${n}`), 'pages/EventDetail.tsx'];
   for (const path of pages) {
     const text = codeOf(path);
@@ -863,7 +863,7 @@ await test(['AT12'], 'T12: what left this build has no screen — no second pass
   assert.ok(!/call<[^>]*>\('account\/recovery'/.test(codeOf('lib/keptra/api.ts')));
 });
 
-await test(['U29', 'U30', 'AT15'], '12.7 and T15: every figure the pool panel and the tier read is a function the 5d85a46 contracts have — capital, coverage, capacity, utilisation, reserve, fees, losses, shares, debts; the escrow’s ceilings', () => {
+await test(['U29', 'U30', 'AT15'], '12.7 and T15: every figure the pool panel and the tier read is a function the 5d85a46 contracts have — capital, coverage, capacity, utilisation, reserve, fees, losses, shares, debts; the escrow’s ceilings (the page’s part checked in the source)', () => {
   const fixture = JSON.parse(read('test/bridge-v2/fork/keptra-5d85a46.json'));
   const has = (contract, abi) => {
     for (const item of abi.filter((entry) => entry.type === 'function')) {
@@ -903,7 +903,7 @@ await test(['AA-T18', 'AA-Q7', 'AT18'], 'T18 and Q7 (Z1): every function, event 
   against('POOL_READ_ABI', contracts.POOL_READ_ABI, ['KeptraPool']);
 });
 
-await test(['AT14', 'U32'], 'T14: the privacy page is a route with the owner’s text — empty today — and every address form is locked while it is empty', () => {
+await test(['AT14', 'U32'], 'T14: the privacy page is a route with the owner’s text — empty today — and every address form is locked while it is empty (checked in the source)', () => {
   assert.equal(PRIVACY_TEXT, '');
   assert.equal(privacyPublished(), false);
   assert.equal(privacyPublished('Keptra keeps…'), true);
@@ -912,7 +912,7 @@ await test(['AT14', 'U32'], 'T14: the privacy page is a route with the owner’s
   assert.match(codeOf('App.tsx'), /path="\/privacy"/);
 });
 
-await test(['U33'], 'H20 and I2: a pause stops the payment on the offer page; the redemption page does not stop on it', () => {
+await test(['U33'], 'H20 and I2: a pause stops the payment on the offer page; the redemption page does not stop on it (checked in the source)', () => {
   assert.match(codeOf('pages/keptra/OfferPage.tsx'), /paused \?/);
   assert.ok(!/paused/.test(codeOf('pages/keptra/VoucherPage.tsx')));
 });
@@ -946,7 +946,7 @@ await test(['U2', 'AT9', 'AU4'], 'T9 and U4: the app is Keptra at keptra.io — 
   assert.match(read('api/og/event.ts'), /og:site_name" content="Keptra"/);
 });
 
-await test(['U3'], 'every link a notice carries lands on a route of the app: /events/:id, /account, /orders/:id and /store/orders/:id', () => {
+await test(['U3'], 'every link a notice carries lands on a route of the app: /events/:id, /account, /orders/:id and /store/orders/:id (checked in the source)', () => {
   const routes = [...read('App.tsx').matchAll(/path="([^"]+)"/g)].map((m) => m[1]);
   const mail = codeOf('lib/bridge-v2/mail.ts');
   const links = [...mail.matchAll(/\$\{KEPTRA_BASE\}(\/[a-z/]+)/g)].map((m) => m[1]);
@@ -977,7 +977,7 @@ await test(['AT17', 'AU3'], 'T17 and U3: the new screens are in English; what ch
   assert.deepEqual(blocks[2], blocks[0]);
 });
 
-await test(['AT21', 'AT0'], 'T21 and T0: the frame uses the computer’s width and folds for a phone — a wide container, a menu with finger-sized links, no action only on a hover; every screen has its loading, empty and error states', () => {
+await test(['AT21', 'AT0'], 'T21 and T0: the frame uses the computer’s width and folds for a phone — a wide container, a menu with finger-sized links, no action only on a hover; every screen has its loading, empty and error states (checked in the source)', () => {
   const shell = codeOf('components/keptra/KeptraShell.tsx');
   assert.match(shell, /max-w-7xl/);
   assert.match(shell, /aria-expanded=\{open\}/);
@@ -989,7 +989,7 @@ await test(['AT21', 'AT0'], 'T21 and T0: the frame uses the computer’s width a
   }
 });
 
-await test(['U36'], 'A11 and A12: the flows of the earlier wallets stay — the destination form of a derived wallet’s prize, the self-custody advice', () => {
+await test(['U36'], 'A11 and A12: the flows of the earlier wallets stay — the destination form of a derived wallet’s prize, the self-custody advice (checked in the source)', () => {
   const detail = codeOf('pages/EventDetail.tsx');
   assert.match(detail, /<PrizePanel giveawayId=\{giveawayId\} custody=/);
   assert.match(detail, /proposeDestination\(/);
@@ -1239,7 +1239,7 @@ await test(['AV4', 'AT2'], 'V4 (A4): a token that is not USDC comes in the bridg
   const claim = await api.call('account/relay', { kind: 'claim', giveawayId: '9' });
   assert.equal(claim.ok, true, JSON.stringify(claim));
   assert.deepEqual(claim.summary.amounts, [{ kind: 'ERC20', token: WETH, value: '1500000000000000000', meta: { symbol: 'WETH', decimals: 18 } }]);
-  assert.deepEqual(chain.calls.filter((c) => c.name === 'erc20Meta').map((c) => c.args[0]), [WETH]);
+  assert.deepEqual(chain.calls.filter((c) => c.name === 'erc20MetaRead').map((c) => c.args[0]), [WETH]);
   assert.equal(format.summaryWords(claim.summary).amounts[0], '1.50 WETH');
   chain.set({ erc20Meta: null });
   const silent = await api.call('account/relay', { kind: 'claim', giveawayId: '9' });
@@ -1252,7 +1252,7 @@ await test(['AV4', 'AT2'], 'V4 (A4): a token that is not USDC comes in the bridg
   const calls = chain.calls.length;
   const usdc = await api.call('account/relay', { kind: 'claim', giveawayId: '9' });
   assert.deepEqual(usdc.summary.amounts, [{ kind: 'ERC20', token: USDC, value: '25000000' }]);
-  assert.equal(chain.calls.slice(calls).filter((c) => c.name === 'erc20Meta').length, 0);
+  assert.equal(chain.calls.slice(calls).filter((c) => c.name === 'erc20MetaRead').length, 0);
   assert.equal(format.summaryWords(usdc.summary).amounts[0], '25.00 USDC');
 });
 
@@ -1336,8 +1336,8 @@ await test(['AV5', 'AT4'], 'V5 (B9): an offer whose description failed after it 
   assert.deepEqual((await api.myOffers()).offers.map((o) => o.termsId), ['1']);
   const page = codeOf('pages/keptra/BusinessPage.tsx');
   assert.match(page, /written\.status === 409 && \(await offerDescription\(termsId\)\)\.ok/);
-  assert.match(page, /\{unwritten \? \(\s*<div className="mt-5">\s*<DescriptionRetry what="Offer"/, 'the offer form can publish again while a description is missing');
-  assert.match(page, /\{unwritten \? \(\s*<div className="mt-5">\s*<DescriptionRetry\s+what="Obligation"/, 'the obligation form can create again while a description is missing');
+  assert.match(page, /\{pending \? \(\s*<div className="mt-5">\s*<DescriptionRetry what="Offer"/, 'the offer form can publish again while a description is missing');
+  assert.match(page, /\{pending \? \(\s*<div className="mt-5">\s*<DescriptionRetry\s+what="Obligation"/, 'the obligation form can create again while a description is missing');
 });
 
 await test(['AV5', 'U17'], 'V5 (B11): USDC is never sent to a contract of the platform — the escrow, the guarantee, the voucher, the reputation and the pool the chain names, the USDC contract, the draws’ core; when the chain cannot name the two, nothing is signed', async () => {
@@ -1359,7 +1359,7 @@ await test(['AV5', 'U17'], 'V5 (B11): USDC is never sent to a contract of the pl
   assert.match((await send('0x9999999999999999999999999999999999999999')).error, /cannot be checked right now/);
 });
 
-await test(['AV6'], 'V6: what the audit listed as excess is gone — the client’s ABI entries and re-exports, account/status’s recovery and deployed, the descriptions’ createdAt, the feeBps and paused reads, the captures and brand.mjs, the dead voids — and account/vouchers keeps complete (P6-11)', async () => {
+await test(['AV6'], 'V6: what the audit listed as excess is gone — the client’s ABI entries and re-exports, account/status’s recovery and deployed, the descriptions’ createdAt, the feeBps and paused reads, the captures and brand.mjs, the dead voids — and account/vouchers keeps complete (P6-11) (the page’s part checked in the source)', async () => {
   fresh();
   await person('participant-1', '0x2222222222222222222222222222222222222222');
   const names = (abi) => abi.map((item) => item.name);
@@ -1391,7 +1391,7 @@ let engine = null;
 try {
   await bootEngine();
   engine = await createDatabase('bridge_v2_frontend', { withCitext: true });
-  for (const file of ['0004_bridge_v2_schema.sql', '0005_bridge_v2_functions.sql', '0006_bridge_v2_grants.sql', '0007_bridge_v2_routes.sql', '0010_bridge_v2_outcomes.sql', '0011_campaign_identity.sql', '0012_keptra_accounts.sql', '0013_keptra_orders.sql', '0014_keptra_descriptions.sql']) {
+  for (const file of ['0004_bridge_v2_schema.sql', '0005_bridge_v2_functions.sql', '0006_bridge_v2_grants.sql', '0007_bridge_v2_routes.sql', '0010_bridge_v2_outcomes.sql', '0011_campaign_identity.sql', '0012_keptra_accounts.sql', '0013_keptra_orders.sql', '0014_keptra_descriptions.sql', '0015_keptra_lote.sql']) {
     const applied = await applyMigration(engine, file);
     if (!applied.ok) throw new Error(`${file} did not apply: ${applied.at} ${applied.text}`);
   }
@@ -1424,14 +1424,246 @@ if (engine !== null) {
     const remove = await asRole(engine, 'service_role', (client) => client.query(`DELETE FROM bridge_v2_offer_descriptions WHERE terms_id = 1`).then(() => 'deleted', (error) => error.code));
     assert.equal(remove, '42501', 'the service can delete a description');
   });
+
+  await test(['P6-14'], '0015 (P6-14): the terms a store created are recorded once and read — the service holds INSERT and SELECT only, RLS is on, the browser roles hold nothing, one row per set of terms', async () => {
+    const granted = await q(`SELECT string_agg(privilege_type, ',' ORDER BY privilege_type) AS verbs FROM information_schema.role_table_grants WHERE table_name = 'bridge_v2_store_terms' AND grantee = 'service_role'`);
+    assert.equal(granted.rows[0].verbs, 'INSERT,SELECT');
+    for (const role of ['anon', 'authenticated']) {
+      const any = await q(`SELECT count(*)::int AS n FROM information_schema.role_table_grants WHERE table_name = 'bridge_v2_store_terms' AND grantee = $1`, [role]);
+      assert.equal(any.rows[0].n, 0);
+    }
+    assert.equal((await q(`SELECT relrowsecurity FROM pg_class WHERE relname = 'bridge_v2_store_terms'`)).rows[0].relrowsecurity, true);
+    const insert = (terms, store) => attempt(engine.pool, `INSERT INTO bridge_v2_store_terms (terms_id, store_address) VALUES ($1, $2)`, [terms, store]);
+    assert.equal((await insert(1, '0x3333333333333333333333333333333333333333')).ok, true);
+    assert.equal((await insert(1, '0x3333333333333333333333333333333333333333')).code, '23505');
+    assert.equal((await insert(2, 'not an address')).code, '23514');
+    assert.equal((await insert(0, '0x3333333333333333333333333333333333333333')).code, '23514');
+  });
 }
 
+// ===========================================================================
+// Adenda AA4 — the pendentes of piece 6, P6-1 to P6-21 (P6-13 is on the fork)
+// ===========================================================================
+
+await test(['P6-1'], 'P6-1: the summary of "confirm" shows what the store receives — what the order holds less the fee it was paid at — and in PRÉMIO it names no destination', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  asParticipant('participant-1');
+  const shipped = (prize) => {
+    const item = fx({ id: 5, state: bridgeAbi.OrderState.SHIPPED, payer: buyer.participant, store: shop.creator, paid: 11_000_000n, prize });
+    return { ...item, order: { ...item.order, feeBps: 150 } };
+  };
+  chainShows([shipped(false)]);
+  const bought = await api.call('account/relay', { kind: 'confirm', orderId: '5' });
+  assert.deepEqual(bought.summary.amounts, [{ kind: 'ERC20', token: USDC, value: String(11_000_000n - (11_000_000n * 150n) / 10_000n) }]);
+  assert.deepEqual(bought.summary.destination, { address: shop.creator, role: 'STORE' });
+  chainShows([shipped(true)]);
+  const prize = await api.call('account/relay', { kind: 'confirm', orderId: '5' });
+  assert.deepEqual([prize.summary.amounts, prize.summary.destination], [[], null]);
+});
+
+await test(['P6-2'], 'P6-2: the address form says the post code goes to the tracking provider and to the oracle’s nodes (checked in the source)', () => {
+  const form = read('components/keptra/AddressForm.tsx');
+  assert.match(form, /label="Post code"[\s\S]{0,40}hint="[^"]*tracking provider[^"]*nodes of the oracle[^"]*"/);
+});
+
+await test(['P6-3', 'P6-4'], 'P6-3 and P6-4: the pool panel writes no figure by hand, and shows the fees as amounts read from ObligationCreated and FeeReceived — events the 5d85a46 contracts emit with those fields (the page’s part checked in the source)', () => {
+  const fixture = JSON.parse(read('test/bridge-v2/fork/keptra-5d85a46.json'));
+  const eventOf = (contract, name) => fixture.contracts[contract].abi.find((item) => item.type === 'event' && item.name === name);
+  for (const [contract, abi, name] of [['KeptraGuarantee', contracts.GUARANTEE_READ_ABI, 'ObligationCreated'], ['KeptraPool', contracts.POOL_READ_ABI, 'FeeReceived']]) {
+    const compiled = eventOf(contract, name);
+    assert.ok(compiled, `${contract} emits no ${name}`);
+    const ours = abi.find((item) => item.type === 'event' && item.name === name);
+    assert.deepEqual(ours.inputs.map((i) => `${i.type} ${i.name} ${i.indexed === true}`), compiled.inputs.map((i) => `${i.type} ${i.name} ${i.indexed === true}`), `${name} is not the event of 5d85a46`);
+  }
+  const page = codeOf('pages/keptra/PoolPage.tsx');
+  assert.ok(!/today, one/i.test(page), 'the panel still states a figure by hand');
+  assert.match(page, /eventName: 'ObligationCreated'/);
+  assert.match(page, /eventName: 'FeeReceived'/);
+  // Every figure of the panel comes through figureText (a read), never a literal between the tags.
+  assert.ok(!/>\s*\d[\d.,]*\s*(?:%|USDC)\s*</.test(page), 'a figure is written in the JSX');
+});
+
+await test(['P6-5'], 'P6-5: a voucher with no description has no redeem button, and the page says why (checked in the source)', () => {
+  const page = codeOf('pages/keptra/VoucherPage.tsx');
+  assert.match(page, /const described = description !== null && description !== undefined;/);
+  assert.match(page, /!expired && described && \(\s*<Button/);
+  assert.match(page, /: !described \? \(/);
+});
+
+await test(['P6-6'], 'P6-6: the erasure’s refusal reads the open orders from the chain — an order newer than the index is found, an order the index still holds open but the chain closed does not block, and more than a page to read is a 503, never a guess', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  // Paid a moment ago: the pass has not indexed it.
+  chainShows([fx({ id: 1, payer: buyer.participant, store: shop.creator })]);
+  asParticipant('participant-1');
+  const fresher = await api.privacyErase();
+  assert.equal(fresher.status, 409, 'an order the index has not read yet did not block');
+  assert.match(fresher.error, /1 open order/);
+  // Indexed open, then closed on-chain before the pass reads the close.
+  await pass();
+  chainShows([fx({ id: 1, state: bridgeAbi.OrderState.CLOSED, payer: buyer.participant, store: shop.creator })]);
+  asParticipant('participant-1');
+  // Too many new orders to read in one request: the route says so.
+  escrow.set({ ordersHead: { orderCount: 200n, now: T0, block: 1_000n } });
+  assert.equal((await api.privacyErase()).status, 503);
+  chainShows([fx({ id: 1, state: bridgeAbi.OrderState.CLOSED, payer: buyer.participant, store: shop.creator })]);
+  const erased = await api.privacyErase();
+  assert.equal(erased.ok, true, `the index’s stale open order blocked: ${JSON.stringify(erased)}`);
+});
+
+await test(['P6-7'], 'P6-7: with the token’s decimals not read, no amount is shown or computed — the campaign page shows "…" or "Not read", the prize transfer refuses and hides the amount (checked in the source)', () => {
+  const event = codeOf('pages/EventDetail.tsx');
+  const account = codeOf('pages/keptra/AccountPage.tsx');
+  for (const [name, text] of [['EventDetail', event], ['AccountPage', account]]) assert.ok(!/\?\? 18\b/.test(text), `${name} still assumes 18 decimals`);
+  assert.match(event, /const amountShown = decimals === null \? \(meta\?\.\[0\]\?\.status === 'failure' \? 'Not read' : '…'\)/);
+  assert.ok(!/formatUnits\(displayAmount \?\?/.test(event));
+  assert.match(account, /if \(decimals\.data === undefined\) return setMessage/);
+  assert.match(account, /\{!isNft && decimals\.data !== undefined && \(/);
+});
+
+await test(['P6-8'], 'P6-8: the voucher’s text shows only for a voucher prize — the voucher contract’s NFT, not any NFT — and only once claimed (checked in the source)', () => {
+  const event = codeOf('pages/EventDetail.tsx');
+  assert.match(event, /\{passkey && isVoucher && claimed && \(/);
+  assert.match(event, /isVoucher=\{isNft && typeof g\?\.prizeToken === 'string' && keptraConfigured\(\) && g\.prizeToken\.toLowerCase\(\) === KEPTRA_VOUCHER\.toLowerCase\(\)\}/);
+  assert.ok(!/passkey && isNft &&/.test(event));
+});
+
+await test(['P6-9'], 'P6-9: the account is read by the pages that show it — the provider reads nothing on mount, RequireAccount asks, a signature reads the passkeys only when nobody has (checked in the source)', () => {
+  const provider = codeOf('components/keptra/KeptraProvider.tsx');
+  assert.ok(!/useEffect\(\(\) => \{\s*void refresh\(\);\s*\}, \[refresh\]\);/.test(provider), 'the provider still reads the account on every page');
+  assert.match(provider, /if \(statusRef\.current === null\) await refresh\(\);\s*return signHash/);
+  assert.match(provider, /if \(statusRef\.current !== null\) void refresh\(\);/);
+  assert.match(codeOf('components/keptra/SignIn.tsx'), /useEffect\(\(\) => \{\s*if \(signedIn === null\) void refresh\(\);\s*\}, \[signedIn, refresh\]\);/);
+});
+
+await test(['P6-10'], 'P6-10: every test of this suite that reads a page’s or a component’s source says so in its title (reads this file’s source)', () => {
+  const text = read('test/bridge-v2/suites/frontend.test.mjs').replaceAll('\r\n', '\n');
+  const starts = [...text.matchAll(/^await test\(/gm)].map((m) => m.index);
+  starts.push(text.length);
+  const silent = [];
+  for (let i = 0; i < starts.length - 1; i += 1) {
+    const block = text.slice(starts[i], starts[i + 1]);
+    const title = (block.match(/^await test\(\s*\[[^\]]*\],\s*(['`])([\s\S]*?)\1,/) ?? [])[2] ?? '';
+    if (/\.tsx['`]/.test(block) && !/source/i.test(title)) silent.push(title.slice(0, 80));
+  }
+  assert.deepEqual(silent, []);
+});
+
+await test(['P6-11'], 'P6-11: the bridge says when the voucher list is cut short, and the orders, voucher and business pages say so rather than let a voucher look absent (the page’s part checked in the source)', async () => {
+  fresh();
+  await person('participant-1', '0x2222222222222222222222222222222222222222');
+  assert.equal(typeof (await api.accountVouchers()).complete, 'boolean');
+  assert.match(read('components/keptra/ui.tsx'), /export const VOUCHERS_INCOMPLETE = /);
+  for (const page of ['OrdersPage', 'VoucherPage', 'BusinessPage']) {
+    assert.match(codeOf(`pages/keptra/${page}.tsx`), /!held\.read\.value\.complete\)? (?:&& <Notice|return <Notice) tone="warning">\{VOUCHERS_INCOMPLETE\}/, page);
+  }
+});
+
+await test(['P6-12'], 'P6-12: the obligation list shows bond, coverage and state from getObligation — fields the guarantee’s Obligation has — and "Not read" when the read failed (the page’s part checked in the source)', () => {
+  const obligation = bridgeAbi.KEPTRA_GUARANTEE_ABI.find((item) => item.name === 'getObligation');
+  const fields = obligation.outputs[0].components.map((c) => c.name);
+  for (const name of ['units', 'openUnits', 'bond', 'coverage']) assert.ok(fields.includes(name), `Obligation has no ${name}`);
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(page, /functionName: 'getObligation'/);
+  for (const label of ['Bond per unit', 'Pool coverage per unit', 'State']) assert.ok(page.includes(`label="${label}"`), label);
+  assert.match(page, /item\?\.status === 'failure' \|\| read\.isError \? NOT_READ : '…'/);
+});
+
+await test(['P6-14'], 'P6-14: an offer or an obligation whose description failed is still listed after a reload — the relay records the terms it created, store/offers names them without a title — and the page then offers only to write that description, never another publication (the page’s part checked in the source)', async () => {
+  fresh();
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  const { recordStoreTerms } = await import('../../../lib/bridge-v2/descriptions.ts');
+  await recordStoreTerms({ termsId: 7n, store: shop.creator, obligationId: null });
+  await recordStoreTerms({ termsId: 7n, store: shop.creator, obligationId: null });
+  await recordStoreTerms({ termsId: 8n, store: shop.creator, obligationId: 3n });
+  asParticipant('store-1');
+  let listed = (await api.myOffers()).offers;
+  assert.deepEqual(listed.map((o) => [o.termsId, o.obligationId, o.title]).sort(), [['7', null, null], ['8', '3', null]]);
+  escrow.set({ readTerms: { ...fx({ id: 1, payer: shop.participant, store: shop.creator }).terms } });
+  assert.equal((await api.writeDescription({ termsId: '7', title: 'Desk lamp', text: 'Brushed brass.' })).ok, true);
+  listed = (await api.myOffers()).offers;
+  assert.deepEqual(listed.find((o) => o.termsId === '7').title, 'Desk lamp');
+  assert.equal(listed.filter((o) => o.termsId === '7').length, 1, 'a described offer is listed twice');
+  assert.match(codeOf('lib/bridge-v2/relay.ts'), /await recordStoreTerms\(\{ termsId: created\.termsId, store: account\.safe, obligationId: created\.obligationId \}\)/);
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(page, /const pending = unwritten \?\? undescribedOf\(listed\.read, 'offer', draft\);/);
+  assert.match(page, /const pending = unwritten \?\? undescribedOf\(listed\.read, 'obligation', draft\);/);
+  assert.match(page, /\{pending \? \(\s*<div className="mt-5">\s*<DescriptionRetry what="Offer"/);
+  assert.match(page, /\{pending \? \(\s*<div className="mt-5">\s*<DescriptionRetry\s+what="Obligation"/);
+});
+
+await test(['P6-15', 'P6-16'], 'P6-15 and P6-16: one "Try again" re-reads everything the pool panel failed to read, and a figure not read stays "Not read" while it is read again (checked in the source)', () => {
+  const page = codeOf('pages/keptra/PoolPage.tsx');
+  assert.match(page, /export function figureText\(/);
+  assert.match(page, /const \[attempt, setAttempt\] = useState\(0\);/);
+  for (const part of ['FeesDistributed', 'Providers', 'Debts']) assert.match(page, new RegExp(`<${part}[^>]*attempt=\\{attempt\\}`), part);
+  // Each "Try again" of the panel (the pool not named, or some figures failed) reads everything again.
+  const retries = page.match(/<ReadError[\s\S]*?\/>/g) ?? [];
+  assert.ok(retries.length > 0);
+  for (const retry of retries) assert.match(retry, /onRetry=\{\(\) => setAttempt\(\(n\) => n \+ 1\)\}/, retry);
+  assert.match(page, /failedOnce\.current\.has\(name\)/);
+});
+
+await test(['P6-17'], 'P6-17: after a lost answer the store’s console never shows "done" and the error together — an error the re-read order has outgrown becomes "done" (checked in the source)', () => {
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(page, /const at = `\$\{order\.state\}:\$\{order\.trackingRegistered\}`;/);
+  assert.match(page, /message\?\.tone === 'error' && message\.at !== undefined && message\.at !== at \? \{ tone: 'success' as const/);
+  assert.match(page, /\{shown && <Notice tone=\{shown\.tone\}>\{shown\.text\}<\/Notice>\}/);
+  assert.ok(!/\{message && <Notice tone=\{message\.tone\}>\{message\.text\}<\/Notice>\}\s*<\/div>\s*<\/div>\s*\{actions\.includes\('evidence'\)/.test(page));
+});
+
+await test(['P6-18'], 'P6-18: "the token does not state its decimals" only when the token said nothing; a read that failed reaches the page as a failure and is shown as one', async () => {
+  const relayLib = await import('../../../lib/bridge-v2/relay.ts');
+  const token = '0x4444444444444444444444444444444444444444';
+  const summary = { action: 'claim', amounts: [{ kind: 'ERC20', token, value: 5n }], destination: null };
+  const shown = async (answer) => {
+    chain.set({ erc20MetaRead: answer });
+    const json = relayLib.summaryJson(await relayLib.withTokenMeta(summary));
+    return format.amountText(json.amounts[0]);
+  };
+  chain.reset();
+  assert.match(await shown('absent'), /the token does not state its decimals/);
+  const failed = await shown('failed');
+  assert.match(failed, /could not be read/);
+  assert.ok(!/does not state/.test(failed), 'a failed read is shown as a token that says nothing');
+  assert.equal(await shown({ symbol: 'ARB', decimals: 2 }), '0.05 ARB');
+});
+
+await test(['P6-19'], 'P6-19: the ABI entry left unused is gone — the page reads no feeBps from the escrow', () => {
+  assert.ok(!contracts.ESCROW_READ_ABI.some((item) => item.name === 'feeBps'));
+});
+
+await test(['P6-20'], 'P6-20: the store’s order list reads the addresses and the shipments in one query each, whatever the number of orders', async () => {
+  fresh();
+  const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
+  const shop = await person('store-1', '0x3333333333333333333333333333333333333333');
+  chainShows([1, 2, 3, 4].map((id) => fx({ id, payer: buyer.participant, store: shop.creator })));
+  await pass();
+  asParticipant('store-1');
+  const before = { addresses: db.callsTo('bridge_v2_order_addresses:select').length, shipments: db.callsTo('bridge_v2_order_shipments:select').length };
+  const listed = await api.storeOrders();
+  assert.equal(listed.orders.length, 4);
+  assert.equal(db.callsTo('bridge_v2_order_addresses:select').length - before.addresses, 1);
+  assert.equal(db.callsTo('bridge_v2_order_shipments:select').length - before.shipments, 1);
+});
+
+await test(['P6-21'], 'P6-21: the offer page never shows reputation counters that were not read — no 0 standing in for them (checked in the source)', () => {
+  const page = codeOf('pages/keptra/OfferPage.tsx');
+  assert.ok(!/tier\.delivered \?\? 0|tier\.materialFailures \?\? 0/.test(page));
+  assert.match(page, /tier\.delivered !== null && tier\.materialFailures !== null \?/);
+});
+
 // The matrix is in the repository, names the spec version, and has a row for every tag the suite declares.
-await test(['AT8', 'AV6'], 'V6: the matrix of piece 6 is in the repository, declares the spec version in force (1.24), covers Adendas T, U and V, and has a row for every Un, ATn, AUn and AVn a piece-6 test declares', async () => {
+await test(['AT8', 'AV6', 'P6-10'], 'V6 and AA4: the matrix of piece 6 is in the repository, declares the spec version in force (1.30), covers Adendas T, U, V, W and AA4, and has a row for every Un, ATn, AUn, AVn and P6-n a piece-6 test declares (reads the matrix)', async () => {
   const matrix = read('test/bridge-v2/MATRIZ-PECA6-KEPTRA.md');
-  assert.match(matrix, /Versão 1\.24/);
-  for (const adenda of ['Adenda T', 'Adenda U', 'Adenda V']) assert.ok(matrix.includes(adenda), `the matrix does not cover ${adenda}`);
+  assert.match(matrix, /Versão 1\.30/);
+  for (const adenda of ['Adenda T', 'Adenda U', 'Adenda V', 'Adenda W', 'AA4']) assert.ok(matrix.includes(adenda), `the matrix does not cover ${adenda}`);
   const { results } = await import('../harness.mjs');
-  const declared = new Set(results.filter((r) => r.suite === 'frontend').flatMap((r) => r.requirements).filter((tag) => /^(U\d+|AT\d+|AU\d+|AV\d+)$/.test(tag)));
+  const declared = new Set(results.filter((r) => r.suite === 'frontend' || (r.suite === 'fork-orders' && r.requirements.includes('P6-13'))).flatMap((r) => r.requirements).filter((tag) => /^(U\d+|AT\d+|AU\d+|AV\d+|P6-\d+)$/.test(tag)));
+  // P6-13 runs on the fork, in another process: its row is required all the same.
+  declared.add('P6-13');
   for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
 });

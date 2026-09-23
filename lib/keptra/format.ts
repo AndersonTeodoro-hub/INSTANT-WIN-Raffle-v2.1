@@ -118,6 +118,8 @@ export function amountText(amount: SummaryAmount): string {
   if (amount.kind === 'ERC20') {
     if (amount.token.toLowerCase() === USDC.toLowerCase()) return formatUsdc(amount.value);
     if (amount.meta) return `${formatUnits(amount.value, amount.meta.decimals)} ${amount.meta.symbol}`;
+    // P6-18: a failed read is a failed read, not a token that says nothing.
+    if (amount.metaFailed) return `an amount of token ${shortAddress(amount.token)} that cannot be shown: its decimals could not be read — try again`;
     return `an amount of token ${shortAddress(amount.token)} that cannot be shown: the token does not state its decimals`;
   }
   if (amount.kind === 'ITEMS') return `${amount.count} prize item${amount.count === '1' ? '' : 's'}`;

@@ -7,7 +7,7 @@ import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
 import { AddressForm } from '../../components/keptra/AddressForm';
 import { useBridgeRead, useDescription, useTerms } from '../../components/keptra/hooks';
-import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
+import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError, VOUCHERS_INCOMPLETE } from '../../components/keptra/ui';
 import { accountVouchers, type AccountStatus } from '../../lib/keptra/api';
 import { CHAIN_FAILED } from '../../lib/keptra/reads';
 import { KEPTRA_GUARANTEE, KEPTRA_GUARANTEE_ABI, keptraConfigured } from '../../lib/keptra/contracts';
@@ -64,12 +64,16 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
   const { terms, regions } = conditions;
   const describing = useDescription(termsId === null ? null : termsId.toString());
   const { description } = describing;
+  // P6-5: a voucher with no description is not redeemable through the page.
+  const described = description !== null && description !== undefined;
   const account = status.accounts.find((item) => item.role === 'PARTICIPANT');
 
   // V3: a list that failed is an error, not "this voucher is not in your account".
   if (held.read.status === 'failed') return <ReadError what="Your vouchers" error={held.read.error} onRetry={held.retry} />;
   if (voucher === undefined) return <Loading label="Looking for your voucher…" />;
   if (voucher === null) {
+    // P6-11: with the list cut short, a voucher not found may be one of those not listed.
+    if (held.read.status === 'ready' && !held.read.value.complete) return <Notice tone="warning">{VOUCHERS_INCOMPLETE}</Notice>;
     return (
       <Empty title="This voucher is not in your account.">
         <p>A voucher appears here once you have claimed it in the Event Center.</p>
@@ -153,6 +157,11 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
           <div className="mt-5 space-y-5">
             {expired ? (
               <Notice tone="warning">This voucher can no longer be redeemed.</Notice>
+            ) : !described ? (
+              // P6-5 (T4): a prize is redeemed only once the brand has said what it is.
+              <Notice tone="warning">
+                {describing.failed ? 'The prize’s description could not be read, so it cannot be redeemed until it is.' : 'The brand has not described this prize yet, so it cannot be redeemed here until it does.'}
+              </Notice>
             ) : account && !account.configured ? (
               <AccountSetup role="PARTICIPANT" status={status} />
             ) : addressSaved ? (
@@ -164,7 +173,7 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
               <AddressForm purpose={{ voucherId }} regions={regions} onRegistered={() => setAddressSaved(true)} />
             )}
             {error && <Notice tone="error">{error}</Notice>}
-            {!expired && (
+            {!expired && described && (
               <Button className="w-full" busy={busy} disabled={!addressSaved} onClick={() => void redeem()}>
                 Review and redeem
               </Button>

@@ -74,13 +74,16 @@ export function KeptraProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  // P6-9 (B14): no read on mount — the provider wraps every page of the site, and
+  // only the pages behind RequireAccount show the account. They ask (below); a
+  // signature asks when it needs the passkeys and nobody has read them yet.
 
   const signChallenge = useCallback(
-    (hash: `0x${string}`) => signHash(navigator.credentials, hash, statusRef.current?.passkeys ?? []),
-    [],
+    async (hash: `0x${string}`) => {
+      if (statusRef.current === null) await refresh();
+      return signHash(navigator.credentials, hash, statusRef.current?.passkeys ?? []);
+    },
+    [refresh],
   );
 
   const relay = useCallback(
@@ -92,7 +95,8 @@ export function KeptraProvider({ children }: { children: React.ReactNode }) {
         confirm: (summary) => new Promise<boolean>((resolve) => setPending({ summary, resolve })),
         sign: signChallenge,
       });
-      void refresh();
+      // P6-9: what the action changed is re-read only where the account was read.
+      if (statusRef.current !== null) void refresh();
       return outcome;
     },
     [passkeyReady, refresh, signChallenge],

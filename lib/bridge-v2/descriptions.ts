@@ -91,3 +91,39 @@ export async function descriptionsOfStore(store: `0x${string}`): Promise<StoredD
   ) as DescriptionRow[] | null;
   return (rows ?? []).map(toDescription);
 }
+
+/**
+ * SPEC-BLOCO-03 P6-14: the terms the relay created for a store, recorded from the
+ * receipt — so the console lists an offer or an obligation whose description was
+ * not written, after any reload, and offers to write that description instead of
+ * creating another (a second obligation is a second bond). Recorded once; a repeat
+ * is the same fact.
+ */
+export async function recordStoreTerms(entry: { termsId: bigint; store: `0x${string}`; obligationId: bigint | null }): Promise<void> {
+  const { error } = await getDb()
+    .from('bridge_v2_store_terms')
+    .insert({
+      terms_id: entry.termsId.toString(),
+      store_address: getAddress(entry.store),
+      obligation_id: entry.obligationId === null ? null : entry.obligationId.toString(),
+    })
+    .abortSignal(timeout());
+  if (error !== null && (error as { code?: string }).code !== '23505') checked('store_terms.insert', { data: null, error });
+}
+
+/** P6-14: what a store created with no description yet, newest first. */
+export async function undescribedTermsOf(store: `0x${string}`): Promise<{ termsId: bigint; obligationId: bigint | null }[]> {
+  const rows = checked(
+    'store_terms.of_store',
+    await getDb()
+      .from('bridge_v2_store_terms')
+      .select('terms_id, obligation_id')
+      .eq('store_address', getAddress(store))
+      .order('created_at', { ascending: false })
+      .abortSignal(timeout()),
+  ) as { terms_id: number | string; obligation_id: number | string | null }[] | null;
+  const described = new Set((await descriptionsOfStore(store)).map((row) => row.termsId));
+  return (rows ?? [])
+    .map((row) => ({ termsId: BigInt(String(row.terms_id)), obligationId: row.obligation_id === null || row.obligation_id === undefined ? null : BigInt(String(row.obligation_id)) }))
+    .filter((row) => !described.has(row.termsId));
+}

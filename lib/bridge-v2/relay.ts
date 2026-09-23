@@ -95,7 +95,7 @@ import {
   currentCreationFee,
   erc20BalanceOf,
   encodeTokenPrizeData,
-  erc20Meta,
+  erc20MetaRead,
   giveawayIdFromLogs,
   prizeDelivery,
   readGiveaway,
@@ -129,6 +129,7 @@ import {
   shipmentOf,
   unboundAddress,
 } from './orders.js';
+import { recordStoreTerms } from './descriptions.js';
 import { hasVerifiedPhone } from './phone.js';
 import {
   accountState,
@@ -260,7 +261,7 @@ export type SummaryAmount =
    * token when the summary is prepared (withTokenMeta), or null when the token does
    * not say — the page then shows no figure for it. USDC's are config.ts's.
    */
-  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: bigint; readonly meta?: { readonly decimals: number; readonly symbol: string } | null }
+  | { readonly kind: 'ERC20'; readonly token: `0x${string}`; readonly value: bigint; readonly meta?: { readonly decimals: number; readonly symbol: string } | null; readonly metaFailed?: true }
   | { readonly kind: 'NFT'; readonly token: `0x${string}`; readonly tokenIds: readonly bigint[] }
   /** Prize items whose ids the claim itself decides (an NFT campaign's claim). */
   | { readonly kind: 'ITEMS'; readonly token: `0x${string}`; readonly count: bigint };
@@ -288,7 +289,7 @@ export function summaryJson(summary: ActionSummary): Record<string, unknown> {
     action: summary.action,
     amounts: summary.amounts.map((amount) =>
       amount.kind === 'ERC20'
-        ? { kind: amount.kind, token: amount.token, value: amount.value.toString(), ...(amount.meta === undefined ? {} : { meta: amount.meta }) }
+        ? { kind: amount.kind, token: amount.token, value: amount.value.toString(), ...(amount.meta === undefined ? {} : { meta: amount.meta }), ...(amount.metaFailed ? { metaFailed: true } : {}) }
         : amount.kind === 'NFT'
           ? { kind: amount.kind, token: amount.token, tokenIds: amount.tokenIds.map(String) }
           : { kind: amount.kind, token: amount.token, count: amount.count.toString() },
@@ -305,9 +306,12 @@ export function summaryJson(summary: ActionSummary): Record<string, unknown> {
  */
 export async function withTokenMeta(summary: ActionSummary): Promise<ActionSummary> {
   const amounts = await Promise.all(
-    summary.amounts.map(async (amount) =>
-      amount.kind === 'ERC20' && amount.token.toLowerCase() !== USDC.toLowerCase() ? { ...amount, meta: await erc20Meta(amount.token) } : amount,
-    ),
+    summary.amounts.map(async (amount) => {
+      if (amount.kind !== 'ERC20' || amount.token.toLowerCase() === USDC.toLowerCase()) return amount;
+      // P6-18: a token that states no decimals, and one whose read failed, are not the same answer.
+      const read = await erc20MetaRead(amount.token);
+      return typeof read === 'object' ? { ...amount, meta: read } : (read === 'failed' ? { ...amount, meta: null, metaFailed: true as const } : { ...amount, meta: null });
+    }),
   );
   return { ...summary, amounts };
 }
@@ -801,11 +805,14 @@ async function orderCalls(
       const { order, terms } = await orderOf(action.orderId, safe, 'payer');
       const open = order.state === OrderState.SHIPPED || (order.state === OrderState.WINDOW && (order.flags & OrderFlag.REFUSAL) === 0);
       if (!open) throw new RelayRefusal('order_state');
-      // T2: confirming releases what the order holds to the store's payout; in PRÉMIO it holds nothing (the bond goes home).
-      return {
-        calls: [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'confirm', args: [action.orderId] }))],
-        summary: summaryOf('confirm', terms.prize ? [] : [usdcAmount(order.paid)], terms.payout, 'STORE'),
-      };
+      const calls = [escrow(encodeFunctionData({ abi: KEPTRA_ESCROW_ABI, functionName: 'confirm', args: [action.orderId] }))];
+      // T2 and P6-1: in PRÉMIO confirming pays nobody (the bond goes home), so the
+      // summary names no destination. In COMPRA it shows what the store's payout
+      // actually receives: what the order holds, less the fee the order was paid
+      // at (8.4), which the escrow rounds down (H19, KeptraEscrow._payStore).
+      if (terms.prize) return { calls, summary: nothingMoves('confirm') };
+      const fee = (order.paid * BigInt(order.feeBps ?? 0)) / 10_000n;
+      return { calls, summary: summaryOf('confirm', [usdcAmount(order.paid - fee)], terms.payout, 'STORE') };
     }
     case 'contest': {
       const { order } = await orderOf(action.orderId, safe, 'payer');
@@ -1278,6 +1285,14 @@ async function sendClaimed(
   } else if (action.kind === 'createObligation') {
     const obligation = obligationFromLogs(sent.receipt.logs);
     created = { termsId: obligation?.termsId ?? null, obligationId: obligation?.obligationId ?? null, voucherIds: voucherIdsFromLogs(sent.receipt.logs) };
+  }
+  if (created !== null && created.termsId !== null) {
+    // P6-14: kept for the console, so a description that fails is still offered after a reload.
+    try {
+      await recordStoreTerms({ termsId: created.termsId, store: account.safe, obligationId: created.obligationId });
+    } catch (error) {
+      await log.failure('store_terms.failed', error, { terms_id: created.termsId.toString() });
+    }
   }
 
   await log.event('account.relayed', { action: action.kind, deployed: state.deployed });

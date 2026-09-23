@@ -166,7 +166,8 @@ export const registerTracking = (orderId: string, trackingNumber: string) =>
 export interface OfferListed {
   readonly termsId: string;
   readonly obligationId: string | null;
-  readonly title: string;
+  /** P6-14: null when it was created and its description was never written. */
+  readonly title: string | null;
 }
 export const myOffers = () => call<{ offers: readonly OfferListed[] }>('store/offers');
 

@@ -194,6 +194,8 @@ export const KEPTRA_TABLES = [
   'bridge_v2_offer_descriptions',
   // SPEC-BLOCO-03 AA4, migration 0015: the new orders read aside (P5-12).
   'bridge_v2_order_unread',
+  // 0015: the terms the relay created for a store (P6-14).
+  'bridge_v2_store_terms',
 ];
 
 export const KEPTRA_UNIQUE = {
@@ -224,4 +226,5 @@ export const KEPTRA_UNIQUE = {
   // 0014: one description per set of terms, written once (T4).
   bridge_v2_offer_descriptions: [['terms_id']],
   bridge_v2_order_unread: [['order_id']],
+  bridge_v2_store_terms: [['terms_id']],
 };

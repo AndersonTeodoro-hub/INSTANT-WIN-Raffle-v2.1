@@ -176,7 +176,9 @@ function SendPrize() {
     if (!/^0x[0-9a-fA-F]{40}$/.test(to.trim())) return setMessage({ tone: 'error', text: 'Enter an Arbitrum One address (0x…).' });
     let value = 1n;
     if (!isNft) {
-      const places = Number(decimals.data ?? 18);
+      // P6-7: without the token's decimals read, no amount is computed — never with decimals nobody read.
+      if (decimals.data === undefined) return setMessage({ tone: 'error', text: decimals.isError ? 'The prize token could not be read. Try again.' : 'The prize token is still being read.' });
+      const places = Number(decimals.data);
       const clean = amount.trim();
       if (!new RegExp(`^\\d{1,24}(\\.\\d{1,${places}})?$`).test(clean)) return setMessage({ tone: 'error', text: 'Enter the amount to send.' });
       const [whole, fraction = ''] = clean.split('.');
@@ -209,7 +211,7 @@ function SendPrize() {
       <Field id="prize-to" label="Send to (Arbitrum One address)">
         <input id="prize-to" className={`${inputClass} font-mono text-sm`} value={to} onChange={(event) => setTo(event.target.value)} placeholder="0x…" />
       </Field>
-      {!isNft && (
+      {!isNft && decimals.data !== undefined && (
         <Field id="prize-amount" label="Amount" hint="Exactly this amount of the prize token is sent.">
           <input id="prize-amount" inputMode="decimal" className={`${inputClass} font-mono`} value={amount} onChange={(event) => setAmount(event.target.value)} />
         </Field>

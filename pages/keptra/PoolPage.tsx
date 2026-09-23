@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePublicClient, useReadContract, useReadContracts } from 'wagmi';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
-import { AddressLink, Card, Empty, Loading, NotAvailable, Notice, PageTitle, ReadError, SectionTitle, Stat } from '../../components/keptra/ui';
+import { AddressLink, Card, Empty, Loading, NOT_READ, NotAvailable, Notice, PageTitle, ReadError, SectionTitle, Stat } from '../../components/keptra/ui';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, keptraConfigured } from '../../lib/keptra/contracts';
 import { formatUsdc } from '../../lib/keptra/format';
 import { CHAIN_FAILED, LOADING, chainFailed, type Read } from '../../lib/keptra/reads';
@@ -16,7 +16,10 @@ import { CHAIN_FAILED, LOADING, chainFailed, type Read } from '../../lib/keptra/
  * Language (section 0): a guarantee for brands — no insurance, no yield.
  *
  * V3: a figure or a list the chain did not give is an error with "Try again" —
- * never "no provider" or "no debt" on a read that failed.
+ * never "no provider" or "no debt" on a read that failed. P6-15: one "Try again"
+ * for the panel, which reads again everything that failed; P6-16: a figure not
+ * read says so, and keeps saying so while it is read again. P6-3: no figure is
+ * written by hand; P6-4: the fees are shown as amounts as well as the split.
  */
 
 const pct = (bps: bigint | number | null | undefined) => (bps === null || bps === undefined ? '…' : `${(Number(bps) / 100).toFixed(2)}%`);
@@ -33,7 +36,19 @@ export function PoolPage() {
   );
 }
 
+/** P6-16: what a figure shows — its value, "Not read" once its read failed (kept while it is read again), or "…" only on the first read. */
+export function figureText(read: { status: 'success'; result: unknown } | { status: 'failure' } | undefined, show: (value: bigint | number) => string, failedBefore: boolean): string {
+  if (read?.status === 'success') return show(read.result as bigint | number);
+  if (read?.status === 'failure' || failedBefore) return NOT_READ;
+  return '…';
+}
+
+
 function PoolBody() {
+  // P6-15: one "Try again" for the whole panel — it reads again everything that failed.
+  const [attempt, setAttempt] = useState(0);
+  const [childFailures, setChildFailures] = useState<Record<string, boolean>>({});
+  const reportFailure = useCallback((name: string, failed: boolean) => setChildFailures((now) => (now[name] === failed ? now : { ...now, [name]: failed })), []);
   const source = useReadContract({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource' });
   const pool = source.data as `0x${string}` | undefined;
   const split = useReadContracts({
@@ -48,62 +63,71 @@ function PoolBody() {
     contracts: names.map((functionName) => ({ address: pool ?? KEPTRA_GUARANTEE, abi: POOL_READ_ABI, functionName })),
     query: { enabled: pool !== undefined, refetchInterval: 30_000 },
   });
-  const value = (name: (typeof names)[number]) => {
-    const item = figures.data?.[names.indexOf(name)];
-    return item?.status === 'success' ? (item.result as bigint | number) : null;
+  // P6-16: a figure whose read failed stays "Not read" while the next read runs, never "…" and back.
+  const failedOnce = useRef(new Set<string>());
+  const itemOf = (name: (typeof names)[number]) => figures.data?.[names.indexOf(name)] as Parameters<typeof figureText>[0];
+  const text = (name: (typeof names)[number], show: (value: bigint | number) => string) => {
+    const read = itemOf(name);
+    if (read?.status === 'failure' || (figures.isError && read === undefined)) failedOnce.current.add(name);
+    if (read?.status === 'success') failedOnce.current.delete(name);
+    return figureText(read, show, failedOnce.current.has(name));
   };
-  const [poolShare, reserveShare, platformShare] = (split.data ?? []).map((item) => (item.status === 'success' ? (item.result as number) : null));
+  const value = (name: (typeof names)[number]) => {
+    const read = itemOf(name);
+    return read?.status === 'success' ? (read.result as bigint | number) : null;
+  };
+  const splitText = (index: number) => figureText(split.data?.[index] as Parameters<typeof figureText>[0], pct, split.isError);
 
-  if (source.isError) return <ReadError what="The pool" error={CHAIN_FAILED} onRetry={() => void source.refetch()} />;
+  useEffect(() => {
+    if (attempt === 0) return;
+    void source.refetch();
+    void figures.refetch();
+    void split.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+
+  if (source.isError) return <ReadError what="The pool" error={CHAIN_FAILED} onRetry={() => setAttempt((n) => n + 1)} />;
   if (source.isLoading || pool === undefined || figures.isLoading) return <Loading label="Reading the pool from the chain…" />;
   if (pool === '0x0000000000000000000000000000000000000000') return <Notice>The guarantee names no pool yet.</Notice>;
-  const figuresFailed = chainFailed(figures) || chainFailed(split);
-
-  const usdc = (name: (typeof names)[number]) => (value(name) === null ? '…' : formatUsdc(BigInt(value(name) as bigint)));
+  const anyFailed = chainFailed(figures) || chainFailed(split) || Object.values(childFailures).some(Boolean);
+  const usdcOf = (v: bigint | number) => formatUsdc(BigInt(v));
+  const count = (v: bigint | number) => String(v);
 
   return (
     <div className="space-y-8">
       <p className="max-w-3xl text-base leading-relaxed text-gray-300">
         The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the pool, and
-        the brand owes the pool what it paid. Its capital comes from providers Keptra authorises; today, one.
+        the brand owes the pool what it paid. Its capital comes from the providers Keptra authorises, listed below.
       </p>
-      {figuresFailed && (
-        <ReadError
-          what="Some of the pool's figures"
-          error={CHAIN_FAILED}
-          onRetry={() => {
-            void figures.refetch();
-            void split.refetch();
-          }}
-        />
-      )}
+      {anyFailed && <ReadError what="Some of the pool's figures" error={CHAIN_FAILED} onRetry={() => setAttempt((n) => n + 1)} />}
       <Card>
         <dl className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-6">
-          <Stat label="Capital" value={usdc('totalAssets')} />
-          <Stat label="Active guarantees" value={usdc('reservedTotal')} hint="Coverage reserved for live obligations" />
-          <Stat label="Free capacity" value={usdc('freeCapacity')} hint={`Up to ${pct(value('maxUtilisationBps'))} of capital`} />
-          <Stat label="Utilisation" value={pct(value('utilisationBps'))} />
-          <Stat label="Risk reserve" value={usdc('riskReserve')} hint="Absorbs losses before providers" />
-          <Stat label="Losses paid" value={usdc('lossesPaid')} />
+          <Stat label="Capital" value={text('totalAssets', usdcOf)} />
+          <Stat label="Active guarantees" value={text('reservedTotal', usdcOf)} hint="Coverage reserved for live obligations" />
+          <Stat label="Free capacity" value={text('freeCapacity', usdcOf)} hint={`Up to ${text('maxUtilisationBps', pct)} of capital`} />
+          <Stat label="Utilisation" value={text('utilisationBps', pct)} />
+          <Stat label="Risk reserve" value={text('riskReserve', usdcOf)} hint="Absorbs losses before providers" />
+          <Stat label="Losses paid" value={text('lossesPaid', usdcOf)} />
         </dl>
       </Card>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionTitle>Protection fees</SectionTitle>
           <dl className="grid grid-cols-2 gap-6">
-            <Stat label="Received by the pool, ever" value={usdc('feesReceived')} />
-            <Stat label="Withdrawals waiting" value={value('pendingRequests') === null ? '…' : String(value('pendingRequests'))} />
+            <Stat label="Received by the pool, ever" value={text('feesReceived', usdcOf)} />
+            <Stat label="Withdrawals waiting" value={text('pendingRequests', count)} />
           </dl>
           <p className="mt-5 text-sm text-gray-400">Each fee a brand pays is split on-chain:</p>
           <dl className="mt-3 grid grid-cols-3 gap-4">
-            <Stat label="Pool" value={pct(poolShare)} />
-            <Stat label="Risk reserve" value={pct(reserveShare)} />
-            <Stat label="Platform" value={pct(platformShare)} />
+            <Stat label="Pool" value={splitText(0)} />
+            <Stat label="Risk reserve" value={splitText(1)} />
+            <Stat label="Platform" value={splitText(2)} />
           </dl>
+          <FeesDistributed pool={pool} attempt={attempt} report={reportFailure} />
         </Card>
-        <Providers pool={pool} supply={value('totalSupply')} />
+        <Providers pool={pool} supply={value('totalSupply')} attempt={attempt} report={reportFailure} />
       </div>
-      <Debts pool={pool} />
+      <Debts pool={pool} attempt={attempt} report={reportFailure} />
       <p className="text-xs text-gray-400">
         Pool contract <AddressLink address={pool} /> · Guarantee contract <AddressLink address={KEPTRA_GUARANTEE} />
       </p>
@@ -111,33 +135,88 @@ function PoolBody() {
   );
 }
 
-/** H2 and T11: the providers' shares, from the pool's ProviderSet events and their balances. */
-function Providers({ pool, supply }: { pool: `0x${string}`; supply: bigint | number | null }) {
+type Reporter = (name: string, failed: boolean) => void;
+
+/**
+ * P6-4: what the fees came to, in USDC, and where each part went — every
+ * protection fee the guarantee charged on an obligation this pool covers
+ * (ObligationCreated), and what the pool took of them into its capital and its
+ * risk reserve (FeeReceived). The platform's part is the rest of each fee.
+ */
+function FeesDistributed({ pool, attempt, report }: { pool: `0x${string}`; attempt: number; report: Reporter }) {
   const client = usePublicClient();
-  const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
-  const [attempt, setAttempt] = useState(0);
+  const [found, setFound] = useState<Read<{ charged: bigint; capital: bigint; reserve: bigint }>>(LOADING);
   useEffect(() => {
     if (!client) return;
-    setFound(LOADING);
+    let live = true;
+    void Promise.all([
+      client.getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'ObligationCreated', fromBlock: 'earliest' }),
+      client.getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'FeeReceived', fromBlock: 'earliest' }),
+    ])
+      .then(([created, received]) => {
+        if (!live) return;
+        const mine = created.filter((log) => (log.args as { source: string }).source.toLowerCase() === pool.toLowerCase());
+        const charged = mine.reduce((sum, log) => sum + (log.args as { protectionFee: bigint }).protectionFee, 0n);
+        const capital = received.reduce((sum, log) => sum + (log.args as { capitalAmount: bigint }).capitalAmount, 0n);
+        const reserve = received.reduce((sum, log) => sum + (log.args as { reserveAmount: bigint }).reserveAmount, 0n);
+        setFound({ status: 'ready', value: { charged, capital, reserve } });
+      })
+      .catch(() => live && setFound((now) => (now.status === 'ready' ? now : { status: 'failed', error: CHAIN_FAILED })));
+    return () => {
+      live = false;
+    };
+  }, [client, pool, attempt]);
+  useEffect(() => report('fees', found.status === 'failed'), [found.status, report]);
+  const show = (pick: (v: { charged: bigint; capital: bigint; reserve: bigint }) => bigint) =>
+    found.status === 'ready' ? formatUsdc(pick(found.value)) : found.status === 'failed' ? NOT_READ : '…';
+  return (
+    <>
+      <p className="mt-5 text-sm text-gray-400">Distributed so far, in USDC:</p>
+      <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Stat label="Fees charged" value={show((v) => v.charged)} />
+        <Stat label="To the pool" value={show((v) => v.capital)} />
+        <Stat label="To the risk reserve" value={show((v) => v.reserve)} />
+        <Stat label="To the platform" value={show((v) => (v.charged > v.capital + v.reserve ? v.charged - v.capital - v.reserve : 0n))} />
+      </dl>
+    </>
+  );
+}
+
+/** H2 and T11: the providers' shares, from the pool's ProviderSet events and their balances. */
+function Providers({ pool, supply, attempt, report }: { pool: `0x${string}`; supply: bigint | number | null; attempt: number; report: Reporter }) {
+  const client = usePublicClient();
+  const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
+  useEffect(() => {
+    if (!client) return;
+    let live = true;
     void client
       .getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'ProviderSet', fromBlock: 'earliest' })
       .then((logs) => {
+        if (!live) return;
         const allowed = new Map<string, boolean>();
         for (const log of logs) allowed.set((log.args as { provider: string }).provider, (log.args as { allowed: boolean }).allowed);
         setFound({ status: 'ready', value: [...allowed].filter(([, on]) => on).map(([address]) => address as `0x${string}`) });
       })
-      .catch(() => setFound({ status: 'failed', error: CHAIN_FAILED }));
+      .catch(() => live && setFound((now) => (now.status === 'ready' ? now : { status: 'failed', error: CHAIN_FAILED })));
+    return () => {
+      live = false;
+    };
   }, [client, pool, attempt]);
   const providers = found.status === 'ready' ? found.value : null;
   const balances = useReadContracts({
     contracts: (providers ?? []).map((provider) => ({ address: pool, abi: POOL_READ_ABI, functionName: 'balanceOf', args: [provider] })),
     query: { enabled: (providers ?? []).length > 0 },
   });
+  useEffect(() => {
+    if (attempt > 0) void balances.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+  useEffect(() => report('providers', found.status === 'failed' || chainFailed(balances)), [found.status, balances.isError, balances.data, report]);
   return (
     <Card>
       <SectionTitle>Providers</SectionTitle>
       {found.status === 'failed' ? (
-        <ReadError what="The providers" error={found.error} onRetry={() => setAttempt((n) => n + 1)} />
+        <p className="text-sm text-gray-400">{NOT_READ}</p>
       ) : providers === null ? (
         <Loading />
       ) : providers.length === 0 ? (
@@ -145,56 +224,57 @@ function Providers({ pool, supply }: { pool: `0x${string}`; supply: bigint | num
       ) : (
         <ul className="divide-y divide-dark-border">
           {providers.map((provider, index) => {
-            const shares = balances.data?.[index]?.status === 'success' ? (balances.data[index].result as bigint) : null;
+            const read = balances.data?.[index];
+            const shares = read?.status === 'success' ? (read.result as bigint) : null;
             const share = shares !== null && supply ? Number((shares * 10_000n) / BigInt(supply)) : null;
             return (
               <li key={provider} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                 <AddressLink address={provider} />
-                <span className="font-mono text-white">{share === null ? '…' : `${(share / 100).toFixed(2)}% of the shares`}</span>
+                <span className="font-mono text-white">{share !== null ? `${(share / 100).toFixed(2)}% of the shares` : read?.status === 'failure' || balances.isError ? NOT_READ : '…'}</span>
               </li>
             );
           })}
         </ul>
-      )}
-      {chainFailed(balances) && (
-        <div className="mt-4">
-          <ReadError what="The providers' shares" error={CHAIN_FAILED} onRetry={() => void balances.refetch()} />
-        </div>
       )}
     </Card>
   );
 }
 
 /** 12.2.3 and H24: what brands owe the pool, from the guarantee's DebtRecorded and the pool's own debtOf. */
-function Debts({ pool }: { pool: `0x${string}` }) {
+function Debts({ pool, attempt, report }: { pool: `0x${string}`; attempt: number; report: Reporter }) {
   const client = usePublicClient();
   const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
-  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!client) return;
-    setFound(LOADING);
+    let live = true;
     void client
       .getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'DebtRecorded', args: { source: pool }, fromBlock: 'earliest' })
-      .then((logs) => setFound({ status: 'ready', value: [...new Set(logs.map((log) => (log.args as { brand: `0x${string}` }).brand))] }))
-      .catch(() => setFound({ status: 'failed', error: CHAIN_FAILED }));
+      .then((logs) => live && setFound({ status: 'ready', value: [...new Set(logs.map((log) => (log.args as { brand: `0x${string}` }).brand))] }))
+      .catch(() => live && setFound((now) => (now.status === 'ready' ? now : { status: 'failed', error: CHAIN_FAILED })));
+    return () => {
+      live = false;
+    };
   }, [client, pool, attempt]);
   const brands = found.status === 'ready' ? found.value : null;
   const debts = useReadContracts({
     contracts: (brands ?? []).map((brand) => ({ address: pool, abi: POOL_READ_ABI, functionName: 'debtOf', args: [brand] })),
     query: { enabled: (brands ?? []).length > 0 },
   });
+  useEffect(() => {
+    if (attempt > 0) void debts.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+  useEffect(() => report('debts', found.status === 'failed' || chainFailed(debts)), [found.status, debts.isError, debts.data, report]);
   const owing = (brands ?? [])
     .map((brand, index) => ({ brand, debt: debts.data?.[index]?.status === 'success' ? (debts.data[index].result as bigint) : null }))
     .filter((row) => row.debt === null || row.debt > 0n);
   return (
     <Card>
       <SectionTitle>Brands' debts</SectionTitle>
-      {found.status === 'failed' ? (
-        <ReadError what="The brands' debts" error={found.error} onRetry={() => setAttempt((n) => n + 1)} />
+      {found.status === 'failed' || chainFailed(debts) ? (
+        <p className="text-sm text-gray-400">{NOT_READ}</p>
       ) : brands === null ? (
         <Loading />
-      ) : chainFailed(debts) ? (
-        <ReadError what="The brands' debts" error={CHAIN_FAILED} onRetry={() => void debts.refetch()} />
       ) : owing.length === 0 ? (
         <Empty title="No brand owes the pool anything." />
       ) : (

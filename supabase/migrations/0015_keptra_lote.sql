@@ -92,3 +92,23 @@ REVOKE ALL ON TABLE public.bridge_v2_order_unread FROM anon, authenticated;
 ALTER TABLE bridge_v2_order_notices DROP CONSTRAINT IF EXISTS bridge_v2_order_notices_kind_check;
 ALTER TABLE bridge_v2_order_notices ADD CONSTRAINT bridge_v2_order_notices_kind_check
   CHECK (kind IN ('WINDOW_OPENED', 'WINDOW_CLOSING', 'STORE_ORDER', 'ARBITER_CONTEST', 'WINDOW_REFUSED'));
+
+-- -----------------------------------------------------------------------------
+-- P6-14 — the terms a store created through the relay, so an offer or an obligation
+-- whose description failed is still listed after a reload (and never created again)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bridge_v2_store_terms (
+  -- The escrow's terms id, read from the receipt of createOffer or createObligation.
+  terms_id      bigint      PRIMARY KEY CHECK (terms_id > 0),
+  store_address text        NOT NULL CHECK (store_address ~ '^0x[0-9a-fA-F]{40}$'),
+  -- PRÉMIO: the obligation; NULL for an offer.
+  obligation_id bigint      CHECK (obligation_id >= 0),
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bridge_v2_store_terms_store
+  ON bridge_v2_store_terms (store_address, created_at DESC);
+ALTER TABLE bridge_v2_store_terms ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.bridge_v2_store_terms FROM service_role;
+-- Exactly the verbs lib/bridge-v2/descriptions.ts uses: recorded once, read.
+GRANT SELECT, INSERT ON TABLE public.bridge_v2_store_terms TO service_role;
+REVOKE ALL ON TABLE public.bridge_v2_store_terms FROM anon, authenticated;

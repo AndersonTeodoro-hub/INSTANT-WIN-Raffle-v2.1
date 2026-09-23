@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { KeyRound, Mail } from 'lucide-react';
 import { requestCode, verifyCode, type AccountStatus, type Role } from '../../lib/keptra/api';
 import { useKeptra } from './KeptraProvider';
@@ -166,6 +166,10 @@ export function AccountSetup({ role, status }: { role: Role; status: AccountStat
  */
 export function RequireAccount({ intro, children }: { intro?: string; children: (status: AccountStatus) => React.ReactNode }) {
   const { signedIn, status, statusError, refresh } = useKeptra();
+  // P6-9: the account is read by the pages that show it, not by every page of the site.
+  useEffect(() => {
+    if (signedIn === null) void refresh();
+  }, [signedIn, refresh]);
   const failed = statusError === null ? null : <ReadError what="Your account" error={statusError} onRetry={() => void refresh()} />;
   if (status === null && failed !== null) return failed;
   if (signedIn === null) return <Loading label="Checking your session…" />;

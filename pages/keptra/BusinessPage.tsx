@@ -15,12 +15,14 @@ import {
   Empty,
   Field,
   Loading,
+  NOT_READ,
   NotAvailable,
   Notice,
   PageTitle,
   ReadError,
   SectionTitle,
   Stat,
+  VOUCHERS_INCOMPLETE,
   inputClass,
 } from '../../components/keptra/ui';
 import {
@@ -35,8 +37,8 @@ import {
   type StoreOrder,
   type VoucherHeld,
 } from '../../lib/keptra/api';
-import { CHAIN_FAILED, chainFailed } from '../../lib/keptra/reads';
-import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, OrderState, TIER_NAMES, keptraConfigured } from '../../lib/keptra/contracts';
+import { CHAIN_FAILED, chainFailed, type Read } from '../../lib/keptra/reads';
+import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_GUARANTEE_ABI, OrderState, TIER_NAMES, keptraConfigured } from '../../lib/keptra/contracts';
 import { countryName, formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
 import { orderStatusText, storeActions, type StoreAction } from '../../lib/keptra/orders';
 import { codeToBytes32, normalizeDeliveryCode } from '../../lib/keptra/deliveryCode';
@@ -183,8 +185,13 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
   const { relay } = useKeptra();
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  // P6-17: `at` is the order as it was when the answer came, so an error the order has since outgrown is not shown.
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string; at?: string } | null>(null);
   const now = Math.floor(Date.now() / 1000);
+  const at = `${order.state}:${order.trackingRegistered}`;
+  // P6-17: an answer lost on the way, and the order read again shows the step done —
+  // the page says it is done, never "done" and the error side by side.
+  const shown = message?.tone === 'error' && message.at !== undefined && message.at !== at ? { tone: 'success' as const, text: 'Done: the order shows it, although the answer was lost on the way.' } : message;
   // V1 (A1): whether the number is registered is the bridge's answer (store/orders), not this page's memory —
   // so the store declares the shipment in another session, after a reload, from the notice's link, or after a lost answer.
   const actions = storeActions(order, now, order.trackingRegistered);
@@ -194,8 +201,9 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
     setMessage(null);
     const result = await work();
     setBusy(null);
-    setMessage(result.ok ? { tone: 'success', text: result.text ?? 'Done.' } : { tone: 'error', text: result.text ?? 'That did not work.' });
-    if (result.ok) onChange();
+    setMessage(result.ok ? { tone: 'success', text: result.text ?? 'Done.' } : { tone: 'error', text: result.text ?? 'That did not work.', at });
+    // P6-17: read the order again either way — a step whose answer was lost shows up as done.
+    onChange();
   };
   const relayed = (body: Record<string, unknown> & { kind: string }) => async () => {
     const outcome = await relay(body);
@@ -246,9 +254,8 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
                 event.preventDefault();
                 void run('tracking', async () => {
                   const result = await registerTracking(order.orderId, input);
+                  // V1: the order is read again either way (run) — a registration whose answer was lost shows up as registered.
                   if (result.ok) setInput('');
-                  // V1: read the order again either way — a registration whose answer was lost shows up as registered.
-                  else onChange();
                   return result.ok ? { ok: true, text: 'Tracking number registered. Now declare the order shipped.' } : { ok: false, text: result.error };
                 });
               }}
@@ -289,7 +296,7 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
               ))}
           </div>
           {actions.includes('refund') && <RefundForm orderId={order.orderId} run={(amount) => run('refund', relayed({ kind: 'refund', orderId: order.orderId, amount }))} busy={busy === 'refund'} />}
-          {message && <Notice tone={message.tone}>{message.text}</Notice>}
+          {shown && <Notice tone={shown.tone}>{shown.text}</Notice>}
         </div>
       </div>
       {actions.includes('evidence') && (
@@ -468,6 +475,8 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
   const [unwritten, setUnwritten] = useState<Unwritten | null>(null);
   const listed = useBridgeRead(myOffers, []);
   const load = listed.reload;
+  // P6-14: after a reload the list still names an offer without its description.
+  const pending = unwritten ?? undescribedOf(listed.read, 'offer', draft);
 
   const published = (termsId: string) => {
     setUnwritten(null);
@@ -517,9 +526,9 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
         )}
         <ConditionsForm kind="offer" draft={draft} setDraft={setDraft} />
         {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
-        {unwritten ? (
+        {pending ? (
           <div className="mt-5">
-            <DescriptionRetry what="Offer" unwritten={unwritten} onWritten={published} />
+            <DescriptionRetry what="Offer" unwritten={pending} onWritten={published} />
           </div>
         ) : (
           <Button className="mt-5" busy={busy} onClick={() => void publish()}>
@@ -544,6 +553,23 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
 function OfferList({ offers, onChange }: { offers: readonly OfferListed[]; onChange: () => void }) {
   if (offers.length === 0) return <Empty title="No offer published yet." />;
   return <ul className="space-y-3">{offers.map((offer) => <OfferRow key={offer.termsId} offer={offer} onChange={onChange} />)}</ul>;
+}
+
+/**
+ * P6-14: the newest offer (or obligation) the bridge lists without a description.
+ * Its title and text are the ones in the form above, which the store writes again.
+ */
+function undescribedOf(read: Read<{ readonly offers: readonly OfferListed[] }>, kind: 'offer' | 'obligation', draft: { title: string; text: string }): Unwritten | null {
+  if (read.status !== 'ready') return null;
+  const found = read.value.offers.find((o) => o.title === null && (o.obligationId === null) === (kind === 'offer'));
+  if (!found) return null;
+  return {
+    termsId: found.termsId,
+    ...(found.obligationId !== null ? { obligationId: found.obligationId } : {}),
+    title: draft.title,
+    text: draft.text,
+    error: 'Write its title and description in the form above, then save them.',
+  };
 }
 
 /** V5 (B9): what was created and still lacks its description; `termsId` null while its receipt has not come back. */
@@ -615,7 +641,7 @@ function OfferRow({ offer, onChange }: { offer: OfferListed; onChange: () => voi
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-mono text-xs text-gray-400">#{offer.termsId}</p>
-          <p className="break-words font-semibold text-white">{offer.title}</p>
+          <p className="break-words font-semibold text-white">{offer.title ?? 'No description yet'}</p>
           <p className="mt-1 font-mono text-sm text-brand">{terms ? formatUsdc(terms.price) : failed ? 'Not read' : '…'}</p>
         </div>
         {terms && <Badge tone={terms.active ? 'success' : 'neutral'}>{terms.active ? 'Live' : 'Taken down'}</Badge>}
@@ -664,6 +690,8 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
     held.reload();
   };
   const vouchers = held.read.status === 'ready' ? held.read.value.vouchers.filter((v) => v.role === 'CREATOR') : null;
+  // P6-14: after a reload the list still names an obligation without its description.
+  const pending = unwritten ?? undescribedOf(listed.read, 'obligation', draft);
 
   const create = async () => {
     const built = conditionsBody(draft, 'obligation', ceilings);
@@ -712,15 +740,15 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
           )}
           <ConditionsForm kind="obligation" draft={draft} setDraft={setDraft} />
           {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
-          {unwritten ? (
+          {pending ? (
             <div className="mt-5">
               <DescriptionRetry
                 what="Obligation"
-                unwritten={unwritten}
+                unwritten={pending}
                 onWritten={() => {
                   setUnwritten(null);
                   setDraft(EMPTY_DRAFT);
-                  setMessage({ tone: 'success', text: `Obligation #${unwritten.obligationId} is covered and described. Put its vouchers in a campaign below.` });
+                  setMessage({ tone: 'success', text: `Obligation #${pending.obligationId} is covered and described. Put its vouchers in a campaign below.` });
                   load();
                 }}
               />
@@ -747,23 +775,46 @@ function ObligationsSection({ status }: { status: AccountStatus }) {
       ) : vouchers === null ? (
         <Loading />
       ) : (
-        <VoucherCampaign vouchers={vouchers} phoneVerified={status.phoneVerified} onCreated={load} />
+        <div className="space-y-4">
+          {held.read.status === 'ready' && !held.read.value.complete && <Notice tone="warning">{VOUCHERS_INCOMPLETE}</Notice>}
+          <VoucherCampaign vouchers={vouchers} phoneVerified={status.phoneVerified} onCreated={load} />
+        </div>
       )}
     </div>
   );
 }
 
+/**
+ * P6-12: each obligation with its bond, its coverage and its state, read from the
+ * guarantee (getObligation) — per unit, and how many of its units are still open.
+ * A read that failed says "Not read", never a figure.
+ */
 function ObligationList({ offers, vouchers }: { offers: readonly OfferListed[]; vouchers: readonly VoucherHeld[] | null }) {
+  const read = useReadContracts({
+    contracts: offers.map((offer) => ({ address: KEPTRA_GUARANTEE, abi: KEPTRA_GUARANTEE_ABI, functionName: 'getObligation', args: [BigInt(offer.obligationId ?? '0')] })),
+    query: { enabled: offers.length > 0 },
+  });
   if (offers.length === 0) return <Empty title="No obligation yet." />;
   return (
     <ul className="space-y-3">
-      {offers.map((offer) => (
-        <li key={offer.termsId} className="rounded-2xl border border-dark-border bg-dark-card p-4">
-          <p className="font-mono text-xs text-gray-400">Obligation #{offer.obligationId}</p>
-          <p className="break-words font-semibold text-white">{offer.title}</p>
-          {vouchers !== null && <p className="mt-1 text-xs text-gray-400">{vouchers.filter((v) => v.obligationId === offer.obligationId).length} voucher(s) in your account</p>}
-        </li>
-      ))}
+      {offers.map((offer, index) => {
+        const item = read.data?.[index];
+        const o = item?.status === 'success' ? (item.result as unknown as { units: number; openUnits: number; bond: bigint; coverage: bigint }) : null;
+        const shown = (value: (o: { units: number; openUnits: number; bond: bigint; coverage: bigint }) => string) =>
+          o !== null ? value(o) : item?.status === 'failure' || read.isError ? NOT_READ : '…';
+        return (
+          <li key={offer.termsId} className="rounded-2xl border border-dark-border bg-dark-card p-4">
+            <p className="font-mono text-xs text-gray-400">Obligation #{offer.obligationId}</p>
+            <p className="break-words font-semibold text-white">{offer.title ?? 'No description yet'}</p>
+            <dl className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+              <Stat label="Bond per unit" value={shown((x) => formatUsdc(x.bond))} />
+              <Stat label="Pool coverage per unit" value={shown((x) => formatUsdc(x.coverage))} />
+              <Stat label="State" value={shown((x) => (x.openUnits === 0 ? `Settled — all ${x.units} unit${x.units === 1 ? '' : 's'}` : `${x.openUnits} of ${x.units} unit${x.units === 1 ? '' : 's'} open`))} />
+            </dl>
+            {vouchers !== null && <p className="mt-2 text-xs text-gray-400">{vouchers.filter((v) => v.obligationId === offer.obligationId).length} voucher(s) in your account</p>}
+          </li>
+        );
+      })}
     </ul>
   );
 }

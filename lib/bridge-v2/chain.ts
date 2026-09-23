@@ -1579,6 +1579,29 @@ export async function erc20Meta(token: `0x${string}`): Promise<Erc20Meta | null>
   }
 }
 
+/**
+ * SPEC-BLOCO-03 P6-18: a token's symbol and decimals, or why not — 'absent' when
+ * the token answered that it has none (it reverted, or holds no such function, or
+ * names no symbol), 'failed' when the network did not answer. Only the first is
+ * "the token does not state its decimals".
+ */
+export async function erc20MetaRead(token: `0x${string}`): Promise<Erc20Meta | 'absent' | 'failed'> {
+  const client = publicClient();
+  try {
+    const [symbol, decimals] = await Promise.all([
+      client.readContract({ address: token, abi: ERC20_ABI, functionName: 'symbol' }),
+      client.readContract({ address: token, abi: ERC20_ABI, functionName: 'decimals' }),
+    ]);
+    const clean = cleanSymbol(String(symbol));
+    return clean === '' ? 'absent' : { symbol: clean, decimals: Number(decimals) };
+  } catch (error) {
+    for (let at = error as { name?: string; cause?: unknown } | undefined, depth = 0; at && depth < 8; at = at.cause as typeof at, depth += 1) {
+      if (at.name === 'ContractFunctionRevertedError' || at.name === 'ContractFunctionZeroDataError') return 'absent';
+    }
+    return 'failed';
+  }
+}
+
 /** What `spender` may already move of `token` on `owner`'s behalf. */
 export async function erc20Allowance(
   token: `0x${string}`,

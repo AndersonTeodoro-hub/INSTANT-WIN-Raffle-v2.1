@@ -89,7 +89,11 @@ export function AddressForm({
           <input id="addr-street" autoComplete="street-address" className={inputClass} value={fields.street} onChange={set('street')} />
         </Field>
       </div>
-      <Field id="addr-post" label="Post code">
+      <Field
+        id="addr-post"
+        label="Post code"
+        hint="Sent, with the country and the tracking number, to the tracking provider and to the nodes of the oracle that check the delivery — never your name, email or street."
+      >
         <input id="addr-post" autoComplete="postal-code" className={inputClass} value={fields.postCode} onChange={set('postCode')} />
       </Field>
       <Field id="addr-city" label="City">

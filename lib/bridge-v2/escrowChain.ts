@@ -41,6 +41,8 @@ export interface OrderView {
   readonly quantity: number;
   readonly state: number;
   readonly flags: number;
+  /** 8.4: the fee in force when the order was paid, which its settlement charges (P6-1). */
+  readonly feeBps: number;
   readonly payer: `0x${string}`;
   readonly paid: bigint;
   readonly paidAt: bigint;
@@ -83,6 +85,7 @@ const toOrder = (orderId: bigint, o: Record<string, unknown>): OrderView => ({
   quantity: Number(o.quantity),
   state: Number(o.state),
   flags: Number(o.flags),
+  feeBps: Number(o.feeBps),
   payer: o.payer as `0x${string}`,
   paid: o.paid as bigint,
   paidAt: o.paidAt as bigint,

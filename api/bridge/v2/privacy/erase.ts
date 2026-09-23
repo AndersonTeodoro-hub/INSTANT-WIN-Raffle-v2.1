@@ -5,11 +5,11 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
-import { DB_TIMEOUT_MS, ERASE_ADDRESSES_NOW_MAX, USDC } from '../../../../lib/bridge-v2/config.js';
-import { eraseAddressesOf, keptraContractsConfigured, ordersOfPayer, ordersOfStore } from '../../../../lib/bridge-v2/orders.js';
+import { DB_TIMEOUT_MS, ERASE_ADDRESSES_NOW_MAX, ORDER_SCAN_PAGE, USDC } from '../../../../lib/bridge-v2/config.js';
+import { eraseAddressesOf, keptraContractsConfigured, lastKnownOrderId, ordersOfPayer, ordersOfStore } from '../../../../lib/bridge-v2/orders.js';
 import { accountsOf, eraseAccountData, LIVE_RECOVERY_STATUSES, recoveriesOf } from '../../../../lib/bridge-v2/accounts.js';
 import { erc20BalanceOf } from '../../../../lib/bridge-v2/chain.js';
-import { voucherBalanceOf } from '../../../../lib/bridge-v2/escrowChain.js';
+import { ordersHead, readOrders, voucherBalanceOf } from '../../../../lib/bridge-v2/escrowChain.js';
 import { OrderState } from '../../../../lib/bridge-v2/abi.js';
 
 /**
@@ -20,20 +20,40 @@ import { OrderState } from '../../../../lib/bridge-v2/abi.js';
  * value where only a direct transaction could reach it (2.3 holds; the platform
  * path would not). Null when nothing is left.
  */
+/** P6-6: more orders to read than one page of the chain — the answer cannot be given now. */
+class TooManyToRead extends Error {}
+
 async function whatIsLeft(participantId: string): Promise<{ usdc: bigint; vouchers: bigint; openOrders: number } | null> {
   const accounts = await accountsOf(participantId);
   if (accounts.length === 0) return null;
   const contracts = keptraContractsConfigured();
-  const [usdc, vouchers] = await Promise.all([
+  // One stage of the chain: the balances, and (P6-6) how many orders the escrow holds.
+  const [usdc, vouchers, head] = await Promise.all([
     Promise.all(accounts.map((account) => erc20BalanceOf(USDC, account.safe))),
     contracts ? Promise.all(accounts.map((account) => voucherBalanceOf(account.safe))) : Promise.resolve([0n]),
+    contracts ? ordersHead() : Promise.resolve(null),
   ]);
   let openOrders = 0;
   if (contracts) {
     const participant = accounts.find((account) => account.role === 'PARTICIPANT');
     const creator = accounts.find((account) => account.role === 'CREATOR');
-    const rows = [...(participant ? await ordersOfPayer(participant.safe) : []), ...(creator ? await ordersOfStore(creator.safe) : [])];
-    openOrders = rows.filter((row) => row.state !== OrderState.CLOSED).length;
+    // P6-6: whether an order is open is the chain's answer, never the index's —
+    // which may not have read a close yet, or an order paid a moment ago. The
+    // index only says which orders to read, and every order newer than the index
+    // holds is read as well.
+    const [asRecipient, asStore, lastIndexed] = await Promise.all([
+      participant ? ordersOfPayer(participant.safe) : Promise.resolve([]),
+      creator ? ordersOfStore(creator.safe) : Promise.resolve([]),
+      lastKnownOrderId(),
+    ]);
+    const ids = new Set([...asRecipient, ...asStore].map((row) => row.orderId.toString()));
+    for (let id = lastIndexed + 1n; id < (head?.orderCount ?? 0n); id += 1n) ids.add(id.toString());
+    if (ids.size > ORDER_SCAN_PAGE) throw new TooManyToRead();
+    const same = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
+    for (const { order, terms } of await readOrders([...ids].map(BigInt))) {
+      if (order.state === OrderState.CLOSED || order.state === OrderState.NONE) continue;
+      if (same(order.payer, participant?.safe) || same(terms.store, creator?.safe)) openOrders += 1;
+    }
   }
   const left = { usdc: usdc.reduce((a, b) => a + b, 0n), vouchers: vouchers.reduce((a, b) => a + b, 0n), openOrders };
   return left.usdc === 0n && left.vouchers === 0n && left.openOrders === 0 ? null : left;
@@ -93,7 +113,13 @@ const route = handle('privacy/erase', async ({ request, log }) => {
   }
 
   // SPEC-BLOCO-03 T13: refused while the Keptra accounts still hold something, and the answer says what.
-  const left = await whatIsLeft(session.participantId);
+  let left: Awaited<ReturnType<typeof whatIsLeft>>;
+  try {
+    left = await whatIsLeft(session.participantId);
+  } catch (error) {
+    if (!(error instanceof TooManyToRead)) throw error;
+    return refuse(503, 'Your orders cannot be checked right now. Try again in a few minutes.');
+  }
   if (left !== null) {
     await log.event('privacy.erase_refused', { usdc: left.usdc > 0n, vouchers: Number(left.vouchers), open_orders: left.openOrders });
     return json(

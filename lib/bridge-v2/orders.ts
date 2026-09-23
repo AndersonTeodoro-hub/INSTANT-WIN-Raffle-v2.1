@@ -303,6 +303,24 @@ export async function addressOfOrder(orderId: bigint): Promise<PostalAddress | n
   return plain === null ? null : (JSON.parse(plain) as PostalAddress);
 }
 
+/**
+ * P6-20: the addresses of many orders in one read, decrypted — for a store's list,
+ * which must not ask the database once per order.
+ */
+export async function addressesOfOrders(orderIds: readonly bigint[]): Promise<Map<string, PostalAddress | null>> {
+  const out = new Map<string, PostalAddress | null>();
+  if (orderIds.length === 0) return out;
+  const rows = checked(
+    'order.address_read_many',
+    await getDb().from('bridge_v2_order_addresses').select('order_id, address_enc').in('order_id', orderIds.map(String)).abortSignal(timeout()),
+  ) as { order_id: number | string; address_enc: string }[] | null;
+  for (const row of rows ?? []) {
+    const plain = await decryptUnder(ROOT, ADDRESS_LABEL, row.address_enc);
+    out.set(String(row.order_id), plain === null ? null : (JSON.parse(plain) as PostalAddress));
+  }
+  return out;
+}
+
 /** D7 and P18: what a participant's own addresses are for, decrypted, for the export. */
 export async function addressesOf(participantId: string): Promise<Array<{ orderId: string | null; address: PostalAddress | null }>> {
   const rows = checked(
@@ -656,6 +674,16 @@ const toShipment = (row: ShipmentRow): Shipment => ({
   trackingHash: row.tracking_hash as Hex,
   trackerId: row.tracker_id ?? null,
 });
+
+/** P6-20: which of these orders have a shipment registered, in one read. */
+export async function ordersWithShipment(orderIds: readonly bigint[]): Promise<Set<string>> {
+  if (orderIds.length === 0) return new Set();
+  const rows = checked(
+    'order.shipments_many',
+    await getDb().from('bridge_v2_order_shipments').select('order_id').in('order_id', orderIds.map(String)).abortSignal(timeout()),
+  ) as { order_id: number | string }[] | null;
+  return new Set((rows ?? []).map((row) => String(row.order_id)));
+}
 
 export async function shipmentOf(orderId: bigint): Promise<Shipment | null> {
   const row = checkedMaybe(

@@ -123,6 +123,8 @@ export type OpsKind =
   | 'order.tracker_stopped'
   | 'order.read_aside'
   | 'order.evidence_written'
+  // P6-14: the terms a store created, not recorded for its console (the relay stands).
+  | 'store_terms.failed'
   // SPEC-BLOCO-03 piece 6: a description written once (T4); an erasure refused while value is left (T13).
   | 'offer.description_written'
   | 'privacy.erase_refused'

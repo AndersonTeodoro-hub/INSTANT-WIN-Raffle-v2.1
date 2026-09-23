@@ -90,6 +90,8 @@ const DEFAULTS = () => ({
   // The settlement notice's "what you won". null is the honest default for a
   // token that implements neither, which mail.ts degrades around.
   erc20Meta: { symbol: 'USDC', decimals: 6 },
+  // SPEC-BLOCO-03 P6-18: the same read, saying why when there is nothing.
+  erc20MetaRead: () => behaviour.erc20Meta ?? 'absent',
   quoteApprove: { plan: plan(60_000n), data: '0xapprove' },
   quoteCreateGiveaway: { plan: plan(300_000n), data: '0xcreatecall' },
   // SPEC-BRIDGE-V2 §17 — campaign identity. No campaign exists and no contract
@@ -180,6 +182,7 @@ export const slotPrice = (...args) => answer('slotPrice', args);
 export const erc20Allowance = (...args) => answer('erc20Allowance', args);
 export const erc20BalanceOf = (...args) => answer('erc20BalanceOf', args);
 export const erc20Meta = (...args) => answer('erc20Meta', args);
+export const erc20MetaRead = (...args) => answer('erc20MetaRead', args);
 export const quoteApprove = (...args) => answer('quoteApprove', args);
 export const quoteCreateGiveaway = (...args) => answer('quoteCreateGiveaway', args);
 // SPEC-BRIDGE-V2 §17 — campaign identity.

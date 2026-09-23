@@ -4,7 +4,7 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
 import { OrderState } from '../../../../lib/bridge-v2/abi.js';
-import { addressOfOrder, ordersConfigured, ordersOfStore, publicOrder, shipmentOf } from '../../../../lib/bridge-v2/orders.js';
+import { addressesOfOrders, ordersConfigured, ordersOfStore, ordersWithShipment, publicOrder } from '../../../../lib/bridge-v2/orders.js';
 
 /**
  * POST /api/bridge/v2/store/orders -> the store's orders, with the addresses to ship to
@@ -40,15 +40,19 @@ const route = handle('store/orders', async ({ request, log }) => {
   const account = await findAccount(session.participantId, 'CREATOR');
   if (account === null) return ok({ orders: [] });
 
-  const orders = [];
-  for (const row of await ordersOfStore(account.safe)) {
+  // P6-20: the addresses and the shipments of every open order in one read each,
+  // never one query per order.
+  const rows = await ordersOfStore(account.safe);
+  const openIds = rows.filter((row) => row.state !== OrderState.CLOSED).map((row) => row.orderId);
+  const [addresses, shipped] = await Promise.all([addressesOfOrders(openIds), ordersWithShipment(openIds)]);
+  const orders = rows.map((row) => {
     const open = row.state !== OrderState.CLOSED;
-    orders.push({
+    return {
       ...publicOrder(row),
-      address: open ? await addressOfOrder(row.orderId) : null,
-      trackingRegistered: open && (await shipmentOf(row.orderId)) !== null,
-    });
-  }
+      address: open ? (addresses.get(row.orderId.toString()) ?? null) : null,
+      trackingRegistered: open && shipped.has(row.orderId.toString()),
+    };
+  });
   await log.event('route.ok', { orders: orders.length });
   return ok({ orders });
 });

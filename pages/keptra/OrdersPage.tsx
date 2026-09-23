@@ -4,7 +4,7 @@ import { ChevronRight, Ticket } from 'lucide-react';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { RequireAccount } from '../../components/keptra/SignIn';
 import { useBridgeRead } from '../../components/keptra/hooks';
-import { Badge, Card, Empty, Loading, NotAvailable, PageTitle, ReadError, SectionTitle } from '../../components/keptra/ui';
+import { Badge, Card, Empty, Loading, NotAvailable, Notice, PageTitle, ReadError, SectionTitle, VOUCHERS_INCOMPLETE } from '../../components/keptra/ui';
 import { accountVouchers, myOrders, type PublicOrder } from '../../lib/keptra/api';
 import { keptraConfigured, OrderState } from '../../lib/keptra/contracts';
 import { formatUtc } from '../../lib/keptra/format';
@@ -63,6 +63,7 @@ function OrdersBody() {
       <aside>
         <Card>
           <SectionTitle>Vouchers to redeem</SectionTitle>
+          {held.read.status === 'ready' && !held.read.value.complete && <Notice tone="warning">{VOUCHERS_INCOMPLETE}</Notice>}
           {held.read.status === 'failed' ? (
             <ReadError what="Your vouchers" error={held.read.error} onRetry={held.retry} />
           ) : vouchers === null ? (

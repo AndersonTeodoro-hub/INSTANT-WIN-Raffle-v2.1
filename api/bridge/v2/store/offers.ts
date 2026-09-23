@@ -3,7 +3,7 @@ import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
-import { descriptionsOfStore } from '../../../../lib/bridge-v2/descriptions.js';
+import { descriptionsOfStore, undescribedTermsOf } from '../../../../lib/bridge-v2/descriptions.js';
 import { keptraContractsConfigured } from '../../../../lib/bridge-v2/orders.js';
 
 /**
@@ -35,11 +35,16 @@ const route = handle('store/offers', async ({ request, log }) => {
   const account = await findAccount(session.participantId, 'CREATOR');
   if (account === null) return ok({ offers: [] });
 
-  const offers = (await descriptionsOfStore(account.safe)).map((row) => ({
-    termsId: row.termsId.toString(),
-    obligationId: row.obligationId === null ? null : row.obligationId.toString(),
-    title: row.title,
-  }));
+  // P6-14: with them, what the store created and never described — title null.
+  const [described, undescribed] = await Promise.all([descriptionsOfStore(account.safe), undescribedTermsOf(account.safe)]);
+  const offers = [
+    ...undescribed.map((row) => ({ termsId: row.termsId.toString(), obligationId: row.obligationId === null ? null : row.obligationId.toString(), title: null })),
+    ...described.map((row) => ({
+      termsId: row.termsId.toString(),
+      obligationId: row.obligationId === null ? null : row.obligationId.toString(),
+      title: row.title,
+    })),
+  ];
   await log.event('route.ok', { offers: offers.length });
   return ok({ offers });
 });

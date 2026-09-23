@@ -214,6 +214,16 @@ export function ReadError({ what, error, onRetry }: { what: string; error: strin
   );
 }
 
+/**
+ * P6-11: the bridge lists at most a number of vouchers at once (account/vouchers
+ * answers complete: false past it). The page says so, rather than let a missing
+ * voucher read as one the account does not hold.
+ */
+/** V3 and P6-16: the words a figure the chain did not give shows in its place. */
+export const NOT_READ = 'Not read';
+
+export const VOUCHERS_INCOMPLETE = 'Not every voucher could be listed: the account holds more than the page reads at once, so some may be missing here.';
+
 /** Q1 and U35: the contracts are not configured yet. */
 export function NotAvailable() {
   return (

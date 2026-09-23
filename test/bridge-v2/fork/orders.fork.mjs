@@ -527,3 +527,32 @@ await test(['AA-B8', 'AA-Y5', 'AA-Q7'], 'B8 and Y5 on the fork, against the escr
   assert.equal(Number((await order(ended)).state), OrderState.CLOSED, 'the keeper did not close the window');
   assert.ok(!store.rows('bridge_v2_order_notices').some((n) => String(n.order_id) === String(ended) && n.kind === 'WINDOW_REFUSED'));
 });
+
+await test(['P6-13', 'AA-Q7'], 'P6-13 on the fork, against the escrow of 5d85a46: the delivery code runs end to end — the buyer’s page makes the code and keeps it on the device, pays with its commitment; the store types it as a person would (lower case, spaces, O for 0) and the page turns it into the contract’s bytes32; a wrong code is refused by the bridge, the right one proves the delivery on-chain', async () => {
+  const { generateDeliveryCode, keepCode, codeFor, normalizeDeliveryCode, codeToBytes32 } = await import('../../../lib/keptra/deliveryCode.ts');
+  const offer = await relayAs(shop, { kind: 'createOffer', terms: { ...TERMS, mode: 1 } });
+  const termsId = offer.created.termsId;
+  assert.ok(termsId !== null);
+  // The buyer's device: the code is made there and kept there, under the commitment the order carries.
+  const device = new Map();
+  const deviceStore = { getItem: (k) => device.get(k) ?? null, setItem: (k, v) => device.set(k, v) };
+  const code = generateDeliveryCode();
+  const commitment = keepCode(deviceStore, code);
+  await orders.registerAddress('buyer-1', { termsId }, ADDRESS);
+  const paidOrder = await relayAs(buyer, { kind: 'pay', termsId, quantity: 1, codeCommit: commitment });
+  const orderId = paidOrder.orderId;
+  assert.equal((await order(orderId)).codeCommit, commitment);
+  assert.equal(codeFor(deviceStore, (await order(orderId)).codeCommit), code, 'the device does not find the code by the order’s commitment');
+  await relayAs(shop, { kind: 'ship', orderId });
+  // A wrong code: refused before anything is signed.
+  const wrong = generateDeliveryCode();
+  await assert.rejects(relay.prepareAction(shop.id, { kind: 'submitCode', orderId, code: codeToBytes32(wrong) }, null), (error) => error.reason === 'code');
+  // What the store typed at the door, as the page reads it.
+  const typed = `${code.slice(0, 5).toLowerCase()} ${code.slice(5, 10)}-${code.slice(10)}`.replace(/0/g, 'O');
+  const normal = normalizeDeliveryCode(typed);
+  assert.equal(normal, code);
+  await relayAs(shop, { kind: 'submitCode', orderId, code: codeToBytes32(normal) });
+  const proved = await order(orderId);
+  assert.equal(Number(proved.state), OrderState.WINDOW);
+  assert.ok((Number(proved.flags) & OrderFlag.PROOF) !== 0, 'the escrow does not show the delivery proved by the code');
+});

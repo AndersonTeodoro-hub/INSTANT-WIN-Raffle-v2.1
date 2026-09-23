@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useKeptra } from '../components/keptra/KeptraProvider';
+import { KEPTRA_VOUCHER, keptraConfigured } from '../lib/keptra/contracts';
 import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { Check, Loader2, ExternalLink } from 'lucide-react';
@@ -246,7 +247,7 @@ function OutcomePanel({
   selfCustody,
   passkey,
   giveawayId,
-  isNft,
+  isVoucher,
 }: {
   outcome: EntryOutcome | null;
   awaiting: boolean;
@@ -254,7 +255,8 @@ function OutcomePanel({
   /** SPEC-BLOCO-03 6.2.3: a Keptra account's prize, claimed with the passkey. */
   passkey: boolean;
   giveawayId: bigint;
-  isNft: boolean;
+  /** P6-8 (B13): the prize is a Keptra voucher — the NFT of the voucher contract, not any NFT. */
+  isVoucher: boolean;
 }) {
   const c = useEventsCopy().detail.outcome;
   const k = useEventsCopy().detail.keptra;
@@ -315,7 +317,8 @@ function OutcomePanel({
           </Button>
         </div>
       )}
-      {passkey && isNft && (
+      {/* P6-8: the voucher's text only for a voucher prize, and only once it is claimed. */}
+      {passkey && isVoucher && claimed && (
         <div className="mt-4 rounded-lg border border-dark-border p-4">
           <p className="text-sm text-gray-300">{k.voucherBody}</p>
           <Link to="/orders" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline underline-offset-4">
@@ -671,9 +674,12 @@ export const EventDetail: React.FC = () => {
   });
 
   const isNft = g?.prizeKind === GiveawayV2PrizeKind.NFT;
-  const decimals = isNft ? 6 : ((meta?.[0]?.result as number | undefined) ?? 18);
+  // SPEC-BLOCO-03 P6-7: without the token's decimals read, no amount is shown —
+  // never one computed with decimals nobody read.
+  const readDecimals = meta?.[0]?.status === 'success' ? (meta[0].result as number) : null;
+  const decimals = isNft ? 6 : readDecimals;
+  const amountShown = decimals === null ? (meta?.[0]?.status === 'failure' ? 'Not read' : '…') : formatUnits(displayAmountOf(g, isNft) ?? 0n, decimals);
   const symbol = isNft ? 'USDC' : ((meta?.[1]?.result as string | undefined) ?? '?');
-  const displayAmount = isNft ? g?.declaredValue : g?.prizeAmount;
 
   const { data: winners } = useReadContract({
     address: CONTRACTS.GIVEAWAY_MANAGER_V2,
@@ -782,7 +788,7 @@ export const EventDetail: React.FC = () => {
                       </div>
                       <p className="mt-5 text-sm text-gray-400">{c.detail.prizeLabel}</p>
                       <p className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.25rem,9vw,3.5rem)] break-all">
-                        {formatUnits(displayAmount ?? 0n, decimals)}
+                        {amountShown}
                         <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
                       </p>
                     </>
@@ -793,7 +799,7 @@ export const EventDetail: React.FC = () => {
                           tinha por onde se orientar. */}
                       <p className="mt-3 text-sm text-gray-400">{c.detail.prizeLabel}</p>
                       <h1 className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.75rem,11vw,4.5rem)] break-all">
-                        {formatUnits(displayAmount ?? 0n, decimals)}
+                        {amountShown}
                         <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
                       </h1>
                     </>
@@ -939,7 +945,7 @@ export const EventDetail: React.FC = () => {
                 selfCustody={entryStatusResult?.selfCustody === true}
                 passkey={entryStatusResult?.passkey === true}
                 giveawayId={giveawayId}
-                isNft={isNft}
+                isVoucher={isNft && typeof g?.prizeToken === 'string' && keptraConfigured() && g.prizeToken.toLowerCase() === KEPTRA_VOUCHER.toLowerCase()}
               />
             )}
 
@@ -1023,3 +1029,8 @@ export const EventDetail: React.FC = () => {
     </EventShell>
   );
 };
+
+/** The amount a campaign's page shows: the declared value of an NFT prize, the prize amount of a token one. */
+function displayAmountOf(g: { declaredValue?: bigint; prizeAmount?: bigint } | undefined, isNft: boolean): bigint | undefined {
+  return isNft ? g?.declaredValue : g?.prizeAmount;
+}

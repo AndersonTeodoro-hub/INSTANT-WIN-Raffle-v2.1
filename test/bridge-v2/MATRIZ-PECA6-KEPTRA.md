@@ -1,9 +1,9 @@
 # Matriz da peça 6 — o frontend
 
-Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.24 — 22/09/2026** — a versão em vigor, com as Adendas T, U e V.
-Cobre a secção 17, ponto 6; a **Adenda T** (T0 a T21), que responde às ambiguidades AMB-1 a AMB-19 da Fase A; a **Adenda U** (U1 a U7), decisões da construção; e a **Adenda V** (V1 a V7), decisões da auditoria da peça 6.
+Spec: `SPEC-BLOCO-03-KEPTRA-v1.0.md` (repositório `instant-win-audit/v2`), linha 3: **Versão 1.30** — a versão em vigor, com as Adendas T, U, V, W e AA (AA4: o lote antes do deploy).
+Cobre a secção 17, ponto 6; a **Adenda T** (T0 a T21), que responde às ambiguidades AMB-1 a AMB-19 da Fase A; a **Adenda U** (U1 a U7), decisões da construção; a **Adenda V** (V1 a V7), decisões da auditoria da peça 6; a **Adenda W** (fecho da peça 6 e pendentes P6-14 a P6-21); e, pela **AA4**, os pendentes P6-1 a P6-21 (secção 5).
 
-Código: este repositório, ramo `feat/keptra-frontend`, criado a partir de `d56f499` (peça 5 fechada, S1). Construção em `61e8169`; a correcção da Adenda V vem no commit seguinte, no mesmo ramo.
+Código: este repositório, ramo `feat/keptra-frontend`, criado a partir de `d56f499` (peça 5 fechada, S1). Construção em `61e8169`; a correcção da Adenda V em `81f08ce`; o lote AA4 da peça 6 no commit a seguir a `d17bd79`, no mesmo ramo.
 
 **Nomes.**
 - **Un** são os requisitos da matriz da Fase A (U1 a U38), actualizados pela Adenda T. Os testes usam `Un` como etiqueta.
@@ -118,7 +118,7 @@ As decisões T0 a T21 estão na secção 3, a seguir aos Un. T1 é uma acção d
 | AV5 | B9: descrição falhada: só se oferece escrever a dessa oferta ou obrigação, nunca criar outra | `pages/keptra/BusinessPage.tsx:564`; `pages/keptra/BusinessPage.tsx:522`; `pages/keptra/BusinessPage.tsx:718` | "V5 (B9)…" (`test/bridge-v2/suites/frontend.test.mjs:1241`) | passa (suite completa de 22/09, depois da correcção da Adenda V: 822 testes, 819 passam, só I5, J2 e G4 falham; código de saída 0) |
 | AV5 | B11: `transferUsdc` recusa os cinco contratos da Keptra, o USDC e o núcleo | `lib/bridge-v2/relay.ts:312`; `lib/bridge-v2/escrowChain.ts:155`; `lib/bridge-v2/abi.ts:1110` | "V5 (B11)…" (`test/bridge-v2/suites/frontend.test.mjs:1270`) | passa (suite completa de 22/09, depois da correcção da Adenda V: 822 testes, 819 passam, só I5, J2 e G4 falham; código de saída 0) |
 | AV6 | V6: matriz com a versão em vigor e as Adendas T, U e V; capturas fora do repositório; o excesso listado sai | este ficheiro; `lib/keptra/contracts.ts:44`; `api/bridge/v2/account/status.ts:69` | "V6: what the audit listed as excess is gone…" (`test/bridge-v2/suites/frontend.test.mjs:1289`); "V6: the matrix of piece 6…" (`test/bridge-v2/suites/frontend.test.mjs:1357`) | passa (suite completa de 22/09, depois da correcção da Adenda V: 822 testes, 819 passam, só I5, J2 e G4 falham; código de saída 0) |
-| AV7 | V7: pendentes P6-1 a P6-13, para o lote antes do deploy | — | Sem código nesta correcção | Pendente (lote antes do deploy) |
+| AV7 | V7: pendentes P6-1 a P6-13, para o lote antes do deploy | secção 5 | secção 5 | feito no lote AA4 (secção 5) |
 
 ## 4. Decisões tomadas sem terem sido pedidas
 
@@ -156,3 +156,45 @@ As decisões T0 a T21 estão na secção 3, a seguir aos Un. T1 é uma acção d
 29. **B7.** O cálculo do prazo seguinte passou para `lib/keptra/orders.ts` (`nextDeadlineText`), com a mesma regra que a lista já usava.
 30. **V2, a cor mais escura para texto é o gray-400** (cerca de 7:1 sobre os cinzentos dos cartões e dos campos); os botões desactivados mudam de cor em vez de ficarem translúcidos; os marcadores de posição dos campos usam gray-400.
 31. **V6, as capturas e a pré-visualização.** `test/preview/shoot.mjs` escreve fora do repositório e mede o contraste de cada ecrã; a pré-visualização passou a assinar com a passkey de software do servidor (só em `test/preview`, fora do build) e a correr a passagem das encomendas a cada 15 s, como o cron, para o fluxo da loja poder ir até ao fim num browser.
+
+## 5. Adenda AA4 — os pendentes P6-1 a P6-21
+
+Pela AA4, o lote antes do deploy fecha os pendentes da V7 (P6-1 a P6-13) e da W2 (P6-14 a P6-21). Cada um tem pelo menos um teste; os que só lêem o código-fonte de uma página dizem-no no título (P6-10). O P6-13 corre no fork (`test/bridge-v2/fork/orders.fork.mjs`), contra o escrow de 5d85a46.
+
+| # | Requisito ou decisão (fonte) | Onde está | Teste | Resultado |
+|---|---|---|---|---|
+| P6-1 | B2: "confirmar" mostra o que a loja recebe, já sem a taxa; em PRÉMIO sem destino | `lib/bridge-v2/relay.ts:809` | "P6-1: the summary of \"confirm\"…" (`test/bridge-v2/suites/frontend.test.mjs:1448`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-2 | B4: o código postal vai para o fornecedor de tracking e para os nós do oráculo | `components/keptra/AddressForm.tsx:95` | "P6-2: the address form…" (`test/bridge-v2/suites/frontend.test.mjs:1466`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-3 | B5: nenhum número do painel do pool é escrito à mão | `pages/keptra/PoolPage.tsx:21` | "P6-3 and P6-4…" (`test/bridge-v2/suites/frontend.test.mjs:1471`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-4 | B6: as taxas distribuídas em montantes, dos eventos `ObligationCreated` e `FeeReceived` de 5d85a46 | `pages/keptra/PoolPage.tsx:141`; `lib/keptra/contracts.ts:75`; `lib/keptra/contracts.ts:94` | "P6-3 and P6-4…" (`test/bridge-v2/suites/frontend.test.mjs:1471`), eventos contra a fixture | passa (suite completa de 23/09, secção 5.1) |
+| P6-5 | B8: um voucher sem descrição não é resgatável pela página | `pages/keptra/VoucherPage.tsx:68` | "P6-5: a voucher with no description…" (`test/bridge-v2/suites/frontend.test.mjs:1488`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-6 | B10: a recusa do apagamento lê as encomendas abertas da cadeia; mais de uma página responde 503 | `api/bridge/v2/privacy/erase.ts:23`; `api/bridge/v2/privacy/erase.ts:30` | "P6-6: the erasure’s refusal reads the open orders from the chain…" (`test/bridge-v2/suites/frontend.test.mjs:1495`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-7 | B12: sem as casas decimais do token, nenhum montante | `pages/EventDetail.tsx:677`; `pages/keptra/AccountPage.tsx:179` | "P6-7: with the token’s decimals not read…" (`test/bridge-v2/suites/frontend.test.mjs:1517`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-8 | B13: o texto do voucher só para um prémio voucher, e depois de reclamado | `pages/EventDetail.tsx:258`; `pages/EventDetail.tsx:320` | "P6-8: the voucher’s text…" (`test/bridge-v2/suites/frontend.test.mjs:1527`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-9 | B14: o estado da conta só é lido nas páginas que precisam dele | `components/keptra/KeptraProvider.tsx:77`; `components/keptra/SignIn.tsx:169` | "P6-9: the account is read by the pages that show it…" (`test/bridge-v2/suites/frontend.test.mjs:1534`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-10 | B16: os títulos dizem o que o teste demonstra; os que só lêem código-fonte dizem-no | `test/bridge-v2/suites/frontend.test.mjs:1542` | "P6-10: every test of this suite that reads a page’s or a component’s source says so…" (`test/bridge-v2/suites/frontend.test.mjs:1542`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-11 | B17: a página avisa quando a lista de vouchers está incompleta | `components/keptra/ui.tsx:218`; `pages/keptra/VoucherPage.tsx:75`; `pages/keptra/OrdersPage.tsx:66` | "P6-11: the bridge says when the voucher list is cut short…" (`test/bridge-v2/suites/frontend.test.mjs:1555`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-12 | B18: a lista de obrigações mostra caução, cobertura e estado | `pages/keptra/BusinessPage.tsx:788` | "P6-12: the obligation list shows bond, coverage and state…" (`test/bridge-v2/suites/frontend.test.mjs:1565`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-13 | um teste de fork exercita o código de entrega de ponta a ponta contra o contrato real | `lib/keptra/deliveryCode.ts:53`; `lib/bridge-v2/relay.ts:863` | "P6-13 on the fork, against the escrow of 5d85a46…" (`test/bridge-v2/fork/orders.fork.mjs:531`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-14 | W2 (médio): uma oferta ou obrigação sem descrição continua visível depois de recarregar, e a página só oferece escrever essa descrição | `supabase/migrations/0015_keptra_lote.sql:97`; `lib/bridge-v2/descriptions.ts:96`; `lib/bridge-v2/relay.ts:1290`; `api/bridge/v2/store/offers.ts:38`; `pages/keptra/BusinessPage.tsx:478`; `pages/keptra/BusinessPage.tsx:559` | "P6-14: an offer or an obligation whose description failed…" (`test/bridge-v2/suites/frontend.test.mjs:1575`); "0015 (P6-14)…" (`test/bridge-v2/suites/frontend.test.mjs:1428`), no Postgres embebido | passa (suite completa de 23/09, secção 5.1) |
+| P6-15 | W2: um só "Tentar outra vez" relê tudo o que falhou no painel do pool | `pages/keptra/PoolPage.tsx:19` | "P6-15 and P6-16…" (`test/bridge-v2/suites/frontend.test.mjs:1598`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-16 | W2: com a cadeia em baixo, um valor não lido fica "não lido" | `pages/keptra/PoolPage.tsx:39` | "P6-15 and P6-16…" (`test/bridge-v2/suites/frontend.test.mjs:1598`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-17 | W2: depois de uma resposta perdida, a consola da loja não mostra sucesso e erro ao mesmo tempo | `pages/keptra/BusinessPage.tsx:188`; `pages/keptra/BusinessPage.tsx:205` | "P6-17: after a lost answer…" (`test/bridge-v2/suites/frontend.test.mjs:1610`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+| P6-18 | W2: "o token não indica as casas decimais" só quando é verdade; uma leitura falhada é mostrada como falha | `lib/bridge-v2/chain.ts:1583`; `lib/bridge-v2/relay.ts:311`; `lib/keptra/format.ts:121` | "P6-18: \"the token does not state its decimals\" only when…" (`test/bridge-v2/suites/frontend.test.mjs:1618`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-19 | W2: sai a entrada de ABI sem uso (`feeBps` do escrow no cliente) | `lib/keptra/contracts.ts:48` | "P6-19: the ABI entry left unused is gone…" (`test/bridge-v2/suites/frontend.test.mjs:1635`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-20 | W2: a lista de encomendas da loja não faz uma consulta por encomenda | `api/bridge/v2/store/orders.ts:43` | "P6-20: the store’s order list reads the addresses and the shipments in one query each…" (`test/bridge-v2/suites/frontend.test.mjs:1639`) | passa (suite completa de 23/09, secção 5.1) |
+| P6-21 | W2: a página da oferta nunca mostra contadores de reputação não lidos | `pages/keptra/OfferPage.tsx:139` | "P6-21: the offer page never shows reputation counters that were not read…" (`test/bridge-v2/suites/frontend.test.mjs:1653`), no código-fonte | passa (suite completa de 23/09, secção 5.1) |
+
+### 5.1 Resultado
+
+Suite completa de 23/09 (`ANVIL_BIN=… npm run test:bridge-v2`), com o fork contra 5d85a46: todos os testes da peça 6 passam; falham só as três falhas de base (I5, J2 e G4); código de saída 0. Typecheck e build de produção passam.
+
+### 5.2 Decisões tomadas sem terem sido pedidas, no lote AA4
+
+32. **P6-14, onde se guardam os termos criados.** Tabela nova `bridge_v2_store_terms` na 0015 (só INSERT e SELECT, RLS ligada), escrita pela relay a partir do recibo de `createOffer` e `createObligation`. Uma falha ao guardar não desfaz a relay: fica um alerta `store_terms.failed`. `store/offers` junta-as às descrições, com `title` a null nas que não têm descrição. A página mostra então só "Save the description", com o título e o texto do formulário (a loja escreve-os de novo; o texto perdido não está guardado em lado nenhum). Um recibo que não voltou continua como na V5 (B9): sem id, não há nada a descrever.
+33. **P6-9, quem pede o estado.** O provider deixa de o ler ao montar; `RequireAccount` pede-o, e a assinatura lê-o só se ninguém o leu (precisa das passkeys). Depois de uma acção, só se relê onde já tinha sido lido.
+34. **P6-17, o que é "resposta perdida".** Um erro fica ligado ao estado da encomenda (estado e tracking registado) em que aconteceu; toda a acção relê a encomenda, com sucesso ou erro. Se a encomenda relida já não está nesse estado, o erro dá lugar a "Done: the order shows it, although the answer was lost on the way."
+35. **P6-18, o que é "o token não indica".** Uma chamada revertida ou sem dados (`ContractFunctionRevertedError`, `ContractFunctionZeroDataError`) ou um símbolo vazio: o token respondeu. Qualquer outra falha é de leitura (`metaFailed`), e a folha diz "could not be read — try again".
+36. **P6-7, o que mostra a página do sorteio.** "…" enquanto as casas decimais se lêem; "Not read" se a leitura falhou. Na conta, o campo do montante só aparece com as casas decimais lidas.
+37. **P6-8, o que é um prémio voucher.** Um prémio NFT cujo token é o contrato de vouchers da configuração (`KEPTRA_VOUCHER`), e só com os contratos configurados.
+38. **P6-10, a regra.** Um teste que lê o código-fonte de uma página ou de um componente (`.tsx`) diz "source" no título; os que também exercitam código dizem "the page’s part checked in the source". Onze títulos da suite foram acertados.

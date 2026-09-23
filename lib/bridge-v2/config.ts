@@ -1253,15 +1253,17 @@ export const ROUTE_MAX_DURATION_SECONDS: Record<string, number> = {
   // database stages: the session read and slide, three rate-limit axes, the
   // creator account, the insert, the ops event, and the envelope's.
   'api/bridge/v2/store/description.ts': maxDurationSeconds(2, 9),
-  // T13. One RPC stage: the USDC and voucher balances of both accounts, read
-  // together. Eighteen database stages outside the addresses: the session read
-  // and slide, three rate-limit axes, the accounts, the orders as recipient and
-  // as store, the changes of access read (P1-11), the phone released, the
+  // T13. Three RPC stages: the USDC and voucher balances of both accounts and
+  // (P6-6) the order count, read together; then one page of orders and their
+  // terms. Seventeen database stages outside the addresses: the session read and
+  // slide, three rate-limit axes, the accounts, the orders as recipient and as
+  // store with the last order indexed (together, P6-6), the changes of access read
+  // (P1-11), the phone released, the
   // participant tombstoned, the notices, the changes of access and the passkeys
   // deleted (P1-11), the addresses read, the sessions revoked, the ops event, and
   // the envelope's; and four for each address erased on the spot (its order, two
   // related tables, itself).
-  'api/bridge/v2/privacy/erase.ts': maxDurationSeconds(1, 18 + 4 * ERASE_ADDRESSES_NOW_MAX),
+  'api/bridge/v2/privacy/erase.ts': maxDurationSeconds(3, 17 + 4 * ERASE_ADDRESSES_NOW_MAX),
 };
 
 /**
