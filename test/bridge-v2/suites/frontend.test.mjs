@@ -903,9 +903,10 @@ await test(['AA-T18', 'AA-Q7', 'AT18'], 'T18 and Q7 (Z1): every function, event 
   against('POOL_READ_ABI', contracts.POOL_READ_ABI, ['KeptraPool']);
 });
 
-await test(['AT14', 'U32'], 'T14: the privacy page is a route with the owner’s text — empty today — and every address form is locked while it is empty (checked in the source)', () => {
-  assert.equal(PRIVACY_TEXT, '');
-  assert.equal(privacyPublished(), false);
+await test(['AT14', 'U32'], 'T14: the privacy page is a route with the owner’s text — published — and every address form is locked while a text is empty (checked in the source)', () => {
+  assert.ok(PRIVACY_TEXT.trim().length > 0, 'the owner’s text is not published');
+  assert.equal(privacyPublished(), true);
+  assert.equal(privacyPublished(''), false);
   assert.equal(privacyPublished('Keptra keeps…'), true);
   const form = codeOf('components/keptra/AddressForm.tsx');
   assert.ok(form.indexOf('if (!privacyPublished())') < form.indexOf('<form'), 'the form renders before the check');
@@ -1275,23 +1276,24 @@ await test(['AV5'], 'V5 (B1): the signing sheet holds the focus — Tab past the
   assert.match(ui, /aria-disabled=\{busy \|\| undefined\}/);
 });
 
-await test(['AV5', 'AT14', 'U32'], 'V5 (B3): the bridge refuses a delivery address while the privacy page has no text — the owner’s text, empty today — and takes it once the page has one', async () => {
+await test(['AV5', 'AT14', 'U32'], 'V5 (B3): the bridge refuses a delivery address while the privacy page has no text — an empty text, set in the test — and takes it with the owner’s published text', async () => {
   fresh();
   await person('participant-1', '0x2222222222222222222222222222222222222222');
   offer();
   asParticipant('participant-1');
   const published = BRIDGE_PRIVACY_TEXT;
-  setPrivacyText(REAL_PRIVACY_TEXT);
+  assert.equal(REAL_PRIVACY_TEXT, PRIVACY_TEXT, 'the double does not hold the real text');
+  setPrivacyText('');
   try {
-    assert.equal(REAL_PRIVACY_TEXT, PRIVACY_TEXT, 'the double does not hold the real text');
     const refused = await api.registerAddress({ termsId: '1' }, ADDRESS);
     assert.equal(refused.status, 503);
     assert.match(refused.error, /privacy page is published/);
     assert.equal(store.rows('bridge_v2_order_addresses').length, 0);
+    setPrivacyText(REAL_PRIVACY_TEXT);
+    assert.equal((await api.registerAddress({ termsId: '1' }, ADDRESS)).ok, true);
   } finally {
     setPrivacyText(published);
   }
-  assert.equal((await api.registerAddress({ termsId: '1' }, ADDRESS)).ok, true);
   assert.equal(store.rows('bridge_v2_order_addresses').length, 1);
   assert.match(read('lib/bridge-v2/config.ts'), /export \{ PRIVACY_TEXT \} from '\.\.\/keptra\/privacy\.js';/, 'the bridge reads another copy of the text');
 });
