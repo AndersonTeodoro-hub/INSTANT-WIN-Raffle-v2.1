@@ -41,7 +41,7 @@ export const PublicNavLinks: React.FC = () => {
   return (
     <nav
       aria-label="Sections"
-      className="flex w-full order-last justify-center items-center gap-1 pb-2 md:w-auto md:order-none md:justify-start md:pb-0"
+      className="flex items-center justify-center gap-1 md:justify-start"
     >
       {PUBLIC_NAV.map((item) => {
         const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
@@ -51,8 +51,10 @@ export const PublicNavLinks: React.FC = () => {
             to={item.to}
             aria-current={isActive ? 'page' : undefined}
             className={clsx(
-              'inline-flex items-center min-h-[44px] px-3 text-sm font-medium transition-colors',
-              isActive ? 'text-white' : 'text-gray-400 hover:text-white',
+              // O sítio onde se está leva uma aresta clara por baixo: posição, não cor de estado.
+              'relative inline-flex items-center min-h-[44px] px-2 sm:px-3 whitespace-nowrap text-sm font-medium transition-colors duration-200',
+              'after:absolute after:inset-x-2 sm:after:inset-x-3 after:bottom-1.5 after:h-px after:origin-center after:bg-white/70 after:transition-transform after:duration-200',
+              isActive ? 'text-white after:scale-x-100' : 'text-gray-400 hover:text-white after:scale-x-0',
             )}
           >
             {item.label}

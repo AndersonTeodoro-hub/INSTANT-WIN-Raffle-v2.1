@@ -10,6 +10,7 @@ import {
 } from '../constants';
 import { Button } from './Button';
 import { Share2, Check, ExternalLink } from 'lucide-react';
+import { ProofSeal } from './Proof';
 import { useAppCopy } from '../pages/app.i18n';
 
 const LOG_CHUNK = 9_000n;
@@ -110,7 +111,7 @@ export const WinCard: React.FC<{
   };
 
   return (
-    <div className="bg-dark-input border border-dark-border rounded-xl p-5 mb-4">
+    <div className="iw-surface-raised iw-swap !rounded-card p-5 mb-4">
       <div className="flex items-center justify-between gap-3 mb-3">
         <p className="font-mono text-sm text-white truncate">{name}</p>
         {win?.rank ? (
@@ -122,16 +123,16 @@ export const WinCard: React.FC<{
 
       <p className="font-mono text-4xl sm:text-5xl font-bold text-brand tabular-nums leading-none">
         {formatUnits(amount, 6)}
-        <span className="ml-2 font-sans text-base text-gray-600 font-normal">USDC</span>
+        <span className="ml-2 font-sans text-base text-gray-400 font-normal">USDC</span>
       </p>
 
       {win?.roundId !== undefined && (
-        <p className="font-mono text-[11px] text-gray-500 mt-2">{c.winCard.round} {win.roundId.toString()}</p>
+        <p className="font-mono text-[11px] text-gray-400 mt-2">{c.winCard.round} {win.roundId.toString()}</p>
       )}
 
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-dark-border pt-3">
         <span className="flex items-center gap-2 font-mono text-[11px] text-success uppercase tracking-widest">
-          <Check className="w-4 h-4 shrink-0" strokeWidth={3} /> {c.winCard.verified}
+          <ProofSeal className="w-4 h-4" /> {c.winCard.verified}
         </span>
         {proofTx && (
           <a

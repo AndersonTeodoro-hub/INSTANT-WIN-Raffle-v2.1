@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, ShieldCheck } from 'lucide-react';
-import { CONTRACTS, GIVEAWAY_LIMITS } from '../constants';
+import { ExternalLink, Send, Coins, Shuffle, Users } from 'lucide-react';
+import { CONTRACTS, GIVEAWAY_LIMITS, TELEGRAM_URL } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { WaitlistLink } from '../components/WaitlistLink';
-import { LangSwitch } from '../components/LangSwitch';
+import { SiteHeader, HeaderAction } from '../components/SiteHeader';
 import { GiveawayWizard } from '../components/GiveawayWizard';
+import { ProofSeal } from '../components/Proof';
 import { useGiveawaysCopy } from './giveaways.i18n';
 import type { GiveawaysCopy } from './giveaways.i18n';
 
@@ -30,6 +31,60 @@ const specValues = (w: GiveawaysCopy['proof']['specWords']) => [
   w.anyErc20,
   `${GIVEAWAY_LIMITS.MIN_DURATION_HOURS} ${w.hour} – ${GIVEAWAY_LIMITS.MAX_DURATION_HOURS / 24} ${w.days}`,
 ];
+
+/**
+ * A prova ou a ilustração de cada afirmação do herói, pela ordem de
+ * `hero.bullets`: entrada a zero, qualquer ERC-20, o sorteio do Chainlink VRF,
+ * o contrato de onde se reclama (verde: é verificável agora) e quem pode criar.
+ */
+const BulletEvidence: React.FC<{ index: number; upTo: string }> = ({ index, upTo }) => {
+  const tile = 'flex h-14 items-center gap-3 rounded-control border border-dark-border bg-black/40 px-4';
+  switch (index) {
+    case 0:
+      return (
+        <div className={tile}>
+          <span className="font-mono text-2xl font-bold text-white">0.00</span>
+          <span className="font-mono text-xs text-gray-400">USDC</span>
+        </div>
+      );
+    case 1:
+      return (
+        <div className={tile}>
+          <Coins className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+          <span className="font-mono text-sm text-white">ERC-20</span>
+        </div>
+      );
+    case 2:
+      return (
+        <div className={tile}>
+          <Shuffle className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+          <span className="font-mono text-sm text-white">Chainlink VRF</span>
+        </div>
+      );
+    case 3:
+      return (
+        <a
+          href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${tile} justify-between font-mono text-sm text-success transition-colors duration-200 hover:border-success/40`}
+        >
+          <span className="flex items-center gap-2">
+            <ProofSeal className="h-4 w-4" />
+            {`${CONTRACTS.GIVEAWAY_MANAGER_V2.slice(0, 6)}…${CONTRACTS.GIVEAWAY_MANAGER_V2.slice(-4)}`}
+          </span>
+          <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
+        </a>
+      );
+    default:
+      return (
+        <div className={tile}>
+          <Users className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+          <span className="font-mono text-sm text-white">{`${upTo} ${GIVEAWAY_LIMITS.MAX_PARTICIPANTS.toLocaleString('en-US')}`}</span>
+        </div>
+      );
+  }
+};
 
 export const Giveaways: React.FC = () => {
   const c = useGiveawaysCopy();
@@ -57,38 +112,20 @@ export const Giveaways: React.FC = () => {
   }, [c]);
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
+    <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-hidden">
 
-      {/* Um só glow ambiente, azul — como a /roadmap. */}
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
 
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3">
-          <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2 md:mr-auto">
-            <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
-              INSTANT WIN
-            </span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 translate-y-[1px]">
-              <path d="M4 12.5 L9.5 18 L20 6" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </Link>
+      {/* O cabeçalho da plataforma; a acção do contexto é a lista de espera. */}
+      <SiteHeader
+        nav={<PublicNavLinks />}
+        actions={<HeaderAction href={TELEGRAM_URL} icon={Send} label={c.waitlist.short} />}
+      />
 
-          {/* Filho directo da barra: é o que lhe permite descer para a segunda
-              linha abaixo de md. */}
-          <PublicNavLinks />
-
-          <div className="flex items-center gap-2">
-            <LangSwitch />
-            <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-3xl">
+      <main className="flex-1 container mx-auto px-4 sm:px-6 max-w-4xl">
 
         {/* Herói */}
         <section className="pt-12 pb-10 sm:pt-20 sm:pb-14">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-4">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-4">
             {c.hero.eyebrow}
           </p>
           <h1 className="font-display font-bold text-[clamp(2.5rem,11vw,4rem)] leading-[1.05] mb-5">
@@ -96,14 +133,19 @@ export const Giveaways: React.FC = () => {
           </h1>
           <p className="text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
 
-          <ul className="mt-8 space-y-3">
-            {c.hero.bullets.map((b) => (
-              <li key={b.lead} className="flex gap-3 text-gray-400 leading-relaxed">
-                <span className="font-mono text-gray-600 shrink-0" aria-hidden="true">&middot;</span>
-                <span>
+          {/*
+            Cada afirmação leva a peça que a prova ou ilustra — um número, o nome
+            do protocolo, o contrato. Emparelham posicionalmente com
+            `hero.bullets` (mesma convenção dos STEP_ICONS da Landing).
+          */}
+          <ul className="mt-10 grid gap-3 sm:grid-cols-2">
+            {c.hero.bullets.map((b, i) => (
+              <li key={b.lead} className={`iw-surface flex flex-col gap-4 p-5 ${i === c.hero.bullets.length - 1 && c.hero.bullets.length % 2 === 1 ? 'sm:col-span-2' : ''}`}>
+                <BulletEvidence index={i} upTo={c.proof.specWords.upTo} />
+                <p className="text-sm leading-relaxed text-gray-400">
                   <strong className="font-semibold text-gray-200">{b.lead}</strong>
                   {b.rest}
-                </span>
+                </p>
               </li>
             ))}
           </ul>
@@ -111,27 +153,27 @@ export const Giveaways: React.FC = () => {
 
         {/* Prova — o único verde da página vive neste bloco. */}
         <section className="pb-12 sm:pb-16">
-          <div className="bg-dark-card border border-dark-border rounded-xl p-6 sm:p-8">
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-3">
+          <div className="iw-surface-raised p-6 sm:p-8">
+            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-3">
               {c.proof.eyebrow}
             </p>
             <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-6">{c.proof.title}</h2>
 
-            <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-gray-400 mb-2">
               {c.proof.verifyLabel}
             </p>
             <a
               href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-between gap-3 min-h-[44px] rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
+              className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
             >
               <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
               <ExternalLink className="w-4 h-4 shrink-0" />
             </a>
 
             <p className="mt-3 inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-success">
-              <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <ProofSeal className="w-4 h-4" />
               {c.proof.matchLabel}
             </p>
 
@@ -140,13 +182,13 @@ export const Giveaways: React.FC = () => {
             <dl className="mt-8 grid grid-cols-1 min-[420px]:grid-cols-2 gap-x-6 gap-y-5">
               {c.proof.specs.map((label, i) => (
                 <div key={label}>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-1">{label}</dt>
+                  <dt className="font-mono text-[10px] uppercase tracking-widest text-gray-400 mb-1">{label}</dt>
                   <dd className="font-mono text-lg sm:text-xl font-bold text-white">{specs[i]}</dd>
                 </div>
               ))}
             </dl>
 
-            <p className="text-gray-500 text-sm leading-relaxed mt-8 pt-6 border-t border-dark-border">
+            <p className="text-gray-400 text-sm leading-relaxed mt-8 pt-6 border-t border-dark-border">
               {c.proof.discipline}
             </p>
           </div>
@@ -154,7 +196,7 @@ export const Giveaways: React.FC = () => {
 
         {/* Fluxo de criação em preview */}
         <section className="pb-14 sm:pb-20">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-3">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-3">
             {c.wizard.eyebrow}
           </p>
           <h2 className="font-display font-bold text-3xl sm:text-4xl text-white mb-4">{c.wizard.title}</h2>
@@ -165,7 +207,7 @@ export const Giveaways: React.FC = () => {
 
         {/* CTA de participante: uma só lista de espera para todo o Event Center. */}
         <section className="pb-16 sm:pb-24 text-center">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-3">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-3">
             {c.participants.eyebrow}
           </p>
           <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-4">{c.participants.title}</h2>
@@ -178,16 +220,16 @@ export const Giveaways: React.FC = () => {
         </section>
       </main>
 
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
+      <footer className="border-t border-dark-border py-8 bg-black/80">
         <div className="container mx-auto px-4 space-y-4 text-center">
           <PublicFooterNav />
           <Link
             to="/"
-            className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+            className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-400 hover:text-white transition-colors"
           >
             &larr; {c.outro.back}
           </Link>
-          <p className="font-mono text-[10px] text-gray-700">&copy; 2026 Instant Win Protocol</p>
+          <p className="font-mono text-[10px] text-gray-400">&copy; 2026 Instant Win Protocol</p>
         </div>
       </footer>
     </div>

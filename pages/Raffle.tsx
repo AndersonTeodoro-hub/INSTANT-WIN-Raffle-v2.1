@@ -6,7 +6,8 @@ import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { ClaimPanel, PreviousRound } from '../components/RoundPanels';
 import { RecentWinners } from '../components/RecentWinners';
-import { Clock, Ticket, Info, AlertTriangle, CheckCircle2, ExternalLink, Sprout } from 'lucide-react';
+import { Clock, Ticket, Info, AlertTriangle, ExternalLink, Sprout } from 'lucide-react';
+import { ProofSeal, RoundMeter } from '../components/Proof';
 import { useAppCopy } from './app.i18n';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -240,12 +241,7 @@ export const Raffle: React.FC = () => {
 
       <div className="text-center">
         <p className="inline-flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.16em] uppercase text-gray-400">
-          <span
-            aria-hidden="true"
-            className={`w-1.5 h-1.5 rounded-full ${
-              isTransitioning ? 'bg-gray-600' : 'bg-success animate-pulse'
-            }`}
-          />
+          <span aria-hidden="true" className="iw-live" data-idle={isTransitioning || !isOpen} />
           {roundId !== undefined && (
             <span className="text-gray-400">
               {c.raffle.ticket.round} {roundId.toString()}
@@ -254,7 +250,11 @@ export const Raffle: React.FC = () => {
           {statusLabel}
         </p>
 
-        <h1 className="mt-5 font-mono font-bold text-brand tracking-tighter leading-[0.9] tabular-nums text-[clamp(3.5rem,17vw,7.5rem)]">
+        {/* O prémio volta a assentar, com um desfoque curto, cada vez que o pool muda. */}
+        <h1
+          key={totalPool.toString()}
+          className="iw-swap mt-5 font-mono font-bold text-brand tracking-tighter leading-[0.9] tabular-nums text-[clamp(3.5rem,17vw,7.5rem)] [text-shadow:0_0_48px_rgba(245,158,11,0.25)]"
+        >
           {formatUnits(totalPool, 6)}
         </h1>
         <p className="mt-1 font-display text-2xl font-bold tracking-wide text-gray-400">USDC</p>
@@ -274,7 +274,7 @@ export const Raffle: React.FC = () => {
       {/* ==================== O BILHETE ==================== */}
 
       <section aria-label={c.raffle.ticket.title} className="mt-10 sm:mt-12 mx-auto max-w-[30rem]">
-        <div className="rounded-2xl border border-brand/20 bg-dark-ticket shadow-[0_1px_0_0_rgba(245,158,11,0.06)_inset]">
+        <div className="rounded-panel border border-brand/25 bg-dark-ticket shadow-[inset_0_1px_0_rgba(245,158,11,0.12),0_32px_64px_-32px_rgba(0,0,0,0.95),0_0_0_1px_rgba(0,0,0,0.6)]">
 
           {/* Cabeça do talão: marca impressa à esquerda, série à direita. */}
           <div className="flex items-baseline justify-between gap-3 px-6 pt-5">
@@ -306,8 +306,9 @@ export const Raffle: React.FC = () => {
           <div className="px-6 pt-6 pb-6">
 
             {alreadyEntered && (
-              <p className="mb-5 flex items-start gap-3 text-sm">
-                <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" aria-hidden="true" />
+              <p className="iw-swap mb-5 flex items-start gap-3 text-sm">
+                {/* A compra está on-chain: o selo desenha-se quando o bilhete aparece. */}
+                <ProofSeal className="w-4 h-4 text-success mt-0.5" />
                 <span className="min-w-0 text-gray-300">
                   <span className="font-bold text-white">{c.raffle.alreadyEnteredTitle}</span>{' '}
                   {((myTickets ?? 0n) as bigint).toString()}{' '}
@@ -343,7 +344,7 @@ export const Raffle: React.FC = () => {
                   value={ticketAmount}
                   onChange={(e) => setTicketAmount(e.target.value)}
                   aria-label={c.raffle.ariaTicketCount}
-                  className="mt-1 w-full bg-transparent font-mono text-5xl font-bold text-white outline-none tabular-nums placeholder:text-gray-600 focus-visible:text-brand disabled:text-gray-400"
+                  className="mt-1 w-full bg-transparent font-mono text-5xl font-bold text-white outline-none tabular-nums placeholder:text-gray-400 focus-visible:text-brand disabled:text-gray-400"
                   placeholder="0"
                   min="1"
                   max="100"
@@ -411,7 +412,8 @@ export const Raffle: React.FC = () => {
                 {drawLabel}
               </span>
               <span
-                className={`font-mono text-xl font-bold tabular-nums ${
+                key={isTransitioning ? 'closed' : 'open'}
+                className={`iw-swap font-mono text-xl font-bold tabular-nums ${
                   isTransitioning
                     ? 'text-gray-400'
                     : closingSoon
@@ -422,6 +424,8 @@ export const Raffle: React.FC = () => {
                 {isTransitioning ? '00:00:00' : formatTime(timeLeft)}
               </span>
             </div>
+            {/* Quanto da ronda já passou, por baixo do relógio do talão. */}
+            <RoundMeter seconds={timeLeft} closing={isTransitioning} className="mt-3" />
           </div>
         </div>
 
@@ -432,7 +436,7 @@ export const Raffle: React.FC = () => {
 
       {/* Quem mais está nesta ronda, e o que a próxima já tem dentro. */}
       <div className="mt-8 mx-auto max-w-[30rem] space-y-2">
-        <p className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-dark-card px-4 py-3 text-sm">
+        <p className="iw-surface flex items-center justify-between gap-3 !rounded-control px-4 py-3 text-sm">
           <span className="flex items-center gap-2 text-gray-400">
             <Ticket className="w-4 h-4 shrink-0 text-gray-400" aria-hidden="true" />
             {c.raffle.tickets}
@@ -448,7 +452,7 @@ export const Raffle: React.FC = () => {
         </p>
 
         {((pendingCarry ?? 0n) as bigint) > 0n && (
-          <p className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-dark-card px-4 py-3 text-sm">
+          <p className="iw-surface flex items-center justify-between gap-3 !rounded-control px-4 py-3 text-sm">
             <span className="flex items-center gap-2 text-gray-400">
               <Sprout className="w-4 h-4 shrink-0 text-success" aria-hidden="true" />
               {c.raffle.nextRoundStartsWith}
@@ -470,7 +474,7 @@ export const Raffle: React.FC = () => {
         <RecentWinners />
 
         {/* A prova. Uma lotaria em papel não tem esta secção. */}
-        <section className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-7">
+        <section className="iw-surface p-5 sm:p-7">
           <h2 className="font-display text-2xl font-bold tracking-tight text-white">
             {c.raffle.roundFacts}
           </h2>

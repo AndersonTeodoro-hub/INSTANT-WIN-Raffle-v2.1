@@ -36,18 +36,32 @@ export default {
           // `card`: o bilhete da lotaria tem de se ler como um objecto em cima
           // da página, não como mais um painel dentro dela.
           ticket: '#15151A',
+          // Camada acima de `card` (painéis principais) e a aresta mais forte.
+          raised: '#141418',
+          line: '#2A2A31',
         }
       },
       backgroundImage: {
         'gradient-banner': 'linear-gradient(135deg, #2563EB 0%, #7C3AED 100%)', // Blue to Purple
       },
+      // Os tokens de raio, curva e tempo vivem em index.css (:root); aqui só se
+      // expõem como classes, para não haver um segundo sistema.
+      borderRadius: {
+        control: 'var(--radius-control)',
+        card: 'var(--radius-card)',
+        panel: 'var(--radius-panel)',
+      },
+      transitionTimingFunction: {
+        out: 'var(--ease-out)',
+        'in-out': 'var(--ease-in-out)',
+      },
       animation: {
-        'fade-in-up': 'fadeInUp 0.5s ease-out',
+        'fade-in-up': 'fadeInUp 0.42s cubic-bezier(0.23, 1, 0.32, 1)',
         'shimmer': 'shimmer 2s infinite',
       },
       keyframes: {
         fadeInUp: {
-          '0%': { opacity: '0', transform: 'translateY(10px)' },
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         shimmer: {

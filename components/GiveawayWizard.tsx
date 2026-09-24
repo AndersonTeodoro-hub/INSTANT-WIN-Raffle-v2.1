@@ -111,7 +111,7 @@ const STEP_COUNT = 5;
 
 const inputClass =
   'w-full min-h-[48px] rounded-lg border border-dark-border bg-dark-input px-4 text-white ' +
-  'placeholder:text-gray-600 focus:outline-none focus:border-gray-500 transition-colors';
+  'placeholder:text-gray-400 focus:outline-none focus:border-gray-500 transition-colors';
 
 const Field: React.FC<{
   label: string;
@@ -122,7 +122,7 @@ const Field: React.FC<{
   className?: string;
 }> = ({ label, hint, error, htmlFor, children, className = '' }) => (
   <div className={className}>
-    <label htmlFor={htmlFor} className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">
+    <label htmlFor={htmlFor} className="block font-mono text-[11px] uppercase tracking-widest text-gray-400 mb-2">
       {label}
     </label>
     {children}
@@ -130,7 +130,7 @@ const Field: React.FC<{
     {error ? (
       <p className="mt-2 text-sm text-red-400 leading-relaxed">{error}</p>
     ) : hint ? (
-      <p className="mt-2 text-sm text-gray-500 leading-relaxed">{hint}</p>
+      <p className="mt-2 text-sm text-gray-400 leading-relaxed">{hint}</p>
     ) : null}
   </div>
 );
@@ -285,14 +285,14 @@ export const GiveawayWizard: React.FC = () => {
       */}
       <div className="flex items-center gap-2.5 border-b border-dark-border bg-black/40 px-4 sm:px-8 py-3">
         <span className="w-1.5 h-1.5 rounded-full bg-gray-500 shrink-0" aria-hidden="true" />
-        <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.15em] text-gray-500">
+        <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.15em] text-gray-400">
           {w.banner}
         </p>
       </div>
 
       {/* Progresso. A linha de texto serve mobile; as barras dão a forma. */}
       <div className="px-4 sm:px-8 pt-6">
-        <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-3">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-gray-400 mb-3">
           {`${step + 1} ${w.stepOf} ${STEP_COUNT} · ${w.stepNames[step]}`}
         </p>
         <ol className="flex gap-1.5" aria-hidden="true">
@@ -372,7 +372,7 @@ export const GiveawayWizard: React.FC = () => {
                   onChange={(ev) => set('amount', ev.target.value)}
                   className={`${inputClass} font-mono text-lg pr-20`}
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-sm text-gray-500 pointer-events-none">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-sm text-gray-400 pointer-events-none">
                   {symbol}
                 </span>
               </div>
@@ -412,7 +412,7 @@ export const GiveawayWizard: React.FC = () => {
             </Field>
 
             <div className="rounded-lg border border-dark-border bg-black/30 px-4 py-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <span className="font-mono text-[11px] uppercase tracking-widest text-gray-500">
+              <span className="font-mono text-[11px] uppercase tracking-widest text-gray-400">
                 {w.timing.endsLabel}
               </span>
               <span className="font-mono text-sm text-white">{endsAt}</span>
@@ -475,12 +475,12 @@ export const GiveawayWizard: React.FC = () => {
                   />
                 </Field>
 
-                <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-gray-500">
+                <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-gray-400">
                   <Users className="w-4 h-4 shrink-0" aria-hidden="true" />
                   {`${group(String(allowValid))} ${w.eligibility.allowCount}`}
                 </div>
 
-                <p className="flex gap-3 text-sm text-gray-500 leading-relaxed">
+                <p className="flex gap-3 text-sm text-gray-400 leading-relaxed">
                   <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                   {w.eligibility.merkleNote}
                 </p>
@@ -525,12 +525,12 @@ export const GiveawayWizard: React.FC = () => {
 
             <div className="space-y-3">
               {hasDust && (
-                <p className="flex gap-3 text-sm text-gray-500 leading-relaxed">
+                <p className="flex gap-3 text-sm text-gray-400 leading-relaxed">
                   <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                   {w.review.dustNote}
                 </p>
               )}
-              <p className="flex gap-3 text-sm text-gray-500 leading-relaxed">
+              <p className="flex gap-3 text-sm text-gray-400 leading-relaxed">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                 {w.review.clampNote}
               </p>
@@ -559,7 +559,7 @@ export const GiveawayWizard: React.FC = () => {
               <ExternalLink className="w-5 h-5" />
             </a>
 
-            <p className="text-sm text-gray-500 leading-relaxed">{w.submit.note}</p>
+            <p className="text-sm text-gray-400 leading-relaxed">{w.submit.note}</p>
           </div>
         )}
       </div>
@@ -570,7 +570,7 @@ export const GiveawayWizard: React.FC = () => {
           type="button"
           onClick={() => setStep((s) => Math.max(0, s - 1))}
           disabled={step === 0}
-          className="inline-flex items-center gap-2 min-h-[48px] px-4 rounded-lg border border-dark-border text-sm font-bold text-gray-300 hover:text-white hover:border-gray-600 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          className="inline-flex items-center gap-2 min-h-[48px] px-4 rounded-lg border border-dark-border text-sm font-bold text-gray-300 hover:text-white hover:border-gray-600 transition-colors disabled:border-dashed disabled:text-gray-400 disabled:pointer-events-none"
         >
           <ArrowLeft className="w-4 h-4" />
           {w.back}
@@ -593,7 +593,7 @@ export const GiveawayWizard: React.FC = () => {
             type="button"
             onClick={() => setStep((s) => Math.min(STEP_COUNT - 1, s + 1))}
             disabled={blocked}
-            className="inline-flex items-center gap-2 min-h-[48px] px-6 rounded-lg bg-white text-black text-sm font-extrabold hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            className="inline-flex items-center gap-2 min-h-[48px] px-6 rounded-lg bg-white text-black text-sm font-extrabold hover:bg-gray-200 transition-colors disabled:bg-dark-line disabled:text-gray-400 disabled:pointer-events-none"
           >
             {w.next}
             <ArrowRight className="w-4 h-4" />

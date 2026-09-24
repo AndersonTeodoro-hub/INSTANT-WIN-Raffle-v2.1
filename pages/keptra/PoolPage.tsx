@@ -109,6 +109,8 @@ function PoolBody() {
           <Stat label="Risk reserve" value={text('riskReserve', usdcOf)} hint="Absorbs losses before providers" />
           <Stat label="Losses paid" value={text('lossesPaid', usdcOf)} />
         </dl>
+        <PoolMeter capital={value('totalAssets')} reserved={value('reservedTotal')} maxBps={value('maxUtilisationBps')} />
+        <AbsorptionOrder />
       </Card>
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -132,6 +134,54 @@ function PoolBody() {
         Pool contract <AddressLink address={pool} /> · Guarantee contract <AddressLink address={KEPTRA_GUARANTEE} />
       </p>
     </div>
+  );
+}
+
+/**
+ * The capital as one bar: the part reserved for live obligations, and the line
+ * utilisation may not cross. Drawn only from figures read above; nothing is
+ * drawn for a figure not read. It fills in when the page opens.
+ */
+function PoolMeter({ capital, reserved, maxBps }: { capital: bigint | number | null; reserved: bigint | number | null; maxBps: bigint | number | null }) {
+  if (capital === null || reserved === null || Number(capital) === 0) return null;
+  const used = Math.min(1, Number(reserved) / Number(capital));
+  const cap = maxBps === null ? null : Math.min(1, Number(maxBps) / 10_000);
+  return (
+    <div aria-hidden="true" className="mt-6 border-t border-dark-border pt-5">
+      <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/[0.07]">
+        <div className="iw-meter h-full rounded-full bg-white/80" style={{ transform: `scaleX(${used})` }} />
+        {cap !== null && <span className="absolute inset-y-0 w-px bg-gray-300" style={{ left: `${cap * 100}%` }} />}
+      </div>
+      <div className="mt-2 flex justify-between font-mono text-[11px] text-gray-400">
+        <span>Active guarantees</span>
+        <span>Free capacity</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * When a brand fails, who pays first — the order the paragraph above states,
+ * drawn as a rail: the brand's bond, then the risk reserve, then the pool's
+ * capital. It runs once when the page opens, each step lighting after the one
+ * before, so the order reads as an order.
+ */
+function AbsorptionOrder() {
+  const steps = ['Bond', 'Risk reserve', 'Capital'];
+  return (
+    <ol className="relative mt-6 grid grid-cols-3 gap-2">
+      <span aria-hidden="true" className="absolute left-[16.6%] right-[16.6%] top-[0.95rem] h-px overflow-hidden bg-dark-line">
+        <span className="iw-meter block h-full bg-white/60" />
+      </span>
+      {steps.map((step, index) => (
+        <li key={step} style={{ ['--i' as string]: index * 3 }} className="iw-rise relative flex flex-col items-center gap-2 text-center">
+          <span className="grid h-8 w-8 place-items-center rounded-full border border-dark-line bg-dark-raised font-mono text-xs text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+            {index + 1}
+          </span>
+          <span className="text-xs text-gray-300">{step}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 

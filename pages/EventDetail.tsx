@@ -10,6 +10,8 @@ import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2Pr
 import { Button } from '../components/Button';
 import { Banner } from '../components/Banner';
 import { EventShell } from '../components/EventShell';
+import { ProofSeal } from '../components/Proof';
+import { EventStatus } from './EventCenter';
 import { Step } from '../components/Step';
 import { ShareButton } from '../components/ShareButton';
 import { BrandByline, IdentityBanner, useCampaignIdentity } from '../components/CampaignIdentity';
@@ -267,7 +269,7 @@ function OutcomePanel({
 
   if (awaiting) {
     return (
-      <p className="flex items-center gap-3 rounded-xl border border-dark-border bg-dark-card p-5 text-sm text-gray-400">
+      <p className="flex items-center gap-3 iw-surface p-5 text-sm text-gray-400">
         <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden="true" />
         <span>{c.pending}</span>
       </p>
@@ -281,7 +283,7 @@ function OutcomePanel({
 
   if (outcome === 'LOST') {
     return (
-      <div className="rounded-xl border border-dark-border bg-dark-card p-6">
+      <div className="iw-surface p-6">
         <h2 className="font-display text-2xl font-bold tracking-tight text-white">{c.lostTitle}</h2>
         <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.lostBody}</p>
       </div>
@@ -758,23 +760,24 @@ export const EventDetail: React.FC = () => {
           <>
             {/* ============ O CONVITE ============ */}
 
-            <div>
+            {/* O convite é o painel principal do ecrã: a única superfície elevada. */}
+            <div className="iw-surface-raised overflow-hidden">
               {/* §17: o banner da campanha abre a página, quando existe. */}
-              {identity && <IdentityBanner identity={identity} className="mb-6 rounded-xl border border-dark-border" />}
+              {identity && <IdentityBanner identity={identity} className="border-b border-dark-border" />}
+              <div className="p-5 sm:p-7">
 
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p
-                    className={`font-mono text-[11px] uppercase tracking-[0.14em] ${
-                      g.status === GiveawayV2Status.OPEN ? 'text-success' : 'text-gray-400'
-                    }`}
-                  >
-                    {c.list.status[
-                      (['NONE', 'OPEN', 'CLOSED', 'DRAW_REQUESTED', 'SEED_RECEIVED', 'SETTLED', 'CANCELLED'] as const)[
-                        g.status
-                      ] as keyof typeof c.list.status
-                    ] ?? ''}
-                  </p>
+                  <EventStatus
+                    status={g.status}
+                    label={
+                      c.list.status[
+                        (['NONE', 'OPEN', 'CLOSED', 'DRAW_REQUESTED', 'SEED_RECEIVED', 'SETTLED', 'CANCELLED'] as const)[
+                          g.status
+                        ] as keyof typeof c.list.status
+                      ] ?? ''
+                    }
+                  />
                   {identity ? (
                     <>
                       {/* Com identidade, o nome da campanha é o assunto da página e
@@ -814,7 +817,7 @@ export const EventDetail: React.FC = () => {
               {identity ? (
                 <>
                   {/* A mensagem do criador, junto do prémio. */}
-                  <figure className="mt-6 border-l-2 border-brand/40 pl-4">
+                  <figure className="mt-6 border-l border-dark-line pl-4">
                     <figcaption className="text-xs uppercase tracking-[0.14em] text-gray-400">
                       {c.detail.identity.messageFrom} {identity.brand}
                     </figcaption>
@@ -854,10 +857,11 @@ export const EventDetail: React.FC = () => {
               <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-300">
                 {c.detail.freeToEnter}
               </p>
+              </div>
             </div>
 
             {/* Lugares e tempo: o que decide se ainda vale a pena entrar. */}
-            <div className="grid gap-4 sm:grid-cols-3 rounded-xl border border-dark-border bg-dark-card p-5">
+            <div className="iw-surface grid gap-4 sm:grid-cols-3 p-5">
               <div className="sm:col-span-2">
                 <p className="flex items-baseline justify-between gap-3">
                   <span className="text-sm text-gray-400">{c.detail.entriesLabel}</span>
@@ -868,8 +872,8 @@ export const EventDetail: React.FC = () => {
                 </p>
                 <div aria-hidden="true" className="mt-3 h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
                   <div
-                    className={`h-full rounded-full ${acceptsEntries ? 'bg-brand/70' : 'bg-gray-700'}`}
-                    style={{ width: `${filledPct}%` }}
+                    className={`iw-meter h-full rounded-full ${acceptsEntries ? 'bg-white/80' : 'bg-gray-600'}`}
+                    style={{ transform: `scaleX(${filledPct / 100})` }}
                   />
                 </div>
               </div>
@@ -893,8 +897,10 @@ export const EventDetail: React.FC = () => {
             {/* ============ QUEM GANHOU ============ */}
 
             {g.status === GiveawayV2Status.SETTLED && (
-              <div className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-6">
-                <h2 className="font-display text-2xl font-bold tracking-tight text-white">
+              <div className="iw-surface p-5 sm:p-6">
+                {/* O resultado do sorteio está provado on-chain: o selo desenha-se ao lado do título. */}
+                <h2 className="flex items-center gap-2.5 font-display text-2xl font-bold tracking-tight text-white">
+                  <ProofSeal className="h-5 w-5 text-success" />
                   {c.detail.previousWinners.title}
                 </h2>
                 {Array.isArray(winners) && winners.length > 0 ? (
@@ -907,7 +913,8 @@ export const EventDetail: React.FC = () => {
                       return (
                         <li
                           key={`${w}-${i}`}
-                          className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-3 ${
+                          style={{ ['--i' as string]: Math.min(i, 8) }}
+                          className={`iw-rise flex flex-wrap items-center gap-x-3 gap-y-1 py-3 ${
                             mine ? '-mx-3 px-3 bg-brand/[0.07]' : ''
                           }`}
                         >
@@ -949,7 +956,7 @@ export const EventDetail: React.FC = () => {
               />
             )}
 
-            <div className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-7">
+            <div className="iw-surface p-5 sm:p-7">
               <h2 className="font-display text-2xl font-bold tracking-tight text-white">
                 {c.detail.yourEntry}
               </h2>
@@ -1008,7 +1015,7 @@ export const EventDetail: React.FC = () => {
 
             {/* ============ A PROVA ============ */}
 
-            <div className="rounded-xl border border-dark-border p-5 sm:p-6">
+            <div className="rounded-card border border-dark-border p-5 sm:p-6">
               <p className="max-w-[66ch] text-sm leading-relaxed text-gray-400">{c.detail.proofLine}</p>
               <a
                 href={`${ARBISCAN}/address/${CONTRACTS.GIVEAWAY_MANAGER_V2}`}

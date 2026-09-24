@@ -513,7 +513,7 @@ function OffersSection({ payout }: { payout: `0x${string}` }) {
       <Card>
         <SectionTitle>
           <span className="flex items-center gap-2">
-            <PackagePlus className="h-5 w-5 text-brand" aria-hidden="true" /> New offer
+            <PackagePlus className="h-5 w-5 text-gray-300" aria-hidden="true" /> New offer
           </span>
         </SectionTitle>
         <p className="mb-5 text-sm text-gray-400">
@@ -645,7 +645,7 @@ function OfferRow({ offer, onChange }: { offer: OfferListed; onChange: () => voi
         <div className="min-w-0">
           <p className="font-mono text-xs text-gray-400">#{offer.termsId}</p>
           <p className="break-words font-semibold text-white">{offer.title ?? 'No description yet'}</p>
-          <p className="mt-1 font-mono text-sm text-brand">{terms ? formatUsdc(terms.price) : failed ? 'Not read' : '…'}</p>
+          <p className="mt-1 font-mono text-sm text-white">{terms ? formatUsdc(terms.price) : failed ? 'Not read' : '…'}</p>
         </div>
         {terms && <Badge tone={terms.active ? 'success' : 'neutral'}>{terms.active ? 'Live' : 'Taken down'}</Badge>}
       </div>
@@ -894,7 +894,7 @@ function VoucherCampaign({ vouchers, phoneVerified, onCreated }: { vouchers: rea
               const on = selected.includes(voucher.voucherId);
               return (
                 <li key={voucher.voucherId}>
-                  <label className={`flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${on ? 'border-brand bg-brand/[0.06]' : 'border-dark-border'}`}>
+                  <label className={`flex min-h-[48px] cursor-pointer items-center gap-3 rounded-control border p-3 text-sm ${on ? 'border-gray-300 bg-white/[0.05]' : 'border-dark-border'}`}>
                     <input type="checkbox" checked={on} onChange={() => toggle(voucher)} className="h-4 w-4 accent-amber-500" />
                     <span className="font-mono">#{voucher.voucherId}</span>
                     <span className="text-xs text-gray-400">obligation {voucher.obligationId}</span>

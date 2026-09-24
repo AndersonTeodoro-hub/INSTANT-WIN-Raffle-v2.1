@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { PackageCheck, ShieldCheck } from 'lucide-react';
+import { PackageCheck, ShieldCheck, Undo2 } from 'lucide-react';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
@@ -67,7 +67,7 @@ export function OfferPage() {
             <div>
               <Eyebrow>Offer #{termsId.toString()} · protected by Keptra</Eyebrow>
               <h1 className="mt-3 break-words font-display text-4xl font-bold tracking-tight sm:text-5xl">{description?.title ?? 'Untitled offer'}</h1>
-              <p className="mt-4 font-mono text-3xl font-bold text-brand tabular-nums">{formatUsdc(terms.price)}</p>
+              <p className="mt-5 font-mono text-4xl font-bold text-white tabular-nums sm:text-5xl">{formatUsdc(terms.price)}</p>
               {!terms.active && (
                 <div className="mt-4">
                   <Notice tone="warning">The store took this offer down. It accepts no new orders.</Notice>
@@ -110,24 +110,34 @@ export function OfferPage() {
 
             <Card>
               <h2 className="font-display text-2xl font-bold tracking-tight">How your money is protected</h2>
-              <ol className="mt-4 grid gap-4 sm:grid-cols-3">
+              {/* A sequence the money follows, so it is drawn as one: a rail that links the three steps. */}
+              <ol className="relative mt-5 grid gap-4 sm:grid-cols-3">
+                <span aria-hidden="true" className="absolute left-[1.15rem] top-3 bottom-3 w-px bg-dark-line sm:left-4 sm:right-4 sm:top-[1.15rem] sm:bottom-auto sm:h-px sm:w-auto" />
                 {[
-                  ['Held on-chain', 'Your payment goes to the Keptra escrow contract, not to the store.'],
-                  ['Released on proof', 'The store is paid when delivery is proven and 5 days pass without a contest — or when you confirm.'],
-                  ['Returned by rule', 'If it never ships or never arrives, the contract returns your money. Anyone can trigger it.'],
-                ].map(([title, body], index) => (
-                  <li key={title} className="rounded-xl border border-dark-border p-4">
-                    <p className="font-mono text-xs text-gray-400">0{index + 1}</p>
-                    <p className="mt-1 font-semibold text-white">{title}</p>
-                    <p className="mt-1 text-sm text-gray-400">{body}</p>
-                  </li>
-                ))}
+                  [ShieldCheck, 'Held on-chain', 'Your payment goes to the Keptra escrow contract, not to the store.'],
+                  [PackageCheck, 'Released on proof', 'The store is paid when delivery is proven and 5 days pass without a contest — or when you confirm.'],
+                  [Undo2, 'Returned by rule', 'If it never ships or never arrives, the contract returns your money. Anyone can trigger it.'],
+                ].map(([Icon, title, body], index) => {
+                  const StepIcon = Icon as typeof ShieldCheck;
+                  return (
+                    <li key={title as string} className="relative flex gap-4 sm:flex-col sm:gap-3">
+                      <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full border border-dark-line bg-dark-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                        <StepIcon className="h-4 w-4 text-white" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs text-gray-400">0{index + 1}</p>
+                        <p className="mt-1 font-semibold text-white">{title as string}</p>
+                        <p className="mt-1 text-sm text-gray-400">{body as string}</p>
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             </Card>
           </div>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">
-            <Card>
+            <Card className="!border-dark-line !bg-dark-raised !rounded-panel shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_24px_48px_-28px_rgba(0,0,0,0.95)]">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="font-display text-2xl font-bold tracking-tight">Buy</h2>
                 {tier.tier !== null && (
@@ -212,7 +222,7 @@ function Checkout({
           <input
             id="quantity"
             inputMode="numeric"
-            className="min-h-[48px] w-20 rounded-xl border border-dark-border bg-dark-input text-center font-mono text-white"
+            className="min-h-[48px] w-20 rounded-control border border-dark-border bg-dark-input text-center font-mono text-white"
             value={quantity}
             onChange={(event) => setQuantity(Math.max(1, Math.min(999, Number(event.target.value.replace(/\D/g, '')) || 1)))}
           />
@@ -222,7 +232,7 @@ function Checkout({
         </div>
       </div>
 
-      <div className="rounded-xl border border-dark-border p-4 text-sm">
+      <div className="rounded-card border border-dark-border bg-black/30 p-4 text-sm">
         <p className="flex justify-between gap-3">
           <span className="text-gray-400">Your USDC</span>
           <span className="font-mono text-white">{usdc.balance !== null ? formatUsdc(usdc.balance) : usdc.failed ? 'Not read' : '…'}</span>
@@ -240,7 +250,7 @@ function Checkout({
 
       <div>
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-          <PackageCheck className="h-4 w-4 text-brand" aria-hidden="true" /> Delivery address
+          <PackageCheck className="h-4 w-4 text-gray-300" aria-hidden="true" /> Delivery address
         </h3>
         {addressSaved ? (
           <Notice tone="success">Address saved for this order. It is bound to the order when you pay.</Notice>

@@ -2,16 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #000000;
-  color: #ffffff;
-  margin: 0;
-  font-family: 'Inter', sans-serif;
+/*
+ * O sistema de tokens da plataforma — um só, para a landing, o jogo, o Event
+ * Center, as páginas públicas e o Keptra.
+ *
+ * Direcção: um livro-razão selado. Fundo de terminal, superfícies em camadas que
+ * sobem de tom à medida que se aproximam de quem lê, uma luz fria vinda de cima
+ * e uma grelha de registo quase invisível. Três cores com significado fixo:
+ * - verde  (--proof): só factos verificados on-chain e estados ao vivo on-chain;
+ * - âmbar  (--prize): só valores de prémio e o botão principal do ecrã;
+ * - azul   (--light): só luz ambiente, nunca texto nem acção.
+ *
+ * Os valores de cor e fonte são espelhados em tailwind.config.js (as classes
+ * `bg-dark-card`, `text-brand`, `text-success`… continuam a ser as mesmas).
+ */
+:root {
+  color-scheme: dark;
+
+  /* Cor — chão e camadas (cada degrau é um pouco mais claro e mais próximo). */
+  --ground: #000000;
+  --surface-1: #0f0f11;
+  --surface-2: #141418;
+  --surface-3: #1a1a20;
+  --line: #1e1e22;
+  --line-strong: #2a2a31;
+  --text-hi: #ffffff;
+  --text: #d1d5db;
+  --text-mute: #9ca3af; /* o cinzento mais escuro permitido em texto (≥ 4,5:1 em --surface-3) */
+
+  --proof: #22c55e;
+  --proof-soft: rgba(34, 197, 94, 0.12);
+  --prize: #f59e0b;
+  --prize-hover: #fbbf24;
+  --danger: #fca5a5;
+  --light: 37, 99, 235; /* rgb do halo ambiente */
+
+  /* Tipografia — manchetes, dados, texto. */
+  --font-display: 'Big Shoulders Display', 'Inter', sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-text: 'Inter', sans-serif;
+
+  /* Raio — controlos, cartões, painéis principais. */
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-panel: 18px;
+
+  /* Sombra — luz a bater numa aresta (inset) e elevação de um painel sobre a página. */
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --lift: 0 24px 48px -28px rgba(0, 0, 0, 0.95), 0 2px 6px -2px rgba(0, 0, 0, 0.6);
+
+  /* Movimento — curvas fortes (Emil Kowalski) e tempos por consequência. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms;
+  --dur-fast: 200ms;
+  --dur-base: 260ms;
+  --dur-sheet: 420ms;
+  --dur-focal: 700ms;
 }
 
-/* Custom utility for glass-like borders */
-.card-border {
-  border: 1px solid #1E1E22;
+html {
+  background-color: var(--ground);
+  -webkit-tap-highlight-color: transparent;
+  scrollbar-color: var(--line-strong) var(--ground);
+}
+
+body {
+  background-color: var(--ground);
+  color: #ffffff;
+  margin: 0;
+  font-family: var(--font-text);
+  touch-action: manipulation;
+}
+
+::selection {
+  background: rgba(245, 158, 11, 0.3);
+  color: #ffffff;
+}
+
+/* Dados alinham em colunas: os números da casa são sempre tabulares. */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2 {
+  text-wrap: balance;
 }
 
 input::-webkit-outer-spin-button,
@@ -31,6 +108,245 @@ input::-webkit-inner-spin-button {
 :focus-visible {
   outline: 2px solid #f59e0b;
   outline-offset: 2px;
+}
+
+@layer components {
+  /*
+   * O chão de todas as páginas: preto, uma luz fria vinda de cima e a grelha de
+   * registo, que se desvanece a descer. Fixo, atrás de tudo, sem apanhar cliques.
+   * `isolation` põe o ::before por cima do fundo da própria página e por baixo
+   * do conteúdo, sem precisar de z-index em cada filho.
+   */
+  .iw-ground {
+    position: relative;
+    isolation: isolate;
+    background-color: var(--ground);
+  }
+  .iw-ground::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 70% 45% at 50% -8%, rgba(var(--light), 0.14), transparent 70%),
+      linear-gradient(to right, rgba(255, 255, 255, 0.028) 1px, transparent 1px) 0 0 / 56px 56px,
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.028) 1px, transparent 1px) 0 0 / 56px 56px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 85%);
+    mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 85%);
+  }
+
+  /* O cabeçalho único: vidro escuro sobre o chão, uma aresta em baixo. */
+  .iw-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    border-bottom: 1px solid rgba(30, 30, 34, 0.8);
+    background: rgba(0, 0, 0, 0.72);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  /*
+   * Um só modelo de superfície. A elevação é declarada uma vez: aresta de 1px
+   * mais a luz na aresta de cima. `-raised` é o painel principal de um ecrã
+   * (o bilhete, a prova, a folha de assinatura) e é o único com sombra.
+   */
+  .iw-surface {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 120px), var(--surface-1);
+    box-shadow: var(--edge-light);
+  }
+  .iw-surface-raised {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-panel);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 160px), var(--surface-2);
+    box-shadow: var(--edge-light), var(--lift);
+  }
+  a.iw-surface,
+  a.iw-surface-raised {
+    transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    a.iw-surface:hover {
+      border-color: var(--line-strong);
+    }
+  }
+
+  /*
+   * Botões. Uma só lógica em toda a plataforma:
+   * - primary   âmbar, o botão principal do ecrã (nunca mais de um);
+   * - secondary contorno, as acções do cabeçalho e as alternativas;
+   * - quiet     texto, as saídas.
+   * Todos respondem ao toque com um aperto de 3% — a interface ouviu.
+   */
+  .iw-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    border-radius: var(--radius-control);
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+      transform var(--dur-press) var(--ease-out),
+      background-color var(--dur-fast) ease,
+      border-color var(--dur-fast) ease,
+      color var(--dur-fast) ease;
+  }
+  .iw-btn:active:not(:disabled):not([aria-disabled='true']) {
+    transform: scale(0.97);
+  }
+  .iw-btn-primary {
+    background: var(--prize);
+    color: #000000;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 8px 24px -12px rgba(245, 158, 11, 0.55);
+  }
+  .iw-btn-primary:hover:not(:disabled) {
+    background: var(--prize-hover);
+  }
+  .iw-btn-secondary {
+    border: 1px solid var(--line-strong);
+    background: rgba(15, 15, 17, 0.6);
+    color: #e5e7eb;
+  }
+  .iw-btn-secondary:hover:not(:disabled) {
+    border-color: #4b5563;
+    color: #ffffff;
+  }
+
+  /* Ao vivo on-chain: ponto verde com um anel que se expande. */
+  .iw-live {
+    position: relative;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background: var(--proof);
+  }
+  .iw-live::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--proof);
+    animation: iw-ping 1.8s var(--ease-out) infinite;
+  }
+  .iw-live[data-idle='true'] {
+    background: #4b5563;
+  }
+  .iw-live[data-idle='true']::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  /*
+   * O selo de prova: um visto que se desenha a si próprio quando um facto passa
+   * a estar provado on-chain (assinatura confirmada, sorteio liquidado). É o
+   * momento assinado da plataforma; aparece só nesses sítios.
+   */
+  .iw-seal path {
+    stroke-dasharray: 24;
+    stroke-dashoffset: 0;
+    animation: iw-draw 620ms var(--ease-out) both;
+    animation-delay: 120ms;
+  }
+
+  /* Entrada de uma lista (vencedores, resultados): em cascata curta. */
+  .iw-rise {
+    animation: iw-rise 420ms var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * 55ms);
+  }
+
+  /* Um medidor que enche até ao seu valor — o pool, o tempo de uma ronda. */
+  .iw-meter {
+    transform-origin: left center;
+    transition: transform var(--dur-focal) var(--ease-out);
+    animation: iw-fill var(--dur-focal) var(--ease-out) both;
+  }
+
+  /* A folha de assinatura: sobe do fundo no telemóvel, assenta no centro no computador. */
+  .iw-sheet-backdrop {
+    animation: iw-fade var(--dur-base) var(--ease-out) both;
+  }
+  .iw-sheet {
+    animation: iw-sheet-up var(--dur-sheet) var(--ease-drawer) both;
+  }
+  @media (min-width: 640px) {
+    .iw-sheet {
+      animation: iw-sheet-in var(--dur-base) var(--ease-out) both;
+    }
+  }
+
+  /* Um segredo que se revela de cima para baixo (o código de entrega). */
+  .iw-reveal {
+    animation: iw-reveal var(--dur-focal) var(--ease-in-out) both;
+  }
+
+  /* Uma mudança de estado que não pode teleportar (o relógio que passa a "a fechar"). */
+  .iw-swap {
+    animation: iw-swap var(--dur-base) var(--ease-out) both;
+  }
+}
+
+@keyframes iw-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+@keyframes iw-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+}
+@keyframes iw-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes iw-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes iw-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes iw-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes iw-sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes iw-reveal {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes iw-swap {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
 }
 
 /*
@@ -62,22 +378,25 @@ input::-webkit-inner-spin-button {
   height: 18px;
   border-radius: 9999px;
   background-color: #000000;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
   transform: translateY(-50%);
 }
 
 .ticket-tear::before {
   left: -9px;
+  clip-path: inset(0 0 0 50%);
 }
 
 .ticket-tear::after {
   right: -9px;
+  clip-path: inset(0 50% 0 0);
 }
 
 /*
- * Chão de acessibilidade: quem pede menos movimento no sistema operativo não
- * leva nenhum. O relógio da lotaria acelera visualmente no último minuto e a
- * lista de vencedores aparece com transição — nada disso é informação, por isso
- * nada disso se perde ao ser desligado.
+ * Menos movimento, não nenhum. Quem o pede no sistema operativo não leva
+ * deslocações, anéis a pulsar nem cascatas; fica com as mudanças de opacidade
+ * que dizem que algo mudou (a folha de assinatura a aparecer, o visto do selo
+ * já desenhado). O relógio da lotaria continua a contar — isso é informação.
  */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -87,5 +406,14 @@ input::-webkit-inner-spin-button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .iw-sheet,
+  .iw-sheet-backdrop,
+  .iw-swap {
+    animation: iw-fade 160ms ease both !important;
+  }
+  .iw-live::after {
+    animation: none !important;
+    opacity: 0;
   }
 }

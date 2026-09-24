@@ -174,38 +174,46 @@ function SignSheet({ summary, onAnswer }: { summary: ActionSummary; onAnswer: (y
     };
   }, []);
 
+  /*
+   * Motion (the moment of signature): the sheet rises from the bottom edge on a
+   * phone (the drawer curve) and settles in the centre on a computer; the
+   * backdrop fades with it. Reduced motion keeps only the fade (index.css).
+   */
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="presentation">
-      <button type="button" tabIndex={-1} aria-label="Cancel" className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in-up" onClick={() => onAnswer(false)} />
+    <div className="fixed inset-0 z-50 flex items-end justify-center overscroll-contain sm:items-center sm:p-6" role="presentation">
+      <button type="button" tabIndex={-1} aria-label="Cancel" className="iw-sheet-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => onAnswer(false)} />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sign-title"
-        className="relative w-full max-w-lg rounded-t-2xl border border-dark-border bg-dark-card p-6 shadow-2xl animate-fade-in-up sm:rounded-2xl"
+        className="iw-sheet iw-surface-raised relative w-full max-w-lg !rounded-b-none p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:!rounded-panel sm:pb-6"
       >
+        <div aria-hidden="true" className="mx-auto -mt-2 mb-4 h-1 w-10 rounded-full bg-dark-line sm:hidden" />
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <ShieldCheck className="h-6 w-6 text-brand" aria-hidden="true" />
+            <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-control border border-dark-line bg-black/40">
+              <ShieldCheck className="h-5 w-5 text-white" />
+            </span>
             <h2 id="sign-title" className="font-display text-2xl font-bold tracking-tight text-white">
               {words.action}
             </h2>
           </div>
-          <button type="button" onClick={() => onAnswer(false)} className="min-h-[44px] min-w-[44px] text-gray-400 hover:text-white" aria-label="Cancel">
+          <button type="button" onClick={() => onAnswer(false)} className="iw-btn min-h-[44px] min-w-[44px] text-gray-400 hover:text-white" aria-label="Cancel">
             <X className="mx-auto h-5 w-5" aria-hidden="true" />
           </button>
         </div>
         <p className="mt-3 text-sm text-gray-400">Check what this transaction does. Your passkey signs it only after you continue.</p>
-        <dl className="mt-5 divide-y divide-dark-border border-y border-dark-border text-sm">
-          <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+        <dl className="mt-5 overflow-hidden rounded-card border border-dark-border bg-black/30 text-sm">
+          <div className="grid grid-cols-[7rem_1fr] gap-3 px-4 py-3">
             <dt className="text-gray-400">Action</dt>
             <dd className="text-white">{words.action}</dd>
           </div>
-          <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <div className="grid grid-cols-[7rem_1fr] gap-3 border-t border-dark-border px-4 py-3">
             <dt className="text-gray-400">Amount</dt>
-            <dd className="font-mono text-white tabular-nums">{words.amounts.length === 0 ? 'Nothing moves' : words.amounts.join(' and ')}</dd>
+            <dd className="font-mono text-base font-semibold text-white tabular-nums">{words.amounts.length === 0 ? 'Nothing moves' : words.amounts.join(' and ')}</dd>
           </div>
-          <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+          <div className="grid grid-cols-[7rem_1fr] gap-3 border-t border-dark-border px-4 py-3">
             <dt className="text-gray-400">Destination</dt>
             <dd className="min-w-0 text-white">
               {words.destination === null ? (

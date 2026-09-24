@@ -1,11 +1,10 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Check, ArrowRight, CalendarOff } from 'lucide-react';
+import { ExternalLink, Check, ArrowRight, CalendarOff, Send } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
+import { CONTRACTS, INVESTOR_EMAIL, TELEGRAM_URL } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { WaitlistLink } from '../components/WaitlistLink';
-import { LangSwitch } from '../components/LangSwitch';
+import { SiteHeader, HeaderAction } from '../components/SiteHeader';
 import { useRoadmapCopy } from './roadmap.i18n';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -54,10 +53,8 @@ export const Roadmap: React.FC = () => {
   }, [c]);
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
+    <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-hidden">
 
-      {/* Um só glow ambiente, azul. O âmbar da Landing não entra aqui. */}
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
 
       {/*
         Header fixo: é também a presença persistente da waitlist — o link
@@ -65,33 +62,17 @@ export const Roadmap: React.FC = () => {
         conteúdo. Abaixo de sm fica só a marca (não há espaço para dois alvos de
         44px); no telemóvel o CTA grande do fim da página faz esse trabalho.
       */}
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3">
-          <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2 md:mr-auto">
-            <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
-              INSTANT WIN
-            </span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 translate-y-[1px]">
-              <path d="M4 12.5 L9.5 18 L20 6" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </Link>
+      {/* O cabeçalho da plataforma; a acção do contexto é a lista de espera. */}
+      <SiteHeader
+        nav={<PublicNavLinks />}
+        actions={<HeaderAction href={TELEGRAM_URL} icon={Send} label={c.waitlist.short} />}
+      />
 
-          {/* Filho directo da barra: é o que lhe permite descer para a segunda
-              linha abaixo de md. */}
-          <PublicNavLinks />
-
-          <div className="flex items-center gap-2">
-            <LangSwitch />
-            <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-3xl">
+      <main className="flex-1 container mx-auto px-4 sm:px-6 max-w-3xl">
 
         {/* Herói */}
         <section className="pt-12 pb-10 sm:pt-20 sm:pb-16">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-4">
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-4">
             {c.hero.eyebrow}
           </p>
           <h1 className="font-display font-bold text-[clamp(2.5rem,11vw,4rem)] leading-[1.05] mb-5">
@@ -112,20 +93,20 @@ export const Roadmap: React.FC = () => {
                 <li
                   key={step.num}
                   className={clsx(
-                    'rounded-lg border p-3 sm:p-4',
-                    onchain ? 'border-success/40 bg-success/5' : 'border-dark-border border-dashed bg-dark-card',
+                    'rounded-card border p-3 sm:p-4',
+                    onchain ? 'border-success/40 bg-success/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'border-dark-border border-dashed bg-dark-card',
                   )}
                 >
                   <div className="flex items-center gap-1.5 mb-1.5">
                     {onchain ? (
                       <Check className="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
                     ) : (
-                      <ArrowRight className="w-3.5 h-3.5 text-gray-500 shrink-0" aria-hidden="true" />
+                      <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden="true" />
                     )}
                     <span
                       className={clsx(
                         'font-mono text-[10px] font-bold uppercase tracking-wider truncate',
-                        onchain ? 'text-success' : 'text-gray-500',
+                        onchain ? 'text-success' : 'text-gray-400',
                       )}
                     >
                       {step.status}
@@ -139,17 +120,17 @@ export const Roadmap: React.FC = () => {
             })}
           </ul>
 
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] font-mono uppercase tracking-widest text-gray-600 mt-4">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] font-mono uppercase tracking-widest text-gray-400 mt-4">
             <span className="flex items-center gap-1.5">
               <Check className="w-3 h-3 text-success shrink-0" aria-hidden="true" />
               {c.overview.onchainLabel}
             </span>
             <span className="flex items-center gap-1.5">
-              <ArrowRight className="w-3 h-3 text-gray-500 shrink-0" aria-hidden="true" />
+              <ArrowRight className="w-3 h-3 text-gray-400 shrink-0" aria-hidden="true" />
               {c.overview.intendedLabel}
             </span>
             <span className="flex items-center gap-1.5">
-              <CalendarOff className="w-3 h-3 text-gray-500 shrink-0" aria-hidden="true" />
+              <CalendarOff className="w-3 h-3 text-gray-400 shrink-0" aria-hidden="true" />
               {c.overview.note}
             </span>
           </div>
@@ -160,19 +141,19 @@ export const Roadmap: React.FC = () => {
           {c.steps.map((step, i) => {
             const isLive = i < ONCHAIN_STEPS;
             return (
-              <li key={step.num} className="bg-dark-card border border-dark-border rounded-xl p-6 sm:p-8">
+              <li key={step.num} className={clsx('p-6 sm:p-8', isLive ? 'iw-surface-raised' : 'iw-surface')}>
 
                 <div className="flex items-center gap-4 mb-4">
-                  <span className="font-display font-bold text-4xl sm:text-5xl leading-none text-white/10">
+                  <span className="font-display font-bold text-4xl sm:text-5xl leading-none text-gray-400">
                     {step.num}
                   </span>
                   <span
                     className={clsx(
                       'inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.2em]',
-                      isLive ? 'text-success' : 'text-gray-500',
+                      isLive ? 'text-success' : 'text-gray-400',
                     )}
                   >
-                    {isLive && <span className="w-2 h-2 rounded-full bg-success animate-pulse" />}
+                    {isLive && <span className="iw-live" aria-hidden="true" />}
                     {step.status}
                   </span>
                 </div>
@@ -197,7 +178,7 @@ export const Roadmap: React.FC = () => {
                   <ul className="mt-4 space-y-3">
                     {step.bullets.map((b) => (
                       <li key={b.lead} className="flex gap-3 text-gray-400 leading-relaxed">
-                        <span className="font-mono text-gray-600 shrink-0" aria-hidden="true">&middot;</span>
+                        <span className="font-mono text-gray-400 shrink-0" aria-hidden="true">&middot;</span>
                         <span>
                           <strong className="font-semibold text-gray-200">{b.lead}</strong>
                           {b.rest}
@@ -210,14 +191,14 @@ export const Roadmap: React.FC = () => {
                 {/* Prova verificável: o único link verde da página. */}
                 {step.verify && (
                   <div className="mt-6">
-                    <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">
+                    <p className="font-mono text-[11px] uppercase tracking-widest text-gray-400 mb-2">
                       {step.verify}
                     </p>
                     <a
                       href={`${ARBISCAN}${VERIFY_ADDRESSES[i]}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-between gap-3 min-h-[44px] rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
+                      className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
                     >
                       <span className="break-all">{VERIFY_ADDRESSES[i]}</span>
                       <ExternalLink className="w-4 h-4 shrink-0" />
@@ -226,7 +207,7 @@ export const Roadmap: React.FC = () => {
                 )}
 
                 {step.note && (
-                  <p className="text-gray-500 text-sm leading-relaxed mt-6 pt-5 border-t border-dark-border">
+                  <p className="text-gray-400 text-sm leading-relaxed mt-6 pt-5 border-t border-dark-border">
                     {step.note}
                   </p>
                 )}
@@ -236,19 +217,19 @@ export const Roadmap: React.FC = () => {
         </ol>
 
         {/* Nota antes do CTA: sem datas, sem promessa de calendário. */}
-        <p className="text-gray-500 text-sm leading-relaxed text-center max-w-xl mx-auto pt-10 sm:pt-14">
+        <p className="text-gray-400 text-sm leading-relaxed text-center max-w-xl mx-auto pt-10 sm:pt-14">
           {c.outro.note}
         </p>
 
         {/* CTA final — investidores e parceiros, não a waitlist. Sem âmbar
             nem verde: esta página reserva ambos para outro significado. */}
         <section className="py-8 sm:py-12 pb-14 sm:pb-20 text-center">
-          <div className="bg-dark-card border border-dark-border rounded-xl p-8 sm:p-10">
+          <div className="iw-surface p-8 sm:p-10">
             <p className="font-display font-bold text-xl sm:text-2xl text-white mb-2">{c.outro.ctaLine1}</p>
             <p className="text-gray-400 leading-relaxed mb-8">{c.outro.ctaLine2}</p>
             <a
               href={`mailto:${INVESTOR_EMAIL}`}
-              className="inline-flex items-center justify-center gap-2 min-h-[44px] w-full sm:w-auto px-10 h-14 sm:h-16 rounded-lg bg-white text-black font-extrabold text-lg sm:text-xl hover:bg-gray-200 transition-colors"
+              className="iw-btn w-full sm:w-auto px-10 h-14 sm:h-16 bg-white text-black font-extrabold text-lg sm:text-xl hover:bg-gray-200"
             >
               {c.outro.ctaButton}
             </a>
@@ -256,16 +237,16 @@ export const Roadmap: React.FC = () => {
         </section>
       </main>
 
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
+      <footer className="border-t border-dark-border py-8 bg-black/80">
         <div className="container mx-auto px-4 text-center space-y-2">
           <PublicFooterNav />
           <Link
             to="/"
-            className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+            className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-400 hover:text-white transition-colors"
           >
             &larr; {c.outro.back}
           </Link>
-          <p className="font-mono text-[10px] text-gray-700 mt-2">&copy; 2026 Instant Win Protocol</p>
+          <p className="font-mono text-[10px] text-gray-400 mt-2">&copy; 2026 Instant Win Protocol</p>
         </div>
       </footer>
     </div>

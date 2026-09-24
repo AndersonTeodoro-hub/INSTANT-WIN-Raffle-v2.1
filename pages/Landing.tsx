@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { Trophy, ArrowRight, Wallet, Zap, Check, X, ExternalLink, ShieldCheck, ChevronDown, Ticket, Gift, Award } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, PRELAUNCH, TELEGRAM_URL } from '../constants';
-import { useLang, translations, LANGS, LANG_LABEL } from './landing.i18n';
+import { useLang, translations } from './landing.i18n';
 import { ShareButton } from '../components/ShareButton';
+import { SiteHeader, HeaderAction } from '../components/SiteHeader';
+import { LiveProof } from '../components/LiveProof';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -52,12 +54,11 @@ const WaitlistButton: React.FC<{ label: string; className?: string }> = ({ label
       href={TELEGRAM_URL}
       {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       className={clsx(
-        'inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black',
-        'font-extrabold px-12 h-16 rounded-lg transition-colors',
+        'iw-btn iw-btn-primary gap-3 font-extrabold px-10 sm:px-12 h-14 md:h-16',
         className,
       )}
     >
-      {label} <ArrowRight className="w-6 h-6" />
+      {label} <ArrowRight className="w-6 h-6" aria-hidden="true" />
     </a>
   );
 };
@@ -69,114 +70,69 @@ const WaitlistButton: React.FC<{ label: string; className?: string }> = ({ label
  */
 const SectionHeading: React.FC<{ eyebrow: string; title: string; sub?: string }> = ({ eyebrow, title, sub }) => (
   <div className="text-center mb-12 md:mb-16">
-    <p className="font-mono text-gray-500 text-[11px] font-bold uppercase tracking-[0.2em] mb-3">{eyebrow}</p>
+    <p className="font-mono text-gray-400 text-[11px] font-bold uppercase tracking-[0.2em] mb-3">{eyebrow}</p>
     <h2 className="font-display font-bold text-3xl md:text-5xl text-white">{title}</h2>
     {sub && <p className="text-gray-400 leading-relaxed max-w-2xl mx-auto mt-4">{sub}</p>}
   </div>
 );
 
 export const Landing: React.FC = () => {
-  const [lang, setLang] = useLang();
+  const [lang] = useLang();
   const t = translations[lang];
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden selection:bg-brand/30 selection:text-white">
+    <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-hidden">
 
-      {/* Premium Ambient Background Glows (Gold & Blue) */}
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
-      <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-brand/5 rounded-full blur-[120px] pointer-events-none z-0" />
+      {/* O cabeçalho da plataforma. A acção do contexto aqui é entrar no jogo. */}
+      <SiteHeader
+        nav={<PublicNavLinks />}
+        actions={<HeaderAction to="/play" icon={ArrowRight} label={t.header.enterApp} />}
+      />
 
-      {/* Minimal public header — language selector + Enter App. No wallet connect here. */}
-      <header className="relative z-20 border-b border-dark-border/60 backdrop-blur-sm sticky top-0 bg-black/70">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-2">
-          {/* Mesma marca da navbar: wordmark em HTML puro + check verde inline.
-              Abaixo de 400px fica só o check. */}
-          <div className="flex items-baseline gap-2 min-w-0 md:mr-auto">
-            <span className="hidden min-[400px]:inline font-display font-bold text-xl text-white tracking-tight leading-none truncate">
-              INSTANT WIN
-            </span>
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-              className="shrink-0 translate-y-[1px]"
-            >
-              <path
-                d="M4 12.5 L9.5 18 L20 6"
-                stroke="#22c55e"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+      <main className="flex-1">
 
-          {/* Filho directo da barra: é o que lhe permite descer para a segunda
-              linha abaixo de md. No desktop volta a alinhar com o resto. */}
-          <PublicNavLinks />
+        {/*
+          1. HERO — a promessa e, ao lado, a prova: a ronda em curso e o último
+          sorteio, lidos da cadeia. A 390px a primeira vista leva a manchete, a
+          prova e o botão sem deslizar; a descrição desce para depois do botão.
+        */}
+        <section className="container mx-auto max-w-6xl px-4 sm:px-6 pt-6 pb-14 md:pt-20 md:pb-28">
+          {/* No telemóvel a coluna de texto dissolve-se (`contents`) para a prova
+              ficar entre a manchete e o botão; no computador volta a ser coluna. */}
+          <div className="flex flex-col items-center text-center lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] lg:items-center lg:gap-14 lg:text-left">
+            <div className="contents lg:flex lg:flex-col lg:items-start">
+              <div className="order-1 inline-flex items-center gap-2 border border-dark-line bg-dark-card/60 text-gray-300 text-[11px] sm:text-xs font-bold px-3 py-1.5 rounded-full mb-4 sm:mb-8 max-w-full">
+                <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" /> <span className="truncate">{t.hero.badge}</span>
+              </div>
+              <h1 className="order-2 font-display font-bold text-[clamp(2.3rem,9.6vw,3.25rem)] sm:text-6xl lg:text-7xl leading-[1.02] tracking-tight">
+                <span className="block">{t.hero.headlineTop}</span>
+                {/* Segunda linha em cinzento, não em âmbar: é a assinatura da marca,
+                    não um valor de prémio. O contraste de tom chega para a separar. */}
+                <span className="block text-gray-400">{t.hero.headlineBottom}</span>
+              </h1>
+              <p className="order-5 lg:order-3 text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mt-8 lg:mt-6">{t.hero.sub}</p>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Language selector */}
-            <div role="group" aria-label={t.header.ariaLanguage} className="inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5">
-              {LANGS.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => setLang(l)}
-                  aria-pressed={lang === l}
-                  className={clsx(
-                    // 44px de alvo de toque: os px-2/py-1 anteriores davam ~28×24px.
-                    'flex items-center justify-center min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-md transition-colors',
-                    lang === l ? 'bg-dark-input text-white' : 'text-gray-400 hover:text-white'
-                  )}
-                >
-                  {LANG_LABEL[l]}
-                </button>
-              ))}
+              <div className="order-4 mt-5 sm:mt-8 lg:mt-10 flex flex-col items-center lg:items-start">
+                {PRELAUNCH ? (
+                  <>
+                    <p className="font-display font-bold text-2xl md:text-3xl text-white mb-3 sm:mb-5">
+                      {t.prelaunch.headline}
+                    </p>
+                    <WaitlistButton label={t.prelaunch.cta} className="text-lg md:text-2xl" />
+                  </>
+                ) : (
+                  <Link
+                    to="/play"
+                    className="iw-btn iw-btn-primary gap-3 font-extrabold text-xl md:text-2xl px-12 h-14 md:h-16"
+                  >
+                    {t.hero.cta} <ArrowRight className="w-6 h-6" aria-hidden="true" />
+                  </Link>
+                )}
+              </div>
             </div>
 
-            <Link
-              to="/play"
-              className="inline-flex items-center gap-2 min-h-[44px] text-gray-300 hover:text-white font-bold text-sm px-3 sm:px-5 rounded-lg border border-gray-700 transition-colors whitespace-nowrap"
-            >
-              {t.header.enterApp} <ArrowRight className="w-4 h-4 hidden sm:block" />
-            </Link>
+            <LiveProof className="order-3 mt-5 sm:mt-8 lg:mt-0 w-full max-w-md lg:max-w-none" />
           </div>
-        </div>
-      </header>
-
-      <main className="flex-1 relative z-10">
-
-        {/* 1. HERO */}
-        <section className="flex flex-col items-center text-center px-5 sm:px-6 pt-12 pb-16 md:pt-28 md:pb-32">
-          <div className="inline-flex items-center gap-2 border border-gray-700 text-gray-300 text-[11px] sm:text-xs font-bold px-3 sm:px-4 py-1.5 rounded-lg mb-6 sm:mb-8 max-w-full">
-            <ShieldCheck className="w-4 h-4 shrink-0" /> <span className="truncate">{t.hero.badge}</span>
-          </div>
-          <h1 className="font-display font-bold text-[clamp(2.75rem,13vw,4.5rem)] md:text-7xl leading-[1.05] max-w-4xl mb-5 sm:mb-6">
-            {t.hero.headlineTop}
-            {/* Segunda linha em cinzento, não em âmbar: é a assinatura da marca,
-                não um valor de prémio. O contraste de tom chega para a separar. */}
-            <span className="block text-gray-500">{t.hero.headlineBottom}</span>
-          </h1>
-          <p className="text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mb-8 sm:mb-10">{t.hero.sub}</p>
-
-          {PRELAUNCH ? (
-            <>
-              <p className="font-display font-bold text-2xl md:text-3xl text-white mb-6">
-                {t.prelaunch.headline}
-              </p>
-              <WaitlistButton label={t.prelaunch.cta} className="text-xl md:text-2xl" />
-            </>
-          ) : (
-            <Link
-              to="/play"
-              className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl md:text-2xl px-12 h-16 rounded-lg transition-colors"
-            >
-              {t.hero.cta} <ArrowRight className="w-6 h-6" />
-            </Link>
-          )}
         </section>
 
         {/* 2. THE EVENT CENTER — os três módulos */}
@@ -200,24 +156,22 @@ export const Landing: React.FC = () => {
                     key={m.to}
                     to={m.to}
                     className={clsx(
-                      'group flex flex-col rounded-xl border p-6 sm:p-8 transition-colors',
-                      m.live
-                        ? 'border-gray-700 bg-dark-card hover:border-gray-500'
-                        : 'border-dark-border bg-dark-card/40 hover:border-gray-700',
+                      'group flex flex-col p-6 sm:p-8',
+                      m.live ? 'iw-surface-raised' : 'iw-surface !bg-dark-bg/60',
                     )}
                   >
                     <div className="flex items-center justify-between mb-6">
-                      <Icon className={clsx('w-5 h-5', m.live ? 'text-gray-200' : 'text-gray-500')} />
-                      <span className="font-display font-bold text-4xl text-white/10">{`0${i + 1}`}</span>
+                      <Icon className={clsx('w-5 h-5', m.live ? 'text-gray-200' : 'text-gray-400')} />
+                      <span aria-hidden="true" className="font-display font-bold text-4xl text-gray-400">{`0${i + 1}`}</span>
                     </div>
 
                     <span
                       className={clsx(
                         'inline-flex items-center gap-2 font-mono text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.15em] mb-3',
-                        m.live ? 'text-success' : 'text-gray-500',
+                        m.live ? 'text-success' : 'text-gray-400',
                       )}
                     >
-                      {m.live && <span className="w-2 h-2 rounded-full bg-success animate-pulse shrink-0" />}
+                      {m.live && <span className="iw-live" aria-hidden="true" />}
                       {badge}
                     </span>
 
@@ -256,7 +210,7 @@ export const Landing: React.FC = () => {
         <section className="px-5 sm:px-6 pt-16 md:pt-24 border-t border-dark-border/50">
           <div className="container mx-auto max-w-3xl text-center">
             <p className="inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-success mb-4">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse shrink-0" />
+              <span className="iw-live" aria-hidden="true" />
               {t.lottery.eyebrow}
             </p>
             <h2 className="font-display font-bold text-3xl md:text-5xl text-white mb-5">{t.lottery.title}</h2>
@@ -272,10 +226,10 @@ export const Landing: React.FC = () => {
               {t.how.steps.map((step, i) => {
                 const Icon = STEP_ICONS[i] ?? Trophy;
                 return (
-                  <div key={i} className="bg-dark-card border border-dark-border rounded-xl p-8 flex flex-col">
+                  <div key={i} className="iw-surface p-8 flex flex-col">
                     <div className="flex items-center justify-between mb-6">
                       <Icon className="w-5 h-5 text-gray-300" />
-                      <span className="font-display font-bold text-4xl text-white/10">{`0${i + 1}`}</span>
+                      <span aria-hidden="true" className="font-display font-bold text-4xl text-gray-400">{`0${i + 1}`}</span>
                     </div>
                     <h3 className="font-display font-bold text-xl text-white mb-3">{step.title}</h3>
                     <p className="text-gray-400 leading-relaxed">{step.body}</p>
@@ -290,11 +244,11 @@ export const Landing: React.FC = () => {
         <section className="px-6 py-16 md:py-24 border-t border-dark-border/50">
           <div className="container mx-auto max-w-4xl">
             <SectionHeading eyebrow={t.why.eyebrow} title={t.why.title} />
-            <div className="overflow-x-auto rounded-xl border border-dark-border">
+            <div className="iw-surface overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[520px]">
                 <thead>
                   <tr className="bg-dark-card">
-                    <th className="p-5 text-xs font-bold uppercase tracking-wider text-gray-500"></th>
+                    <th className="p-5 text-xs font-bold uppercase tracking-wider text-gray-400"></th>
                     <th className="p-5 text-sm font-display font-bold text-white">{t.why.colInstant}</th>
                     <th className="p-5 text-sm font-display font-bold text-gray-400">{t.why.colTraditional}</th>
                   </tr>
@@ -308,9 +262,9 @@ export const Landing: React.FC = () => {
                           <Check className="w-4 h-4 text-success shrink-0 mt-0.5" /> {row.instant}
                         </span>
                       </td>
-                      <td className="p-5 text-sm text-gray-500 align-top">
+                      <td className="p-5 text-sm text-gray-400 align-top">
                         <span className="inline-flex items-start gap-2">
-                          <X className="w-4 h-4 text-gray-600 shrink-0 mt-0.5" /> {row.traditional}
+                          <X className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" /> {row.traditional}
                         </span>
                       </td>
                     </tr>
@@ -333,18 +287,18 @@ export const Landing: React.FC = () => {
                   href={`${ARBISCAN}${c.address}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-dark-card border border-dark-border rounded-xl p-5 min-h-[44px] hover:border-success/40 transition-colors group"
+                  className="iw-surface p-5 min-h-[44px] hover:!border-success/40 group"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold text-white">{c.label}</span>
-                    <ExternalLink className="w-4 h-4 text-gray-500 group-hover:text-success transition-colors" />
+                    <ExternalLink className="w-4 h-4 text-gray-400 group-hover:text-success transition-colors" />
                   </div>
                   <span className="font-mono text-xs text-success">{short(c.address)}</span>
                 </a>
               ))}
             </div>
 
-            <div className="bg-dark-card/50 border border-dark-border rounded-xl p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="iw-surface p-6 flex flex-col sm:flex-row sm:items-center gap-4">
               <ShieldCheck className="w-5 h-5 text-gray-300 shrink-0" />
               <p className="text-gray-400 text-sm leading-relaxed flex-1">
                 {t.transparency.vrfPre}
@@ -365,11 +319,11 @@ export const Landing: React.FC = () => {
               {t.faq.items.map((item) => (
                 <details
                   key={item.q}
-                  className="group bg-dark-card/50 border border-dark-border rounded-xl px-6 open:bg-dark-card transition-colors"
+                  className="group iw-surface px-6 open:border-dark-line"
                 >
                   <summary className="flex items-center justify-between gap-4 cursor-pointer list-none py-5 font-display font-bold text-white [&::-webkit-details-marker]:hidden">
                     {item.q}
-                    <ChevronDown className="w-5 h-5 text-gray-500 shrink-0 transition-transform duration-300 group-open:rotate-180" />
+                    <ChevronDown className="w-5 h-5 text-gray-400 shrink-0 transition-transform duration-200 ease-out group-open:rotate-180" aria-hidden="true" />
                   </summary>
                   <p className="text-gray-400 leading-relaxed pb-6 pr-6">{item.a}</p>
                 </details>
@@ -392,7 +346,7 @@ export const Landing: React.FC = () => {
             ) : (
               <Link
                 to="/play"
-                className="inline-flex items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold text-xl px-12 h-16 rounded-lg transition-colors"
+                className="iw-btn iw-btn-primary gap-3 font-extrabold text-xl px-12 h-16"
               >
                 {t.hero.cta} <ArrowRight className="w-6 h-6" />
               </Link>
@@ -403,14 +357,14 @@ export const Landing: React.FC = () => {
       </main>
 
       {/* 6. FOOTER */}
-      <footer className="border-t border-dark-border py-10 bg-black/80 backdrop-blur-sm relative z-10">
+      <footer className="border-t border-dark-border py-10 bg-black/80">
         <div className="container mx-auto px-6 space-y-6">
           {/* Contracts */}
           <div>
-            <p className="text-center text-[10px] text-gray-600 font-bold uppercase tracking-widest mb-4">
+            <p className="text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-4">
               {t.footer.contractsLabel}
             </p>
-            <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-xs font-mono text-gray-500">
+            <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-xs font-mono text-gray-400">
               {contractLinks.map((c) => (
                 <a
                   key={c.address}
@@ -431,7 +385,7 @@ export const Landing: React.FC = () => {
           {/* Responsible play */}
           <div className="border-t border-dark-border/60 pt-6 max-w-2xl mx-auto text-center space-y-2">
             <p className="text-xs text-gray-400 font-medium">{t.footer.responsible}</p>
-            <p className="text-[11px] text-gray-600">{t.footer.disclaimer}</p>
+            <p className="text-[11px] text-gray-400">{t.footer.disclaimer}</p>
           </div>
         </div>
       </footer>

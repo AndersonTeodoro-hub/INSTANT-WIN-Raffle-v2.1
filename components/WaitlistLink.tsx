@@ -29,13 +29,12 @@ export const WaitlistLink: React.FC<{ label: string; className?: string; withArr
       className={clsx(
         // Sem `display` aqui de propósito: o header esconde-o abaixo de sm e um
         // `inline-flex` na base ficava a competir com o `hidden` do call site.
-        'items-center justify-center gap-2 min-h-[44px] rounded-lg border border-dark-border',
-        'font-bold text-gray-200 hover:text-white hover:border-gray-600 transition-colors',
+        'iw-btn iw-btn-secondary font-bold',
         className,
       )}
     >
       {label}
-      {withArrow && <ArrowRight className="w-5 h-5" />}
+      {withArrow && <ArrowRight className="w-5 h-5" aria-hidden="true" />}
     </a>
   );
 };

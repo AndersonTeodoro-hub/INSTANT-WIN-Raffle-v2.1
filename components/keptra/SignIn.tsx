@@ -44,7 +44,7 @@ export function SignInPanel({ intro }: { intro?: string }) {
   return (
     <Card className="max-w-xl">
       <div className="flex items-center gap-3">
-        <Mail className="h-5 w-5 text-brand" aria-hidden="true" />
+        <Mail className="h-5 w-5 text-gray-300" aria-hidden="true" />
         <h2 className="font-display text-2xl font-bold tracking-tight">Sign in</h2>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-gray-400">{intro ?? 'Sign in with your email. We send a six-digit code; no password.'}</p>
@@ -94,7 +94,7 @@ export function PasskeyPanel() {
   return (
     <Card className="max-w-xl">
       <div className="flex items-center gap-3">
-        <KeyRound className="h-5 w-5 text-brand" aria-hidden="true" />
+        <KeyRound className="h-5 w-5 text-gray-300" aria-hidden="true" />
         <h2 className="font-display text-2xl font-bold tracking-tight">Create your passkey</h2>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-gray-400">

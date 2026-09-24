@@ -152,7 +152,7 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
       <aside className="lg:sticky lg:top-24 lg:self-start">
         <Card>
           <h2 className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight">
-            <Ticket className="h-5 w-5 text-brand" aria-hidden="true" /> Redeem
+            <Ticket className="h-5 w-5 text-gray-300" aria-hidden="true" /> Redeem
           </h2>
           <div className="mt-5 space-y-5">
             {expired ? (

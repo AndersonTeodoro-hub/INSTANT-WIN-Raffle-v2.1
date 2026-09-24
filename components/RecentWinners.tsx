@@ -53,11 +53,14 @@ function relativeTime(ts: number | undefined, t: AppCopy['winners']): string {
  * assim que junta rondas suficientes. Uma janela única e larga é recusada pelo RPC
  * público da Arbitrum — foi a lição registada na migração do V2.
  */
-export const RecentWinners: React.FC = () => {
+/**
+ * A leitura dos vencedores recentes, partilhada: o painel do jogo e a prova viva
+ * da landing usam a mesma chave de cache, por isso a página inicial não faz
+ * nenhuma leitura à cadeia que o jogo não faça já.
+ */
+export function useRecentWinners() {
   const client = usePublicClient();
-  const c = useAppCopy();
-
-  const { data: winners, isLoading } = useQuery({
+  return useQuery({
     queryKey: ['recentWinners'],
     enabled: !!client,
     retry: 2,
@@ -115,6 +118,11 @@ export const RecentWinners: React.FC = () => {
         );
     },
   });
+}
+
+export const RecentWinners: React.FC = () => {
+  const c = useAppCopy();
+  const { data: winners, isLoading } = useRecentWinners();
 
   // Usernames numa só multicall; cai para o endereço truncado quando não há.
   const uniqueAddrs = useMemo(
@@ -139,7 +147,7 @@ export const RecentWinners: React.FC = () => {
   };
 
   return (
-    <section className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-7">
+    <section className="iw-surface p-5 sm:p-7">
       <div className="flex items-center justify-between gap-3 mb-5">
         <h2 className="font-display text-2xl font-bold text-white tracking-tight flex items-center gap-2">
           <Trophy className="w-5 h-5 text-brand shrink-0" aria-hidden="true" /> {c.winners.title}
@@ -160,10 +168,12 @@ export const RecentWinners: React.FC = () => {
 
       {winners && winners.length > 0 && (
         <ul className="divide-y divide-dark-border">
-          {winners.map((w) => (
+          {winners.map((w, i) => (
             <li
               key={`${w.txHash}-${w.rank}`}
-              className="flex items-center justify-between gap-3 py-3 min-h-[44px]"
+              // Os resultados entram em cascata curta: é uma lista a chegar da cadeia.
+              style={{ ['--i' as string]: Math.min(i, 8) }}
+              className="iw-rise flex items-center justify-between gap-3 py-3 min-h-[44px]"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <span className="font-mono text-xs text-gray-400 w-5 shrink-0 tabular-nums">{w.rank}</span>

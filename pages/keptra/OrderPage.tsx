@@ -4,6 +4,7 @@ import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { RequireAccount } from '../../components/keptra/SignIn';
 import { QrCode } from '../../components/keptra/QrCode';
+import { ProofSeal } from '../../components/Proof';
 import { useBridgeRead, useDescription, useOrderOnChain, useTerms, type OrderRead } from '../../components/keptra/hooks';
 import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
 import { myOrders, orderEvidence, type Evidence } from '../../lib/keptra/api';
@@ -12,6 +13,9 @@ import { keptraConfigured, OrderState } from '../../lib/keptra/contracts';
 import { codeFor, groupCode } from '../../lib/keptra/deliveryCode';
 import { formatUsdc, formatUtc, timeLeft } from '../../lib/keptra/format';
 import { orderStatusText, recipientActions, type RecipientAction } from '../../lib/keptra/orders';
+
+/** The 5 days the page and the offer state for confirming or contesting; only draws how much of the window has run. */
+const WINDOW_SECONDS = 5 * 86_400;
 
 /*
  * /orders/:id — one order, for the person who paid or redeemed it (8.1, 8.3, 9.2, P17).
@@ -101,13 +105,23 @@ function OrderBody({ orderId }: { orderId: string }) {
         <div>
           <Eyebrow>Order #{orderId}{row.prize ? ' · physical prize' : ''}</Eyebrow>
           <h1 className="mt-3 break-words font-display text-4xl font-bold tracking-tight sm:text-5xl">{description?.title ?? 'Your order'}</h1>
-          <p className="mt-3 text-lg text-gray-200">{orderStatusText(facts)}</p>
+          <p className="mt-3 inline-flex items-center gap-2.5 text-lg text-gray-200">
+            <OrderStateMark state={facts.state} />
+            {orderStatusText(facts)}
+          </p>
         </div>
 
         {facts.state === OrderState.WINDOW && row.windowEndsAt && (
           <Notice tone="warning" title={`The window closes ${timeLeft(row.windowEndsAt, now)} — ${formatUtc(row.windowEndsAt)}`}>
             If it arrived as described, confirm it. If it did not arrive, or is not as described, contest before then. Without a contest the store is paid
             {(facts.flags & 2) !== 0 ? ' under the refusal terms' : ''}.
+            {/* The window opening: how much of it has run, filled in when the page opens. */}
+            <span aria-hidden="true" className="mt-4 block h-1 w-full overflow-hidden rounded-full bg-white/10">
+              <span
+                className="iw-meter block h-full rounded-full bg-white/80"
+                style={{ transform: `scaleX(${Math.min(1, Math.max(0.02, 1 - (Number(row.windowEndsAt) - now) / WINDOW_SECONDS))})` }}
+              />
+            </span>
           </Notice>
         )}
 
@@ -163,9 +177,11 @@ function OrderBody({ orderId }: { orderId: string }) {
           <Card>
             <h2 className="font-display text-2xl font-bold tracking-tight">Delivery code</h2>
             {code ? (
-              <div className="mt-4 flex flex-col items-center gap-4 text-center">
-                <QrCode text={code} label={`Delivery code ${groupCode(code)}`} />
-                <p className="break-all font-mono text-xl font-bold tracking-wider text-white">{groupCode(code)}</p>
+              <div className="iw-reveal mt-4 flex flex-col items-center gap-4 text-center">
+                <div className="rounded-lg shadow-[0_16px_40px_-20px_rgba(255,255,255,0.3)]">
+                  <QrCode text={code} label={`Delivery code ${groupCode(code)}`} />
+                </div>
+                <p className="w-full break-all rounded-control border border-dark-line bg-black/40 px-3 py-3 font-mono text-xl font-bold tracking-wider text-white">{groupCode(code)}</p>
                 <p className="text-xs text-gray-400">Show it to the person who delivers, and only when the order is in your hands. It works once.</p>
               </div>
             ) : (
@@ -200,6 +216,17 @@ function OrderBody({ orderId }: { orderId: string }) {
       </aside>
     </div>
   );
+}
+
+/**
+ * The order's state, marked as the rest of the platform marks it: a state the
+ * chain is still running is live (green, pulsing); a closed order is a settled
+ * fact (the seal); a contest waits on a person, so it stays neutral.
+ */
+function OrderStateMark({ state }: { state: number }) {
+  if (state === OrderState.CLOSED) return <ProofSeal className="h-5 w-5 text-success" />;
+  if (state === OrderState.CONTESTED) return <span aria-hidden="true" className="h-2 w-2 rounded-full bg-gray-300" />;
+  return <span aria-hidden="true" className="iw-live" />;
 }
 
 /** P17 and AQ3: one text from each party, up to 2 000 characters, written once while the order is contested. */

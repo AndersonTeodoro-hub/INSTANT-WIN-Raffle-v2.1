@@ -105,7 +105,7 @@ function AccountCard({ account, status }: { account: AccountView; status: Accoun
                   </>
                 ) : (
                   <>
-                    <ShieldAlert className="h-4 w-4 text-brand" aria-hidden="true" /> Off
+                    <ShieldAlert className="h-4 w-4 text-gray-300" aria-hidden="true" /> Off
                   </>
                 )}
               </dd>

@@ -530,7 +530,7 @@ export const EventCreate: React.FC = () => {
           {/* ============ 4. FINANCIAR E LANÇAR ============ */}
           <Step index={4} title={c.stages.funding} headingLevel={2} last>
             <div className="space-y-5">
-              <dl className="rounded-xl border border-dark-border bg-dark-card p-4">
+              <dl className="iw-surface p-4">
                 <div className="flex items-baseline justify-between gap-3 text-sm">
                   <dt className="text-gray-400">{c.costFee}</dt>
                   <dd className="font-mono text-white tabular-nums">

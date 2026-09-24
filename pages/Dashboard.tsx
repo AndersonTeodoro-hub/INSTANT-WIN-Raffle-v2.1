@@ -5,6 +5,7 @@ import { formatUnits } from 'viem';
 import { User, Wallet, Coins, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
+import { RoundClock, RoundMeter } from '../components/Proof';
 import { useAppCopy } from './app.i18n';
 
 export const Dashboard: React.FC = () => {
@@ -86,30 +87,99 @@ export const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [endTime, isOpen, refetchRound]);
 
-  const formatTime = (seconds: number) => {
-    const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-    const h = Math.floor(safe / 3600);
-    const m = Math.floor((safe % 3600) / 60);
-    const s = safe % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const MiniCard = ({ label, value, icon: Icon, to }: any) => (
+  /*
+   * Os quatro factos da conta e da rede. Eram quatro cartões iguais por cima do
+   * relógio, a disputar a primeira vista com a ronda; passam a ser uma só régua
+   * por baixo dela, com a ronda como o objecto principal do ecrã.
+   */
+  const MiniCard = ({ label, value, icon: Icon, to, prize }: any) => (
     <Link
       to={to}
-      className="bg-dark-card border border-dark-border p-4 rounded-xl flex items-center gap-4 hover:border-gray-600 transition-colors group"
+      className="group flex min-w-0 items-center gap-3 bg-dark-card px-4 py-4 transition-colors duration-200 hover:bg-dark-raised sm:px-5"
     >
-      <Icon className="w-5 h-5 shrink-0 text-gray-400 group-hover:text-white transition-colors" />
-      <div>
-        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{label}</p>
-        <p className="text-white font-bold truncate max-w-[120px]">{value}</p>
+      <Icon className="h-5 w-5 shrink-0 text-gray-400 transition-colors duration-200 group-hover:text-white" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="text-[11px] font-medium text-gray-400">{label}</p>
+        <p className={`truncate font-mono text-sm font-bold ${prize ? 'text-brand' : 'text-white'}`}>{value}</p>
       </div>
     </Link>
   );
 
+  const live = isOpen && !isTransitioning;
+
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="max-w-6xl mx-auto space-y-4 pb-12">
+      <section className="iw-surface-raised relative overflow-hidden">
+        <div className="flex flex-col items-center px-4 py-10 text-center sm:px-6 sm:py-14">
+          {/* A ronda: ao vivo on-chain, portanto verde e a pulsar; cinzenta enquanto fecha. */}
+          <p
+            className={`inline-flex items-center gap-2.5 rounded-full border px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.18em] ${
+              live ? 'border-success/30 bg-success/[0.07] text-success' : 'border-dark-line text-gray-400'
+            }`}
+          >
+            <span className="iw-live" data-idle={!live} aria-hidden="true" />
+            {isTransitioning
+              ? c.dashboard.finalizing
+              : `${c.dashboard.roundPre}${roundId?.toString() ?? '...'}${c.dashboard.roundPost}`}
+          </p>
+
+          <h1 className="mt-8 w-full">
+            <RoundClock
+              seconds={timeLeft}
+              closing={isTransitioning ? c.dashboard.closing : undefined}
+              className="text-[clamp(2.4rem,13vw,8.5rem)]"
+            />
+          </h1>
+
+          <div className="mt-6 w-full max-w-xl">
+            <RoundMeter seconds={timeLeft} closing={isTransitioning} />
+            <p className="mt-3 font-mono text-xs uppercase tracking-widest text-gray-400 sm:text-sm">
+              {isTransitioning ? c.dashboard.endedAwaitingClose : c.dashboard.timeRemaining}
+            </p>
+          </div>
+
+          <dl className="mt-10 grid w-full max-w-xl grid-cols-[minmax(0,1fr)_auto] items-end gap-6 border-y border-dark-border py-6 text-left">
+            <div className="min-w-0">
+              <dt className="text-xs font-medium text-gray-400">{c.dashboard.totalPrizePool}</dt>
+              <dd className="mt-2 flex items-baseline gap-2 font-mono font-bold text-brand">
+                <span className="truncate text-4xl sm:text-5xl">{formatUnits(totalPool as bigint, 6)}</span>
+                <span className="text-base text-gray-400">USDC</span>
+              </dd>
+            </div>
+            <div className="text-right">
+              <dt className="text-xs font-medium text-gray-400">{c.dashboard.ticketsSold}</dt>
+              <dd className="mt-2 flex items-center justify-end gap-2 font-mono text-4xl font-bold text-white sm:text-5xl">
+                <Ticket className="h-6 w-6 text-gray-400" aria-hidden="true" />
+                {ticketCount.toString()}
+              </dd>
+            </div>
+          </dl>
+
+          <div className="mt-8 w-full max-w-md">
+            <Link to="/play/raffle">
+              <Button
+                variant="connect"
+                disabled={isTransitioning}
+                className="group h-16 w-full text-lg md:h-20 md:text-2xl"
+              >
+                {isTransitioning ? (
+                  <>
+                    <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" /> {c.dashboard.processing}
+                  </>
+                ) : (
+                  <>
+                    {c.dashboard.enterRound}{' '}
+                    <ArrowRight className="h-6 w-6 transition-transform duration-200 ease-out group-hover:translate-x-1" aria-hidden="true" />
+                  </>
+                )}
+              </Button>
+            </Link>
+            <p className="mt-4 text-xs text-gray-400">{c.dashboard.vrfNote}</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="iw-surface grid grid-cols-2 gap-px overflow-hidden !bg-dark-border md:grid-cols-4">
         <MiniCard
           label={c.dashboard.identity}
           value={username ? `@${username}` : c.dashboard.register}
@@ -127,88 +197,9 @@ export const Dashboard: React.FC = () => {
           value={`${formatUnits((pendingCarry ?? 0n) as bigint, 6)} USDC`}
           icon={Coins}
           to="/play/raffle"
+          prize
         />
         <MiniCard label={c.dashboard.network} value="Arbitrum One" icon={Zap} to="/play" />
-      </div>
-
-      <div className="relative rounded-xl overflow-hidden border border-brand/20">
-        <div className="absolute inset-0 bg-dark-card z-0"></div>
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-brand/5 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2 z-0 pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/2 z-0 pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col items-center justify-center py-10 px-4 sm:py-16 sm:px-6 text-center">
-          <div className="inline-flex items-center gap-2 border border-gray-700 px-4 py-1.5 rounded-lg mb-8 animate-fade-in-up">
-            <span className="relative flex h-3 w-3">
-              <span
-                className={`absolute inline-flex h-full w-full rounded-full bg-gray-400 opacity-75 ${
-                  !isTransitioning && 'animate-ping'
-                }`}
-              ></span>
-              <span className={`relative inline-flex rounded-full h-3 w-3 ${isTransitioning ? 'bg-gray-600' : 'bg-gray-400'}`}></span>
-            </span>
-            <span className={`font-mono text-xs font-bold tracking-[0.2em] uppercase ${isTransitioning ? 'text-gray-500' : 'text-gray-300'}`}>
-              {isTransitioning
-                ? c.dashboard.finalizing
-                : `${c.dashboard.roundPre}${roundId?.toString() ?? '...'}${c.dashboard.roundPost}`}
-            </span>
-          </div>
-
-          {/* clamp() em vez de text-7xl: 8 dígitos mono a 72px transbordam a 360px. */}
-          <h1 className="font-mono font-bold text-white leading-none tracking-tighter tabular-nums mb-4 drop-shadow-2xl text-[clamp(2.75rem,15vw,10rem)]">
-            {isTransitioning ? (
-              <span className="animate-pulse text-gray-400 text-[clamp(1.75rem,9vw,6rem)]">{c.dashboard.closing}</span>
-            ) : (
-              formatTime(timeLeft)
-            )}
-          </h1>
-
-          <p className="font-mono text-gray-500 text-xs sm:text-base uppercase tracking-widest mb-8 sm:mb-10">
-            {isTransitioning ? c.dashboard.endedAwaitingClose : c.dashboard.timeRemaining}
-          </p>
-
-          <div className="flex flex-col md:flex-row items-center gap-6 md:gap-12 mb-12 bg-black/30 p-6 rounded-xl border border-white/5 backdrop-blur-sm">
-            <div className="text-center">
-              <p className="text-xs text-gray-500 font-bold uppercase mb-1">{c.dashboard.totalPrizePool}</p>
-              <p className="font-mono text-4xl font-bold text-brand tabular-nums">
-                {formatUnits(totalPool as bigint, 6)} <span className="text-lg text-gray-600">USDC</span>
-              </p>
-            </div>
-            <div className="w-px h-12 bg-white/10 hidden md:block"></div>
-            <div className="text-center">
-              <p className="text-xs text-gray-500 font-bold uppercase mb-1">{c.dashboard.ticketsSold}</p>
-              <p className="text-4xl font-bold text-white flex items-center gap-2 justify-center">
-                <Ticket className="w-6 h-6 text-purple-500" />
-                {ticketCount.toString()}
-              </p>
-            </div>
-          </div>
-
-          <div className="w-full max-w-md">
-            <Link to="/play/raffle">
-              <Button
-                variant="connect"
-                disabled={isTransitioning}
-                className="w-full h-20 text-xl md:text-2xl rounded-lg transition-colors relative overflow-hidden group disabled:opacity-50"
-              >
-                <span className="relative z-10 flex items-center gap-3">
-                  {isTransitioning ? (
-                    <>
-                      <Loader2 className="animate-spin w-6 h-6" /> {c.dashboard.processing}
-                    </>
-                  ) : (
-                    <>
-                      {c.dashboard.enterRound} <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
-                    </>
-                  )}
-                </span>
-                {!isTransitioning && (
-                  <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 to-transparent z-0"></div>
-                )}
-              </Button>
-            </Link>
-            <p className="mt-4 text-xs text-gray-500">{c.dashboard.vrfNote}</p>
-          </div>
-        </div>
       </div>
     </div>
   );

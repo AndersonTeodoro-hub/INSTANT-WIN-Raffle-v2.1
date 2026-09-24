@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ExternalLink, Inbox, Loader2 } from 'lucide-react';
 import { shortAddress } from '../../lib/keptra/format';
+import { ProofSeal } from '../Proof';
 
 /*
  * The Keptra building blocks. The same system as the rest of the app — the dark
@@ -17,7 +18,7 @@ import { shortAddress } from '../../lib/keptra/format';
 export const ARBISCAN = 'https://arbiscan.io';
 
 export function Card({ children, className = '', as: Tag = 'section' }: { children: React.ReactNode; className?: string; as?: 'section' | 'div' | 'article' }) {
-  return <Tag className={`rounded-2xl border border-dark-border bg-dark-card p-5 sm:p-6 ${className}`}>{children}</Tag>;
+  return <Tag className={`iw-surface p-5 sm:p-6 ${className}`}>{children}</Tag>;
 }
 
 export function Eyebrow({ children }: { children: React.ReactNode }) {
@@ -47,11 +48,12 @@ export function SectionTitle({ children, aside }: { children: React.ReactNode; a
 
 type ButtonTone = 'primary' | 'secondary' | 'danger' | 'quiet';
 
+/* The platform's one button logic (index.css): primary is the screen's main action, in amber; secondary is outlined. */
 const TONES: Record<ButtonTone, string> = {
-  primary: 'bg-brand text-black hover:bg-amber-400 disabled:bg-dark-input disabled:text-gray-400',
-  secondary: 'border border-dark-border bg-dark-input text-white hover:border-gray-500 disabled:text-gray-400',
-  danger: 'border border-red-500/40 text-red-300 hover:border-red-400 hover:text-red-200 disabled:border-dark-border disabled:text-gray-400',
-  quiet: 'text-gray-300 underline underline-offset-4 hover:text-white disabled:text-gray-400',
+  primary: 'iw-btn iw-btn-primary disabled:bg-dark-input disabled:text-gray-400 disabled:shadow-none',
+  secondary: 'iw-btn iw-btn-secondary disabled:text-gray-400',
+  danger: 'iw-btn border border-red-500/40 text-red-300 hover:border-red-400 hover:text-red-200 disabled:border-dark-border disabled:text-gray-400',
+  quiet: 'iw-btn text-gray-300 underline underline-offset-4 hover:text-white disabled:text-gray-400',
 };
 
 /**
@@ -63,7 +65,7 @@ export const Button = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: ButtonTone; busy?: boolean }
 >(function Button({ tone = 'primary', busy = false, className = '', children, onClick, ...rest }, ref) {
-  const shape = tone === 'quiet' ? 'min-h-[44px] px-1' : 'min-h-[48px] rounded-xl px-5 font-semibold';
+  const shape = tone === 'quiet' ? 'min-h-[44px] px-1 font-normal' : 'min-h-[48px] px-5';
   return (
     <button
       ref={ref}
@@ -75,7 +77,7 @@ export const Button = React.forwardRef<
         if (busy) return event.preventDefault();
         onClick?.(event);
       }}
-      className={`inline-flex items-center justify-center gap-2 text-sm transition-colors duration-150 disabled:cursor-not-allowed aria-busy:cursor-wait ${shape} ${TONES[tone]} ${className}`}
+      className={`text-sm disabled:cursor-not-allowed aria-busy:cursor-wait ${shape} ${TONES[tone]} ${className}`}
     >
       {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
       {children}
@@ -85,7 +87,7 @@ export const Button = React.forwardRef<
 
 export function ButtonLink({ to, children, tone = 'secondary' }: { to: string; children: React.ReactNode; tone?: ButtonTone }) {
   return (
-    <Link to={to} className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-colors ${TONES[tone]}`}>
+    <Link to={to} className={`min-h-[48px] px-5 text-sm ${TONES[tone]}`}>
       {children}
     </Link>
   );
@@ -101,7 +103,7 @@ export function Loading({ label = 'Loading…' }: { label?: string }) {
 
 export function Empty({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-dark-border p-6 text-sm text-gray-400">
+    <div className="flex flex-col items-start gap-3 rounded-card border border-dashed border-dark-line bg-dark-card/40 p-6 text-sm text-gray-400">
       <Inbox className="h-5 w-5 text-gray-400" aria-hidden="true" />
       <p className="font-medium text-gray-200">{title}</p>
       {children}
@@ -114,11 +116,14 @@ export function Notice({ tone = 'info', title, children }: { tone?: 'info' | 'er
     info: 'border-dark-border bg-dark-input text-gray-300',
     error: 'border-red-500/40 bg-red-500/[0.06] text-red-200',
     success: 'border-success/40 bg-success/[0.06] text-green-200',
-    warning: 'border-brand/40 bg-brand/[0.06] text-amber-100',
+    // Amber is only a prize's value and the main button: a warning is the light neutral, with its triangle.
+    warning: 'border-gray-400/40 bg-white/[0.045] text-gray-100',
   }[tone];
+  // A notice arrives with a short settle; a success is something now proven on-chain, so its seal draws itself.
   return (
-    <div role={tone === 'error' ? 'alert' : 'status'} className={`flex gap-3 rounded-xl border p-4 text-sm leading-relaxed ${style}`}>
+    <div role={tone === 'error' ? 'alert' : 'status'} className={`iw-swap flex gap-3 rounded-card border p-4 text-sm leading-relaxed ${style}`}>
       {tone !== 'info' && tone !== 'success' && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+      {tone === 'success' && <ProofSeal className="mt-0.5 h-4 w-4 text-success" />}
       <div className="min-w-0">
         {title && <p className="font-semibold">{title}</p>}
         <div className={title ? 'mt-1' : ''}>{children}</div>
@@ -172,10 +177,10 @@ export function Badge({ children, tone = 'neutral' }: { children: React.ReactNod
   const style = {
     neutral: 'border-dark-border text-gray-300',
     success: 'border-success/40 text-success',
-    warning: 'border-brand/40 text-brand',
+    warning: 'border-gray-400/50 text-gray-200',
     danger: 'border-red-500/40 text-red-300',
   }[tone];
-  return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-wider ${style}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-wider ${style}`}>{children}</span>;
 }
 
 export function Field({ label, hint, error, children, id }: { label: string; hint?: string; error?: string | null; children: React.ReactNode; id: string }) {
@@ -196,7 +201,7 @@ export function Field({ label, hint, error, children, id }: { label: string; hin
 }
 
 export const inputClass =
-  'w-full min-h-[48px] rounded-xl border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-400 focus:border-gray-400';
+  'w-full min-h-[48px] rounded-control border border-dark-border bg-dark-input px-4 text-white placeholder:text-gray-400 transition-colors duration-200 hover:border-dark-line focus:border-gray-400';
 
 /**
  * V3 (A3): a read that failed — the chain's or the bridge's — shown as what it is,

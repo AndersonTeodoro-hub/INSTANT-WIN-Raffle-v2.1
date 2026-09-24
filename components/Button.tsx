@@ -7,33 +7,39 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   isLoading?: boolean;
 }
 
-export const Button: React.FC<ButtonProps> = ({ 
-  children, 
-  variant = 'primary', 
-  isLoading, 
-  className = '', 
-  disabled, 
-  ...props 
-}) => {
-  // Styles based on the screenshots
-  const baseStyles = "px-6 py-3 rounded-lg font-bold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 text-sm md:text-base";
-  
-  const variants = {
-    primary: "bg-action hover:bg-action-hover text-white shadow-lg shadow-blue-900/20", // The Blue "Approve/Buy" button
-    success: "bg-success hover:bg-success-hover text-white shadow-lg shadow-green-900/20", // The Green "Claim" button
-    connect: "bg-brand hover:bg-amber-400 text-black font-extrabold", // The Gold "Connect" button
-    danger: "bg-red-600 hover:bg-red-500 text-white",
-    outline: "bg-transparent border border-gray-700 text-gray-300 hover:border-gray-500 hover:text-white"
-  };
+/*
+ * Os nomes das variantes ficam (são usados em todo o jogo e no Event Center);
+ * o aspecto segue a lógica única de botões de index.css:
+ * - connect e success → o botão principal, âmbar (entrar na ronda, reclamar um prémio);
+ * - primary e outline → secundário, de contorno. O azul deixou de ser acção: é luz ambiente;
+ * - danger → contorno vermelho.
+ */
+const VARIANTS = {
+  connect: 'iw-btn-primary font-bold disabled:!bg-dark-line disabled:!text-gray-400 disabled:!shadow-none disabled:!opacity-100',
+  success: 'iw-btn-primary font-bold disabled:!bg-dark-line disabled:!text-gray-400 disabled:!shadow-none disabled:!opacity-100',
+  primary: 'iw-btn-secondary',
+  outline: 'iw-btn-secondary',
+  danger: 'border border-red-500/50 bg-red-500/10 text-red-200 hover:border-red-400 hover:text-white',
+} as const;
 
-  return (
-    <button 
-      className={twMerge(baseStyles, variants[variant], className)}
-      disabled={disabled || isLoading}
-      {...props}
-    >
-      {isLoading && <Loader2 className="animate-spin h-5 w-5" />}
-      {children}
-    </button>
-  );
-};
+export const Button: React.FC<ButtonProps> = ({
+  children,
+  variant = 'primary',
+  isLoading,
+  className = '',
+  disabled,
+  ...props
+}) => (
+  <button
+    className={twMerge(
+      'iw-btn px-6 py-3 text-sm md:text-base disabled:cursor-not-allowed disabled:opacity-50',
+      VARIANTS[variant],
+      className,
+    )}
+    disabled={disabled || isLoading}
+    {...props}
+  >
+    {isLoading && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}
+    {children}
+  </button>
+);

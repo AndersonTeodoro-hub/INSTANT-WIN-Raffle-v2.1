@@ -79,7 +79,7 @@ function OrdersBody() {
                     className="flex min-h-[56px] items-center justify-between gap-3 rounded-xl border border-dark-border p-3 hover:border-gray-500"
                   >
                     <span className="flex items-center gap-3">
-                      <Ticket className="h-5 w-5 text-brand" aria-hidden="true" />
+                      <Ticket className="h-5 w-5 text-gray-300" aria-hidden="true" />
                       <span>
                         <span className="block font-mono text-sm text-white">Voucher #{voucher.voucherId}</span>
                         {voucher.redeemBy && <span className="block text-xs text-gray-400">Redeem by {formatUtc(voucher.redeemBy)}</span>}
