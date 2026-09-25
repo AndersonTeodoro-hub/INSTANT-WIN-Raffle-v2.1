@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Check, ArrowRight, CalendarOff, Send } from 'lucide-react';
+import { ExternalLink, Check, ArrowRight, CalendarOff } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS, INVESTOR_EMAIL, TELEGRAM_URL } from '../constants';
+import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { SiteHeader, HeaderAction } from '../components/SiteHeader';
 import { useRoadmapCopy } from './roadmap.i18n';
@@ -129,10 +129,10 @@ export const Roadmap: React.FC = () => {
 
   return (
     <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
-      {/* O cabeçalho da plataforma; a acção do contexto é a lista de espera. */}
+      {/* O cabeçalho da plataforma; a acção do contexto é entrar no produto, como na página inicial. */}
       <SiteHeader
         nav={<PublicNavLinks />}
-        actions={<HeaderAction href={TELEGRAM_URL} icon={Send} label={c.waitlist.short} />}
+        actions={<HeaderAction to="/play" icon={ArrowRight} label={t.header.enterApp} />}
       />
 
       <Film
@@ -318,7 +318,7 @@ export const Roadmap: React.FC = () => {
           >
             &larr; {c.outro.back}
           </Link>
-          <p className="text-xs text-gray-400 mt-2">&copy; 2026 Instant Win Protocol</p>
+          <p className="text-xs text-gray-400 mt-2">&copy; 2026 Keptra</p>
         </div>
       </footer>
     </div>

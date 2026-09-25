@@ -776,7 +776,7 @@ export const EventDetail: React.FC = () => {
   const entryStep = entryStatusResult?.status;
 
   return (
-    <EventShell back={{ to: '/events', label: c.nav.link }}>
+    <EventShell>
       <div className="space-y-6">
         {paused === true && <Banner message={c.detail.pausedBanner} tone="notice" />}
 

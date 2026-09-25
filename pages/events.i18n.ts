@@ -3,10 +3,9 @@ import { useLang } from './landing.i18n';
 // i18n do Event Center (/events/*). Mesmo padrão de app.i18n.ts e
 // giveaways.i18n.ts: objecto de lookup por idioma, useLang partilhado.
 //
-// Não se traduz: INSTANT WIN, USDC, Arbitrum One, Telegram, Event Center.
+// Não se traduz: Keptra, Instant Win, USDC, Arbitrum One, Telegram, Event Center.
 
 export interface EventsCopy {
-  nav: { link: string };
   list: {
     metaTitle: string;
     metaDescription: string;
@@ -263,9 +262,8 @@ export interface EventsCopy {
 }
 
 const en: EventsCopy = {
-  nav: { link: 'Event Center' },
   list: {
-    metaTitle: 'Event Center — Instant Win',
+    metaTitle: 'Event Center · Keptra',
     metaDescription: 'Live giveaways on GiveawayManagerV2, Arbitrum One. Enter by email and Telegram, or connect a wallet.',
     eyebrow: 'Event Center',
     title: 'Giveaways, live on Arbitrum',
@@ -407,12 +405,12 @@ const en: EventsCopy = {
     },
   },
   create: {
-    metaTitle: 'Create a giveaway — Instant Win',
+    metaTitle: 'Create a giveaway · Event Center · Keptra',
     metaDescription: 'Create a giveaway on GiveawayManagerV2: deposit an ERC-20, ERC-721 or ERC-1155 prize and buy entry slots.',
     title: 'Create a giveaway',
     intro: 'You sign the creation and the deposit yourself, with your own gas. The prize never passes through the platform.',
     connectPrompt: 'Connect a wallet to create a giveaway.',
-    pausedBanner: 'Campaign creation opens at launch. The contract is live and verified on Arbiscan; the entry flow is being finished.',
+    pausedBanner: 'Campaign creation is paused on the contract right now. New campaigns and entries are on hold; claims and refunds are not affected.',
     moduleNotRegistered: 'This prize module is not registered on the contract yet. Creation is disabled.',
     stages: { prize: 'The prize', rules: 'The rules', funding: 'Fund and launch' },
     prizeType: { label: 'Prize type', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
@@ -497,7 +495,7 @@ const en: EventsCopy = {
     },
   },
   dashboard: {
-    metaTitle: 'My giveaways — Instant Win',
+    metaTitle: 'My giveaways · Event Center · Keptra',
     title: 'My giveaways',
     intro: 'Every campaign you created, and what it needs next.',
     connectPrompt: 'Connect a wallet to see your giveaways.',
@@ -522,9 +520,8 @@ const en: EventsCopy = {
 };
 
 const pt: EventsCopy = {
-  nav: { link: 'Event Center' },
   list: {
-    metaTitle: 'Event Center — Instant Win',
+    metaTitle: 'Event Center · Keptra',
     metaDescription: 'Sorteios ao vivo no GiveawayManagerV2, Arbitrum One. Participe por email e Telegram, ou ligue uma carteira.',
     eyebrow: 'Event Center',
     title: 'Sorteios, ao vivo na Arbitrum',
@@ -666,12 +663,12 @@ const pt: EventsCopy = {
     },
   },
   create: {
-    metaTitle: 'Criar um sorteio — Instant Win',
+    metaTitle: 'Criar um sorteio · Event Center · Keptra',
     metaDescription: 'Crie um sorteio no GiveawayManagerV2: deposite um prémio ERC-20, ERC-721 ou ERC-1155 e compre slots de entrada.',
     title: 'Criar um sorteio',
     intro: 'Assina a criação e o depósito você mesmo, com o seu próprio gas. O prémio nunca passa pela plataforma.',
     connectPrompt: 'Ligue uma carteira para criar um sorteio.',
-    pausedBanner: 'A criação de campanhas abre no lançamento. O contrato está no ar e verificado no Arbiscan; o fluxo de entrada está a ser terminado.',
+    pausedBanner: 'A criação de campanhas está pausada no contrato neste momento. Novas campanhas e entradas estão suspensas; resgates e reembolsos não são afectados.',
     moduleNotRegistered: 'Este módulo de prémio ainda não está registado no contrato. A criação está desactivada.',
     stages: { prize: 'O prémio', rules: 'As regras', funding: 'Financiar e lançar' },
     prizeType: { label: 'Tipo de prémio', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
@@ -756,7 +753,7 @@ const pt: EventsCopy = {
     },
   },
   dashboard: {
-    metaTitle: 'Os meus sorteios — Instant Win',
+    metaTitle: 'Os meus sorteios · Event Center · Keptra',
     title: 'Os meus sorteios',
     intro: 'Cada campanha que criou, e o que precisa a seguir.',
     connectPrompt: 'Ligue uma carteira para ver os seus sorteios.',
@@ -781,9 +778,8 @@ const pt: EventsCopy = {
 };
 
 const es: EventsCopy = {
-  nav: { link: 'Event Center' },
   list: {
-    metaTitle: 'Event Center — Instant Win',
+    metaTitle: 'Event Center · Keptra',
     metaDescription: 'Sorteos en vivo en GiveawayManagerV2, Arbitrum One. Participa por email y Telegram, o conecta una wallet.',
     eyebrow: 'Event Center',
     title: 'Sorteos, en vivo en Arbitrum',
@@ -925,12 +921,12 @@ const es: EventsCopy = {
     },
   },
   create: {
-    metaTitle: 'Crear un sorteo — Instant Win',
+    metaTitle: 'Crear un sorteo · Event Center · Keptra',
     metaDescription: 'Crea un sorteo en GiveawayManagerV2: deposita un premio ERC-20, ERC-721 o ERC-1155 y compra cupos de entrada.',
     title: 'Crear un sorteo',
     intro: 'Firmas la creación y el depósito tú mismo, con tu propio gas. El premio nunca pasa por la plataforma.',
     connectPrompt: 'Conecta una wallet para crear un sorteo.',
-    pausedBanner: 'La creación de campañas abre en el lanzamiento. El contrato está activo y verificado en Arbiscan; el flujo de entrada se está terminando.',
+    pausedBanner: 'La creación de campañas está pausada en el contrato en este momento. Las campañas nuevas y las entradas están suspendidas; los reclamos y reembolsos no se ven afectados.',
     moduleNotRegistered: 'Este módulo de premio aún no está registrado en el contrato. La creación está desactivada.',
     stages: { prize: 'El premio', rules: 'Las reglas', funding: 'Financiar y lanzar' },
     prizeType: { label: 'Tipo de premio', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
@@ -1015,7 +1011,7 @@ const es: EventsCopy = {
     },
   },
   dashboard: {
-    metaTitle: 'Mis sorteos — Instant Win',
+    metaTitle: 'Mis sorteos · Event Center · Keptra',
     title: 'Mis sorteos',
     intro: 'Cada campaña que creaste, y qué necesita a continuación.',
     connectPrompt: 'Conecta una wallet para ver tus sorteos.',

@@ -3,16 +3,16 @@ import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
 import type { LucideIcon } from 'lucide-react';
 import { LangSwitch } from './LangSwitch';
+import { KeptraLogo } from './KeptraLogo';
 
 /**
  * O cabeçalho da plataforma — um só, para a landing, o jogo, o Event Center, a
  * /giveaways, a /roadmap e o Keptra.
  *
- * Havia três marcas ("INSTANT WIN", "Instant Win" com selo ARB, "Instant Win"
- * sem visto) e quatro estilos de botão no mesmo sítio. Passa a haver uma marca
- * por produto e uma lógica de botões:
- * - à esquerda, a marca (ou o regresso, numa página de detalhe);
- * - ao centro, a navegação — que desce para uma segunda linha abaixo de md;
+ * Uma marca, a Keptra, e uma lógica de botões:
+ * - à esquerda, a marca; na área de um módulo, a marca e o nome do módulo
+ *   (KeptraBrand), que leva ao início do módulo;
+ * - ao centro, a navegação — que desce para uma segunda linha abaixo de lg;
  * - à direita, o idioma e UMA acção do contexto, sempre `secondary`. O âmbar
  *   não entra no cabeçalho: pertence ao botão principal de cada ecrã.
  *
@@ -29,13 +29,13 @@ export const SiteHeader: React.FC<{
   lang?: boolean;
   /** Por baixo da barra (o menu do Keptra no telemóvel). */
   children?: React.ReactNode;
-}> = ({ brand = <InstantWinMark />, nav, actions, extras, lang = true, children }) => (
+}> = ({ brand = <KeptraBrand />, nav, actions, extras, lang = true, children }) => (
   <header className="iw-header">
-    <div className="container mx-auto flex min-h-[64px] flex-wrap items-center gap-x-3 px-4 sm:px-6 md:h-[72px] md:flex-nowrap">
-      <div className="mr-auto flex min-h-[64px] min-w-0 items-center md:min-h-0">{brand}</div>
+    <div className="container mx-auto flex min-h-[64px] flex-wrap items-center gap-x-3 px-4 sm:px-6 lg:h-[72px] lg:flex-nowrap">
+      <div className="mr-auto flex min-h-[64px] min-w-0 items-center lg:min-h-0">{brand}</div>
 
       {nav && (
-        <div className="order-last flex w-full items-center justify-center pb-2 md:order-none md:w-auto md:pb-0">{nav}</div>
+        <div className="order-last flex w-full items-center justify-center pb-2 lg:order-none lg:w-auto lg:pb-0">{nav}</div>
       )}
 
       <div className="flex shrink-0 items-center gap-2">
@@ -48,14 +48,30 @@ export const SiteHeader: React.FC<{
   </header>
 );
 
-/** A marca do Instant Win: a palavra em Big Shoulders e o visto verde da prova. */
-export const InstantWinMark: React.FC = () => (
-  <Link to="/" className="flex min-h-[44px] min-w-0 items-center gap-2" aria-label="Instant Win, home">
-    <span className="truncate font-display text-xl font-bold leading-none tracking-tight text-white sm:text-2xl">Instant Win</span>
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0">
-      <path d="M4 12.5 L9.5 18 L20 6" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  </Link>
+/**
+ * A marca: o logo da Keptra e, na área de um módulo (Instant Win, Giveaways,
+ * Event Center), o nome do módulo a seguir, na mesma linha de base. O traço
+ * entre os dois tem a inclinação do braço de cima do K. `tag` é o rótulo de
+ * área do Keptra (T0: "Business").
+ */
+export const KeptraBrand: React.FC<{ module?: { to: string; label: string }; tag?: string }> = ({ module, tag }) => (
+  <div className="flex min-w-0 items-baseline gap-x-2.5 sm:gap-x-3">
+    <Link to="/" className="inline-flex min-h-[44px] shrink-0 items-center text-white" aria-label="Keptra, home">
+      <KeptraLogo className="h-[18px] w-auto sm:h-[21px]" />
+    </Link>
+    {module && (
+      <>
+        <span aria-hidden="true" className="h-5 w-px shrink-0 self-center rotate-[17deg] bg-gray-500" />
+        <Link
+          to={module.to}
+          className="inline-flex min-h-[44px] min-w-0 items-center font-display text-[1.2rem] font-bold leading-none tracking-tight text-gray-300 transition-colors duration-200 hover:text-white sm:text-[1.4rem]"
+        >
+          <span className="truncate">{module.label}</span>
+        </Link>
+      </>
+    )}
+    {tag && <span className="self-center rounded-md border border-dark-line px-2 py-0.5 text-xs font-medium text-gray-300">{tag}</span>}
+  </div>
 );
 
 /**

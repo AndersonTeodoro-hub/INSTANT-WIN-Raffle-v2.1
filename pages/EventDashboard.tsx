@@ -305,7 +305,7 @@ export const EventDashboard: React.FC = () => {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   return (
-    <EventShell back={{ to: '/events', label: c.nav.link }} wallet>
+    <EventShell wallet>
       <h1 className="font-display font-bold text-[clamp(2.1rem,6vw,3rem)] leading-tight tracking-tight">
         {c.dashboard.title}
       </h1>

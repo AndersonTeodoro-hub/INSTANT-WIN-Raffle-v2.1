@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { WagmiProvider } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { wagmiConfig, PRELAUNCH, TELEGRAM_URL } from './constants';
+import { wagmiConfig } from './constants';
 
 import { Navbar, GameTabs } from './components/Navbar';
 import { PublicFooterNav } from './components/PublicNav';
@@ -33,31 +33,22 @@ import { PrivacyPage } from './pages/keptra/PrivacyPage';
 const queryClient = new QueryClient();
 
 /**
- * Aviso de pré-lançamento no topo de /play.
- *
- * Deliberadamente neutro e discreto — sem âmbar, que aqui pertence ao prémio e
- * ao CTA de compra. Não bloqueia nada: o jogo continua todo acessível por baixo.
- * A mensagem vem do mesmo sítio que a da landing, para não haver duas versões.
+ * O URL canónico de cada rota, em keptra.io: junta num só endereço o site servido
+ * também pelo alias da Vercel. Posto aqui e não no index.html, que é o mesmo para
+ * todas as rotas — lá diria a todas que são a página inicial.
  */
-const PrelaunchBanner: React.FC = () => {
-  const [lang] = useLang();
-  const t = translations[lang];
-  const isExternal = /^https?:\/\//i.test(TELEGRAM_URL);
-
-  return (
-    <div className="border-b border-dark-border bg-dark-card/70">
-      <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-center">
-        <p className="text-sm text-gray-300">{t.prelaunch.headline}</p>
-        <a
-          href={TELEGRAM_URL}
-          {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-          className="iw-btn iw-btn-secondary px-5 text-sm"
-        >
-          {t.prelaunch.cta}
-        </a>
-      </div>
-    </div>
-  );
+const Canonical: React.FC = () => {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    let link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'canonical';
+      document.head.appendChild(link);
+    }
+    link.href = `https://keptra.io${pathname.replace(/(.)\/$/, '$1')}`;
+  }, [pathname]);
+  return null;
 };
 
 /*
@@ -71,8 +62,6 @@ const GameLayout: React.FC = () => {
   return (
     <div className="iw-ground min-h-screen flex flex-col font-sans text-white overflow-x-hidden">
       <Navbar />
-
-      {PRELAUNCH && <PrelaunchBanner />}
 
       <main className="flex-1 container mx-auto px-4 py-8 sm:py-10">
         <GameTabs />
@@ -112,7 +101,7 @@ const GameFooter: React.FC = () => {
           <span aria-hidden="true" className="iw-live" />
           {c.footer.liveOn}
         </p>
-        <p className="text-xs text-gray-400">© 2026 Instant Win Protocol</p>
+        <p className="text-xs text-gray-400">© 2026 Keptra</p>
       </div>
     </footer>
   );
@@ -124,6 +113,7 @@ const App: React.FC = () => {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <PointerLight />
+          <Canonical />
           <KeptraProvider>
           <Routes>
             <Route path="/" element={<Landing />} />

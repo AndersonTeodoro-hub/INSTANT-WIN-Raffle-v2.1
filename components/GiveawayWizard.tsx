@@ -1,18 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, ExternalLink, Info, RotateCcw, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Info, RotateCcw, Users } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS, EARLY_ACCESS_FORM_URL, GIVEAWAY_LIMITS } from '../constants';
+import { CONTRACTS, GIVEAWAY_LIMITS } from '../constants';
 import { useGiveawaysCopy } from '../pages/giveaways.i18n';
 
 /**
- * Preview do fluxo de criação de campanhas do GiveawayManager.
+ * Simulação do fluxo de criação de campanhas do GiveawayManagerV2.
  *
- * PREVIEW: não há wagmi, não há wallet, não há transacção, não há fetch. Todo o
- * estado vive neste componente e morre com o refresh — de propósito. A criação
- * de campanhas abre depois do lançamento público da lottery; até lá isto é a
- * forma honesta de mostrar o produto: os passos reais, os limites reais do
- * contrato, e um fim que diz o que ainda não dá para fazer em vez de fingir um
- * submit.
+ * SIMULAÇÃO: não há wagmi, não há wallet, não há transacção, não há fetch. Todo
+ * o estado vive neste componente e morre com o refresh — de propósito. Mostra os
+ * passos reais e os limites reais do contrato, e o fim leva à criação a sério,
+ * no Event Center (/events/create), em vez de fingir um submit.
  *
  * Os limites validados aqui vêm todos de GIVEAWAY_LIMITS — nenhum número é
  * escrito à mão neste ficheiro.
@@ -269,7 +268,6 @@ export const GiveawayWizard: React.FC = () => {
 
   const share = prize !== null && Number.isInteger(winners) && winners > 0 ? prize / BigInt(winners) : null;
   const hasDust = prize !== null && share !== null && prize % BigInt(winners) !== 0n;
-  const isExternalForm = /^https?:\/\//i.test(EARLY_ACCESS_FORM_URL);
 
   const money = (units: bigint | null) => (units === null ? '—' : `${formatUnits(units, decimals)} ${symbol}`);
   const durationLabel = Number.isFinite(hours)
@@ -280,7 +278,7 @@ export const GiveawayWizard: React.FC = () => {
     <div className="rounded-2xl border border-dark-border bg-dark-card overflow-hidden">
 
       {/*
-        Aviso permanente de preview. Discreto por desenho — cinzento, mono, sem
+        Aviso permanente de simulação. Discreto por desenho — cinzento, mono, sem
         ícone de alarme: informa que nada aqui toca na blockchain, não assusta.
       */}
       <div className="flex items-center gap-2.5 border-b border-dark-border bg-black/40 px-4 sm:px-8 py-3">
@@ -538,7 +536,7 @@ export const GiveawayWizard: React.FC = () => {
           </div>
         )}
 
-        {/* 5 — EARLY ACCESS (em vez de submit) */}
+        {/* 5 — CRIAR: o fim leva ao Event Center (em vez de submit) */}
         {step === 4 && (
           <div className="space-y-6">
             <div>
@@ -550,14 +548,13 @@ export const GiveawayWizard: React.FC = () => {
               Único CTA âmbar do wizard, e o único do ecrã abaixo do herói: é o
               passo que interessa a quem chegou até aqui.
             */}
-            <a
-              href={EARLY_ACCESS_FORM_URL}
-              {...(isExternalForm ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            <Link
+              to="/events/create"
               className="inline-flex w-full sm:w-auto items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold px-10 h-14 rounded-lg transition-colors"
             >
               {w.submit.cta}
-              <ExternalLink className="w-5 h-5" />
-            </a>
+              <ArrowRight className="w-5 h-5" aria-hidden="true" />
+            </Link>
 
             <p className="text-sm text-gray-400 leading-relaxed">{w.submit.note}</p>
           </div>
@@ -594,7 +591,7 @@ export const GiveawayWizard: React.FC = () => {
             onClick={() => setStep((s) => Math.min(STEP_COUNT - 1, s + 1))}
             disabled={blocked}
             // Contorno, como todos os botões que não são o principal do ecrã (o
-            // âmbar da /giveaways é a lista de espera); era branco cheio, fora do sistema.
+            // âmbar do wizard é o "criar" do último passo); era branco cheio, fora do sistema.
             className="iw-btn iw-btn-secondary gap-2 min-h-[48px] px-6 text-sm font-bold text-white disabled:border-dark-border disabled:text-gray-400 disabled:pointer-events-none"
           >
             {w.next}

@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
-import { ArrowRight, Check, X, ExternalLink, ShieldCheck, ChevronDown, Ticket, Gift, Award } from 'lucide-react';
+import { ArrowRight, Check, X, ExternalLink, ShieldCheck, ChevronDown, Ticket, Gift, CalendarDays } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS, PRELAUNCH, RAFFLE_ABI, RoundState, TELEGRAM_URL } from '../constants';
+import { CONTRACTS, RAFFLE_ABI, RoundState } from '../constants';
 import { useLang, translations } from './landing.i18n';
 import { useAppCopy } from './app.i18n';
 import { ShareButton } from '../components/ShareButton';
@@ -30,18 +30,19 @@ const contractLinks = [
 ];
 
 /**
- * Os três módulos do Event Center. Emparelham posicionalmente com
+ * Os três módulos da Keptra. Emparelham posicionalmente com
  * `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade do
  * módulo: nome, rota, ícone e estado.
  *
- * `live` é a única autorização de verde nesta secção. Os outros dois módulos
- * têm badge cinzento porque ainda não há nada vivo para verificar neles, e a
- * regra da casa é que verde significa "verificável agora", não "em breve".
+ * `live` é a única autorização de verde nesta secção: verde significa
+ * "verificável agora". Lido na cadeia a 25/09/2026: a RaffleManagerV3 não está
+ * pausada e tem uma ronda aberta; a GiveawayManagerV2 (Giveaways e Event
+ * Center) não está pausada e tem a campanha 2 liquidada.
  */
 const MODULES = [
-  { name: 'LOTTERY', to: '/play', icon: Ticket, live: true },
-  { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: false },
-  { name: 'REWARDS & COMPETITIONS', to: '/roadmap', icon: Award, live: false },
+  { name: 'INSTANT WIN', to: '/play', icon: Ticket, live: true },
+  { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: true },
+  { name: 'EVENT CENTER', to: '/events', icon: CalendarDays, live: true },
 ] as const;
 
 const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -69,26 +70,6 @@ const KEYS = {
   ],
   close: [{ at: 0.4, shape: 'rosette', zoom: 0.92, pitch: -0.3, spin: 0.05 }],
 } satisfies Record<string, KeySpec[]>;
-
-/**
- * Botão da lista de espera (modo PRELAUNCH). Herda o estilo do CTA primário:
- * âmbar, o único do ecrã.
- *
- * `target="_blank"` só quando o destino já é um link a sério — com o placeholder
- * "#" abriria um separador em branco a cada clique.
- */
-const WaitlistButton: React.FC<{ label: string; className?: string }> = ({ label, className = '' }) => {
-  const isExternal = /^https?:\/\//i.test(TELEGRAM_URL);
-  return (
-    <a
-      href={TELEGRAM_URL}
-      {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className={clsx('iw-btn iw-btn-primary gap-3 font-extrabold px-10 sm:px-12 h-14 md:h-16', className)}
-    >
-      {label} <ArrowRight className="w-6 h-6" aria-hidden="true" />
-    </a>
-  );
-};
 
 /*
  * O rótulo de uma secção (o texto que antes era um eyebrow em mono e caixa
@@ -190,16 +171,9 @@ export const Landing: React.FC = () => {
                   <p className="order-5 lg:order-3 text-gray-400 text-base sm:text-lg md:text-xl max-w-2xl mt-8 lg:mt-6">{t.hero.sub}</p>
 
                   <div className="order-4 mt-6 sm:mt-8 lg:mt-10 flex flex-col items-center lg:items-start">
-                    {PRELAUNCH ? (
-                      <>
-                        <p className="font-display font-bold text-2xl md:text-3xl text-white mb-3 sm:mb-5">{t.prelaunch.headline}</p>
-                        <WaitlistButton label={t.prelaunch.cta} className="text-lg md:text-2xl" />
-                      </>
-                    ) : (
-                      <Link to="/play" className="iw-btn iw-btn-primary gap-3 font-extrabold text-xl md:text-2xl px-12 h-14 md:h-16">
-                        {t.hero.cta} <ArrowRight className="w-6 h-6" aria-hidden="true" />
-                      </Link>
-                    )}
+                    <Link to="/play" className="iw-btn iw-btn-primary gap-3 font-extrabold text-xl md:text-2xl px-12 h-14 md:h-16">
+                      {t.hero.cta} <ArrowRight className="w-6 h-6" aria-hidden="true" />
+                    </Link>
                   </div>
                 </div>
 
@@ -302,12 +276,13 @@ export const Landing: React.FC = () => {
                 </li>
               ))}
             </ol>
-            <Link to="/pool" className="mt-5 inline-flex min-h-[44px] items-center gap-2 text-sm font-semibold text-white underline decoration-gray-600 underline-offset-4 hover:decoration-white">
+            <p className="mt-4 max-w-[46ch] text-sm leading-relaxed text-gray-400">{t.film.keptra.status}</p>
+            <Link to="/pool" className="mt-2 inline-flex min-h-[44px] items-center gap-2 text-sm font-semibold text-white underline decoration-gray-600 underline-offset-4 hover:decoration-white">
               {t.film.keptra.cta} <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </Chapter>
 
-          {/* g) Os módulos do Event Center. */}
+          {/* g) Os módulos da Keptra. */}
           <Chapter id="film-modules" keys={KEYS.modules} wide label={t.modules.title} caption={t.film.captions.modules}>
             <ChapterHead index={7} label={t.modules.eyebrow} title={t.modules.title} />
             <p className="mt-5 max-w-[46ch] text-base leading-relaxed text-gray-300">{t.modules.sub}</p>
@@ -318,7 +293,6 @@ export const Landing: React.FC = () => {
               {MODULES.map((m, i) => {
                 const copy = t.modules.items[i];
                 const Icon = m.icon;
-                const badge = m.live && PRELAUNCH ? `${copy.badge} · ${t.modules.prelaunchTag}` : copy.badge;
                 return (
                   <Link
                     key={m.to}
@@ -331,7 +305,7 @@ export const Landing: React.FC = () => {
                     </div>
                     <span className={clsx('inline-flex items-center gap-2 text-xs font-medium mb-3', m.live ? 'text-success' : 'text-gray-400')}>
                       {m.live && <span className="iw-live" aria-hidden="true" />}
-                      {badge}
+                      {copy.badge}
                     </span>
                     <h3 className={clsx('font-display font-bold mb-3', m.live ? 'text-2xl sm:text-3xl text-white' : 'text-xl sm:text-2xl text-gray-200')}>{m.name}</h3>
                     <p className="text-gray-400 leading-relaxed flex-1">{copy.body}</p>
@@ -404,7 +378,7 @@ export const Landing: React.FC = () => {
           </FilmSection>
 
           {/* h) O fecho: a forma volta, e a acção principal da página. */}
-          <FilmSection id="film-close" length="150svh" label={PRELAUNCH ? t.prelaunch.headline : t.finalCta.title}>
+          <FilmSection id="film-close" length="150svh" label={t.finalCta.title}>
             <CloseChapter t={t} />
           </FilmSection>
         </main>
@@ -563,18 +537,12 @@ function CloseChapter({ t }: { t: Copy }) {
       <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(70vw,calc(100svh_-_24rem))] sm:max-w-[min(22rem,calc(100svh_-_24rem))]" />
       <SceneCaption text={t.film.captions.again} />
       <div data-film-panel className="mt-8">
-        {/* Em pré-lançamento a manchete passa a ser a da lista de espera: anunciar
-            um sorteio "já a rolar" ao lado de um botão de espera seria contraditório. */}
-        <h2 className="font-display font-bold text-3xl md:text-5xl text-white mb-8 max-w-2xl mx-auto">{PRELAUNCH ? t.prelaunch.headline : t.finalCta.title}</h2>
+        <h2 className="font-display font-bold text-3xl md:text-5xl text-white mb-8 max-w-2xl mx-auto">{t.finalCta.title}</h2>
         {/* O CTA primário continua a ser o único âmbar deste ecrã; o Share é secundário. */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          {PRELAUNCH ? (
-            <WaitlistButton label={t.prelaunch.cta} className="text-xl" />
-          ) : (
-            <Link to="/play" className="iw-btn iw-btn-primary gap-3 font-extrabold text-xl px-12 h-16">
-              {t.hero.cta} <ArrowRight className="w-6 h-6" aria-hidden="true" />
-            </Link>
-          )}
+          <Link to="/play" className="iw-btn iw-btn-primary gap-3 font-extrabold text-xl px-12 h-16">
+            {t.hero.cta} <ArrowRight className="w-6 h-6" aria-hidden="true" />
+          </Link>
           <ShareButton variant="full" label={t.finalCta.share} className="h-16 text-lg" />
         </div>
       </div>

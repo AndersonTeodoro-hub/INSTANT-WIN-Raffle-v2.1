@@ -22,9 +22,10 @@ if (!PROJECT_ID) {
 const metadata = {
   // SPEC-BLOCO-03 T9: the app is Keptra, served at keptra.io; Instant Win is its raffle.
   name: 'Keptra',
-  description: 'On-chain guarantee for brands, and the Instant Win raffle',
+  description: 'Provably fair draws on Arbitrum One: the Instant Win lottery, giveaways and the Event Center',
   url: 'https://keptra.io',
-  icons: ['https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png']
+  // The Keptra K the wallet shows beside the request (it was Arbitrum's logo).
+  icons: ['https://keptra.io/favicon-512.png']
 };
 
 export const wagmiConfig = createConfig({
@@ -46,34 +47,9 @@ export const wagmiConfig = createConfig({
 });
 
 /**
- * Modo pré-lançamento. Enquanto `true`:
- *   - a Landing troca "PLAY NOW" (herói e CTA final) por um bloco de lista de espera;
- *   - /play mostra um banner discreto no topo com a mesma mensagem.
- *
- * O jogo NÃO é bloqueado em nenhum dos casos: as rotas continuam todas abertas e
- * quem chegar vê tudo — só não é convidado a jogar. Pôr a `false` devolve o
- * comportamento anterior sem deixar vestígios.
- */
-export const PRELAUNCH = true;
-
-/**
- * Destino do botão da lista de espera. Não é segredo nenhum, é um link público.
- */
-export const TELEGRAM_URL = 'https://t.me/instantwinprotocol';
-
-/**
  * Contacto para investidores e parceiros (CTA final da /roadmap).
  */
 export const INVESTOR_EMAIL = 'instantwin.official@gmail.com';
-
-/**
- * Formulário de early access para criadores de campanhas (/giveaways).
- *
- * PLACEHOLDER — substituir pelo link real do Google Form antes do deploy.
- * Enquanto for este valor, o botão não abre separador novo (mesma regra do
- * TELEGRAM_URL): a página detecta que ainda não é um destino a sério.
- */
-export const EARLY_ACCESS_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfsHV8pzol-rurUYw3IxwGjAyV4aP7M4QpquqSoyIvOK4f2uw/viewform';
 
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
@@ -81,9 +57,8 @@ export const CONTRACTS = {
   // RaffleManagerV3 — Arbitrum One, verificado (Sourcify + Arbiscan).
   // Não há SHARES_REGISTRY: o V3 eliminou a camada de investidores.
   RAFFLE_MANAGER: '0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a',
-  // GiveawayManager V1 — Arbitrum One, verificado (Exact Match).
-  // Deployado, ainda sem criação de campanhas aberta ao público: a página
-  // /giveaways é um preview do fluxo, não uma interface de escrita.
+  // GiveawayManager V1 — Arbitrum One, verificado (Exact Match). Nenhuma página
+  // o usa: as campanhas criam-se no Event Center, no V2 abaixo.
   GIVEAWAY_MANAGER: '0x1F2aE94Fd04Ce15cb2A3a09B7b81eb9e16781cB0',
   // GiveawayManagerV2 e módulos de prémio — Arbitrum One, verificados no
   // Arbiscan. O Event Center (/events) fala com estes; o GiveawayManager V1

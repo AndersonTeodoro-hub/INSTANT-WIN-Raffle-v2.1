@@ -130,7 +130,7 @@ export function amountText(amount: SummaryAmount): string {
 const DESTINATION_WORDS: Record<string, string> = {
   ESCROW: 'held by the Keptra escrow contract until the order ends',
   GUARANTEE: 'held by the Keptra guarantee contract',
-  GIVEAWAY: 'to the Instant Win giveaway contract',
+  GIVEAWAY: 'to the Event Center giveaway contract',
   THIS_ACCOUNT: 'into your own Keptra account',
   STORE: "to the store's payout address",
   RECIPIENT: "to the buyer's Keptra account",

@@ -19,7 +19,6 @@ interface Bullet {
 
 export interface GiveawaysCopy {
   meta: { title: string; description: string };
-  waitlist: { short: string; cta: string; headline: string; body: string };
   hero: { eyebrow: string; title: string; intro: string; bullets: Bullet[] };
   proof: {
     eyebrow: string;
@@ -120,24 +119,19 @@ export interface GiveawaysCopy {
       allowInvalid: string;
     };
   };
-  participants: { eyebrow: string; title: string; body: string };
+  /** O fecho, para quem quer entrar: o botão principal da página leva ao Event Center. */
+  participants: { eyebrow: string; title: string; body: string; cta: string };
   outro: { back: string };
 }
 
 const en: GiveawaysCopy = {
   meta: {
-    title: 'Instant Win — Giveaways',
+    title: 'Giveaways · Keptra',
     description:
-      'Provably fair giveaways on Arbitrum One. Free entry for participants, any ERC-20 as the prize, winners drawn by Chainlink VRF. Deployed and verified contract, campaign creation in preview.',
-  },
-  waitlist: {
-    short: 'Waitlist',
-    cta: 'Join the waitlist',
-    headline: 'Want to enter giveaways, not run them?',
-    body: 'One waitlist covers the whole Event Center. Join it and you hear first when campaigns open to entrants.',
+      'Provably fair giveaways on Keptra, on Arbitrum One. Free entry for participants, any ERC-20 as the prize, winners drawn by Chainlink VRF. Campaigns are created and entered in the Event Center.',
   },
   hero: {
-    eyebrow: 'Event Center · Module 02',
+    eyebrow: 'A Keptra module',
     title: 'Giveaways, provably fair.',
     intro:
       'Most giveaway platforms are web2 products with crypto branding: you are asked to trust that the draw happened. Here the draw is the proof. A creator funds a prize, entrants join for free, and Chainlink VRF picks the winners on-chain where anyone can check the result.',
@@ -178,17 +172,17 @@ const en: GiveawaysCopy = {
     ],
     specWords: { upTo: 'Up to', anyErc20: 'Any ERC-20', hour: 'hour', days: 'days' },
     discipline:
-      'Deployed and verified on Arbitrum One. Campaign creation opens after our lottery’s public launch — we ship in order.',
+      'Deployed, verified and open on Arbitrum One: campaigns are created and entered in the Event Center.',
   },
   wizard: {
     eyebrow: 'Campaign creation',
     title: 'Walk the flow.',
     intro:
-      'The exact steps a creator will take, with the real limits the contract enforces. Nothing here connects a wallet or sends a transaction — it is a preview you can click through end to end.',
-    banner: 'PREVIEW MODE · no wallet, no transaction, nothing leaves this page',
+      'The exact steps a creator takes, with the real limits the contract enforces. Nothing here connects a wallet or sends a transaction — it is a simulation you can click through end to end.',
+    banner: 'SIMULATION · no wallet, no transaction, nothing leaves this page',
     dateLocale: 'en-GB',
     stepOf: 'of',
-    stepNames: ['Prize', 'Timing', 'Eligibility', 'Review', 'Early access'],
+    stepNames: ['Prize', 'Timing', 'Eligibility', 'Review', 'Create'],
     back: 'Back',
     next: 'Continue',
     restart: 'Start over',
@@ -247,10 +241,10 @@ const en: GiveawaysCopy = {
       clampNote: 'Winners are clamped to the number of actual participants at close.',
     },
     submit: {
-      title: 'Campaign creation opens after public launch.',
-      body: 'The contract is deployed and verified, but creation stays closed until the lottery is publicly launched — we ship in order, and we do not open a revenue product on top of an unlaunched one. Request early access to be in the first group when it opens.',
-      cta: 'Request early access',
-      note: 'Nothing you typed was stored or sent. This preview keeps everything inside the page.',
+      title: 'Create it for real in the Event Center.',
+      body: 'Campaign creation is open. In the Event Center you connect a wallet, deposit the prize and buy the entry slots; the contract runs the rest — the entries, the Chainlink VRF draw and the claims.',
+      cta: 'Create a giveaway',
+      note: 'Nothing you typed here was stored or sent. This simulation keeps everything inside the page.',
     },
     errors: {
       amountInvalid: 'Enter a prize amount greater than zero, with no more decimals than the token has.',
@@ -267,32 +261,28 @@ const en: GiveawaysCopy = {
   participants: {
     eyebrow: 'For entrants',
     title: 'Not running a campaign?',
-    body: 'Entering a giveaway will always be free. There is one waitlist for the whole Event Center — the lottery, giveaways and everything after.',
+    body: 'Entering a giveaway will always be free, and needs no wallet. Every campaign is in the Event Center.',
+    cta: 'Open the Event Center',
   },
-  outro: { back: 'Back to instantwin' },
+  outro: { back: 'Back to Keptra' },
 };
 
 /*
  * Português europeu, mesma norma da /roadmap: "lotaria", "levantar", "prémio",
- * "utilizador", "ficheiro". Termos do sector ficam em inglês nos três idiomas —
- * pull-payment, allowlist, on-chain, wallet, VRF, ERC-20, Exact Match, early
- * access, preview, permissionless, sybil, compliance, Merkle root,
- * fee-on-transfer — porque é assim que quem cria campanhas os lê.
+ * utilizador", "ficheiro". Termos do sector ficam em inglês nos três idiomas —
+ * pull-payment, allowlist, on-chain, wallet, VRF, ERC-20, Exact Match,
+ * permissionless, sybil, compliance, Merkle root, fee-on-transfer — porque é
+ * assim que quem cria campanhas os lê. Keptra, Giveaways e Event Center são
+ * nomes e não se traduzem.
  */
 const pt: GiveawaysCopy = {
   meta: {
-    title: 'Instant Win — Sorteios',
+    title: 'Giveaways · Keptra',
     description:
-      'Sorteios comprovadamente justos na Arbitrum One. Entrada gratuita para os participantes, qualquer ERC-20 como prémio, vencedores sorteados por Chainlink VRF. Contrato deployado e verificado, criação de campanhas em preview.',
-  },
-  waitlist: {
-    short: 'Lista de espera',
-    cta: 'Entrar na lista de espera',
-    headline: 'Quer entrar em sorteios, não organizá-los?',
-    body: 'Uma única lista de espera cobre todo o Event Center. Entre nela e fica a saber primeiro quando as campanhas abrirem a participantes.',
+      'Sorteios comprovadamente justos na Keptra, na Arbitrum One. Entrada gratuita para os participantes, qualquer ERC-20 como prémio, vencedores sorteados por Chainlink VRF. As campanhas são criadas no Event Center, e é lá que se participa.',
   },
   hero: {
-    eyebrow: 'Event Center · Módulo 02',
+    eyebrow: 'Um módulo da Keptra',
     title: 'Sorteios, comprovadamente justos.',
     intro:
       'A maioria das plataformas de sorteios são produtos web2 com marca cripto: pedem-lhe que confie que o sorteio aconteceu. Aqui o sorteio é a prova. Um criador financia um prémio, quem entra participa de graça, e o Chainlink VRF escolhe os vencedores on-chain, onde qualquer pessoa pode verificar o resultado.',
@@ -333,17 +323,17 @@ const pt: GiveawaysCopy = {
     ],
     specWords: { upTo: 'Até', anyErc20: 'Qualquer ERC-20', hour: 'hora', days: 'dias' },
     discipline:
-      'Deployado e verificado na Arbitrum One. A criação de campanhas abre depois do lançamento público da nossa lotaria — lançamos por ordem.',
+      'Deployado, verificado e aberto na Arbitrum One: as campanhas são criadas no Event Center, e é lá que se participa.',
   },
   wizard: {
     eyebrow: 'Criação de campanhas',
     title: 'Percorra o fluxo.',
     intro:
-      'Os passos exatos que um criador vai dar, com os limites reais que o contrato impõe. Nada aqui liga uma wallet nem envia uma transação — é um preview que pode percorrer de ponta a ponta.',
-    banner: 'MODO PREVIEW · sem wallet, sem transação, nada sai desta página',
+      'Os passos exatos que um criador dá, com os limites reais que o contrato impõe. Nada aqui liga uma wallet nem envia uma transação — é uma simulação que pode percorrer de ponta a ponta.',
+    banner: 'SIMULAÇÃO · sem wallet, sem transação, nada sai desta página',
     dateLocale: 'pt-PT',
     stepOf: 'de',
-    stepNames: ['Prémio', 'Prazos', 'Elegibilidade', 'Revisão', 'Early access'],
+    stepNames: ['Prémio', 'Prazos', 'Elegibilidade', 'Revisão', 'Criar'],
     back: 'Voltar',
     next: 'Continuar',
     restart: 'Recomeçar',
@@ -402,10 +392,10 @@ const pt: GiveawaysCopy = {
       clampNote: 'Os vencedores são limitados ao número de participantes efetivos no fecho.',
     },
     submit: {
-      title: 'A criação de campanhas abre depois do lançamento público.',
-      body: 'O contrato está deployado e verificado, mas a criação continua fechada até a lotaria ser lançada publicamente — lançamos por ordem, e não abrimos um produto de receita em cima de um que ainda não foi lançado. Peça early access para estar no primeiro grupo quando abrir.',
-      cta: 'Pedir early access',
-      note: 'Nada do que escreveu foi guardado ou enviado. Este preview mantém tudo dentro da página.',
+      title: 'Crie-o a sério no Event Center.',
+      body: 'A criação de campanhas está aberta. No Event Center liga uma wallet, deposita o prémio e compra os slots de entrada; o contrato trata do resto — as entradas, o sorteio do Chainlink VRF e os levantamentos.',
+      cta: 'Criar um sorteio',
+      note: 'Nada do que escreveu aqui foi guardado ou enviado. Esta simulação mantém tudo dentro da página.',
     },
     errors: {
       amountInvalid: 'Introduza um montante de prémio maior do que zero, com não mais decimais do que o token tem.',
@@ -422,25 +412,20 @@ const pt: GiveawaysCopy = {
   participants: {
     eyebrow: 'Para participantes',
     title: 'Não vai organizar uma campanha?',
-    body: 'Entrar num sorteio será sempre gratuito. Há uma única lista de espera para todo o Event Center — a lotaria, os sorteios e tudo o que vier a seguir.',
+    body: 'Entrar num sorteio será sempre gratuito, e não exige wallet. Todas as campanhas estão no Event Center.',
+    cta: 'Abrir o Event Center',
   },
-  outro: { back: 'Voltar a instantwin' },
+  outro: { back: 'Voltar à Keptra' },
 };
 
 const es: GiveawaysCopy = {
   meta: {
-    title: 'Instant Win — Sorteos',
+    title: 'Giveaways · Keptra',
     description:
-      'Sorteos demostrablemente justos en Arbitrum One. Entrada gratuita para los participantes, cualquier ERC-20 como premio, ganadores sorteados por Chainlink VRF. Contrato desplegado y verificado, creación de campañas en preview.',
-  },
-  waitlist: {
-    short: 'Lista de espera',
-    cta: 'Unirse a la lista de espera',
-    headline: '¿Quieres entrar en sorteos, no organizarlos?',
-    body: 'Una sola lista de espera cubre todo el Event Center. Únete y te enteras primero cuando las campañas abran a participantes.',
+      'Sorteos demostrablemente justos en Keptra, en Arbitrum One. Entrada gratuita para los participantes, cualquier ERC-20 como premio, ganadores sorteados por Chainlink VRF. Las campañas se crean en el Event Center, y allí se participa.',
   },
   hero: {
-    eyebrow: 'Event Center · Módulo 02',
+    eyebrow: 'Un módulo de Keptra',
     title: 'Sorteos, demostrablemente justos.',
     intro:
       'La mayoría de las plataformas de sorteos son productos web2 con marca cripto: se te pide confiar en que el sorteo ocurrió. Aquí el sorteo es la prueba. Un creador financia un premio, quien entra participa gratis, y Chainlink VRF elige a los ganadores on-chain, donde cualquiera puede verificar el resultado.',
@@ -481,17 +466,17 @@ const es: GiveawaysCopy = {
     ],
     specWords: { upTo: 'Hasta', anyErc20: 'Cualquier ERC-20', hour: 'hora', days: 'días' },
     discipline:
-      'Desplegado y verificado en Arbitrum One. La creación de campañas abre después del lanzamiento público de nuestra lotería — lanzamos en orden.',
+      'Desplegado, verificado y abierto en Arbitrum One: las campañas se crean en el Event Center, y allí se participa.',
   },
   wizard: {
     eyebrow: 'Creación de campañas',
     title: 'Recorre el flujo.',
     intro:
-      'Los pasos exactos que dará un creador, con los límites reales que el contrato impone. Nada aquí conecta una wallet ni envía una transacción — es un preview que puedes recorrer de principio a fin.',
-    banner: 'MODO PREVIEW · sin wallet, sin transacción, nada sale de esta página',
+      'Los pasos exactos que da un creador, con los límites reales que el contrato impone. Nada aquí conecta una wallet ni envía una transacción — es una simulación que puedes recorrer de principio a fin.',
+    banner: 'SIMULACIÓN · sin wallet, sin transacción, nada sale de esta página',
     dateLocale: 'es-ES',
     stepOf: 'de',
-    stepNames: ['Premio', 'Plazos', 'Elegibilidad', 'Revisión', 'Early access'],
+    stepNames: ['Premio', 'Plazos', 'Elegibilidad', 'Revisión', 'Crear'],
     back: 'Atrás',
     next: 'Continuar',
     restart: 'Empezar de nuevo',
@@ -550,10 +535,10 @@ const es: GiveawaysCopy = {
       clampNote: 'Los ganadores se limitan al número de participantes reales en el cierre.',
     },
     submit: {
-      title: 'La creación de campañas abre después del lanzamiento público.',
-      body: 'El contrato está desplegado y verificado, pero la creación sigue cerrada hasta que la lotería se lance públicamente — lanzamos en orden, y no abrimos un producto de ingresos encima de uno que aún no se ha lanzado. Solicita early access para estar en el primer grupo cuando abra.',
-      cta: 'Solicitar early access',
-      note: 'Nada de lo que escribiste se guardó ni se envió. Este preview mantiene todo dentro de la página.',
+      title: 'Créalo de verdad en el Event Center.',
+      body: 'La creación de campañas está abierta. En el Event Center conectas una wallet, depositas el premio y compras los cupos de entrada; el contrato se encarga del resto — las entradas, el sorteo de Chainlink VRF y los retiros.',
+      cta: 'Crear un sorteo',
+      note: 'Nada de lo que escribiste aquí se guardó ni se envió. Esta simulación mantiene todo dentro de la página.',
     },
     errors: {
       amountInvalid: 'Introduce un importe de premio mayor que cero, con no más decimales de los que tiene el token.',
@@ -570,16 +555,17 @@ const es: GiveawaysCopy = {
   participants: {
     eyebrow: 'Para participantes',
     title: '¿No vas a organizar una campaña?',
-    body: 'Entrar en un sorteo siempre será gratis. Hay una sola lista de espera para todo el Event Center — la lotería, los sorteos y todo lo que venga después.',
+    body: 'Entrar en un sorteo siempre será gratis, y no requiere wallet. Todas las campañas están en el Event Center.',
+    cta: 'Abrir el Event Center',
   },
-  outro: { back: 'Volver a instantwin' },
+  outro: { back: 'Volver a Keptra' },
 };
 
 /**
  * Os três dicionários dizem exactamente a mesma coisa.
  *
- * Mesma regra da /roadmap: as frases que são compromisso — "we ship in order",
- * "Claims are never pausable", "Nothing you typed was stored or sent" — passam
+ * Mesma regra da /roadmap: as frases que são compromisso — "Claims are never
+ * pausable", "Nothing you typed here was stored or sent" — passam
  * literais, sem suavizar nem reforçar, e nenhuma língua ganha promessa, data ou
  * adjectivo que o inglês não tenha.
  *

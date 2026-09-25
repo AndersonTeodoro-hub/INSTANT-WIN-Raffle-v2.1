@@ -34,7 +34,7 @@ export function AddressForm({
 
   if (!privacyPublished()) {
     return (
-      <Notice tone="warning" title="Delivery addresses open soon">
+      <Notice tone="warning" title="No address until the privacy page is published">
         <p className="flex items-start gap-2">
           <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>

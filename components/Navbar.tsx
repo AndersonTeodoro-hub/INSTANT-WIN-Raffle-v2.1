@@ -5,8 +5,8 @@ import { clsx } from 'clsx';
 import { useAccount } from 'wagmi';
 import { ConnectWallet } from './ConnectWallet';
 import { ShareButton } from './ShareButton';
-import { SiteHeader } from './SiteHeader';
-import { PublicNavLinks } from './PublicNav';
+import { SiteHeader, KeptraBrand } from './SiteHeader';
+import { PublicNavLinks, MODULES } from './PublicNav';
 import { useAppCopy } from '../pages/app.i18n';
 
 /**
@@ -24,8 +24,10 @@ export const Navbar: React.FC = () => {
 
   return (
     <SiteHeader
+      brand={<KeptraBrand module={MODULES.instantWin} />}
       nav={<PublicNavLinks />}
-      extras={<ShareButton variant="icon" />}
+      // A partilha sai abaixo de sm: a 390px a linha leva a marca com o módulo, o idioma e a carteira.
+      extras={<ShareButton variant="icon" className="hidden sm:inline-flex" />}
       actions={
         <>
           <div className="mr-1 hidden flex-col items-end xl:flex">
@@ -57,10 +59,10 @@ export const GameTabs: React.FC = () => {
     { path: '/play/identity', label: c.nav.identity, icon: User, end: false },
   ];
 
-  // O separador diz o produto e a página em que se está.
+  // O separador diz a página, o módulo e a marca: "Raffle · Instant Win · Keptra".
   const { pathname } = useLocation();
   const current = tabs.find((tab) => (tab.end ? pathname.replace(/\/$/, '') === tab.path : pathname.startsWith(tab.path)));
-  const title = current ? `Instant Win — ${current.label}` : 'Instant Win';
+  const title = current ? `${current.label} · Instant Win · Keptra` : 'Instant Win · Keptra';
   useEffect(() => {
     document.title = title;
   }, [title]);

@@ -10,27 +10,30 @@ import { clsx } from 'clsx';
  * três módulos passariam a ser seis cópias a divergir à primeira alteração.
  *
  * Os rótulos ficam em inglês nos três idiomas, pela mesma razão que "Roadmap"
- * já ficava: são os nomes dos módulos do Event Center (como INSTANT WIN ou
- * Chainlink VRF), não frases. O que muda por idioma é a descrição dos cartões
- * na Landing, essa sim traduzida.
+ * já ficava: são os nomes dos módulos da Keptra (como Chainlink VRF), não
+ * frases. O que muda por idioma é a descrição dos cartões na Landing, essa sim
+ * traduzida.
  *
- * `/play` é a lottery: a rota do jogo não muda com esta reposição.
+ * `/play` é a lotaria, o Instant Win: a rota do jogo não muda.
  */
-export const PUBLIC_NAV = [
-  { to: '/play', label: 'Lottery' },
-  { to: '/giveaways', label: 'Giveaways' },
-  { to: '/events', label: 'Event Center' },
-  { to: '/roadmap', label: 'Roadmap' },
-] as const;
+/** Os módulos da Keptra. O cabeçalho da área de cada um mostra-o a seguir à marca (KeptraBrand). */
+export const MODULES = {
+  instantWin: { to: '/play', label: 'Instant Win' },
+  giveaways: { to: '/giveaways', label: 'Giveaways' },
+  eventCenter: { to: '/events', label: 'Event Center' },
+} as const;
+
+export const PUBLIC_NAV = [MODULES.instantWin, MODULES.giveaways, MODULES.eventCenter, { to: '/roadmap', label: 'Roadmap' }] as const;
 
 /**
  * Entradas do header, visíveis em todos os tamanhos.
  *
- * Abaixo de md passam para uma segunda linha do próprio header, a toda a
- * largura e centradas. Medido a 390px: a barra tem 343px úteis e a Landing já
- * gasta 257px (marca 18 + selector de idioma 138 + "Enter App" 93), enquanto
- * estas três entradas precisam de 264px. Não cabem na mesma linha sem descer os
- * alvos abaixo dos 44px — por isso descem de linha em vez de encolher.
+ * Abaixo de lg passam para uma segunda linha do próprio header, a toda a
+ * largura e centradas: na primeira linha vão a marca (com o nome do módulo), o
+ * idioma e as acções, e as quatro entradas não cabem ao lado sem descer os
+ * alvos abaixo dos 44px. Abaixo de sm juntam-se (sem intervalo, 6px de cada
+ * lado) para caberem nos 343px úteis de um ecrã de 390px. Entre lg e xl, com
+ * "Keptra / Event Center" e três acções na mesma linha, o mesmo aperto.
  *
  * O rodapé mantém as mesmas entradas: em páginas longas é mais perto do polegar
  * do que voltar ao topo.
@@ -41,7 +44,7 @@ export const PublicNavLinks: React.FC = () => {
   return (
     <nav
       aria-label="Sections"
-      className="flex items-center justify-center gap-1 md:justify-start"
+      className="flex items-center justify-center gap-0 sm:gap-1 lg:justify-start"
     >
       {PUBLIC_NAV.map((item) => {
         const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
@@ -52,8 +55,8 @@ export const PublicNavLinks: React.FC = () => {
             aria-current={isActive ? 'page' : undefined}
             className={clsx(
               // O sítio onde se está leva uma aresta clara por baixo: posição, não cor de estado.
-              'relative inline-flex items-center min-h-[44px] px-2 sm:px-3 whitespace-nowrap text-sm font-medium transition-colors duration-200',
-              'after:absolute after:inset-x-2 sm:after:inset-x-3 after:bottom-1.5 after:h-px after:origin-center after:bg-white/70 after:transition-transform after:duration-200',
+              'relative inline-flex items-center min-h-[44px] px-1.5 sm:px-3 lg:px-2 xl:px-3 whitespace-nowrap text-sm font-medium transition-colors duration-200',
+              'after:absolute after:inset-x-1.5 sm:after:inset-x-3 lg:after:inset-x-2 xl:after:inset-x-3 after:bottom-1.5 after:h-px after:origin-center after:bg-white/70 after:transition-transform after:duration-200',
               isActive ? 'text-white after:scale-x-100' : 'text-gray-400 hover:text-white after:scale-x-0',
             )}
           >

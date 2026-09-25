@@ -1,11 +1,10 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { ExternalLink, Send, Coins, Shuffle, Users } from 'lucide-react';
-import { CONTRACTS, GIVEAWAY_LIMITS, TELEGRAM_URL } from '../constants';
-import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { WaitlistLink } from '../components/WaitlistLink';
-import { SiteHeader, HeaderAction } from '../components/SiteHeader';
+import { ArrowRight, ExternalLink, Plus, Coins, Shuffle, Users } from 'lucide-react';
+import { CONTRACTS, GIVEAWAY_LIMITS } from '../constants';
+import { PublicNavLinks, PublicFooterNav, MODULES } from '../components/PublicNav';
+import { SiteHeader, HeaderAction, KeptraBrand } from '../components/SiteHeader';
 import { GiveawayWizard } from '../components/GiveawayWizard';
 import { ProofSeal } from '../components/Proof';
 import { useGiveawaysCopy } from './giveaways.i18n';
@@ -15,6 +14,7 @@ import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { useLatestCampaignDraw } from '../components/proof/useLatestDraw';
 import { shortProof } from '../lib/proof/mark';
 import { useLang, translations, type SceneCaptionKey } from './landing.i18n';
+import { useEventsCopy } from './events.i18n';
 
 /*
  * O filme da /giveaways: a forma é a da última campanha liquidada do Event
@@ -134,6 +134,7 @@ export const Giveaways: React.FC = () => {
   const [lang] = useLang();
   const t = translations[lang];
   const campaign = useLatestCampaignDraw();
+  const events = useEventsCopy();
 
   /*
    * SEO desta rota, mesmo mecanismo da /roadmap: o site é uma SPA com um só
@@ -158,10 +159,11 @@ export const Giveaways: React.FC = () => {
 
   return (
     <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
-      {/* O cabeçalho da plataforma; a acção do contexto é a lista de espera. */}
+      {/* O cabeçalho da plataforma; a acção do contexto é criar um sorteio, no Event Center. */}
       <SiteHeader
+        brand={<KeptraBrand module={MODULES.giveaways} />}
         nav={<PublicNavLinks />}
-        actions={<HeaderAction href={TELEGRAM_URL} icon={Send} label={c.waitlist.short} />}
+        actions={<HeaderAction to="/events/create" icon={Plus} label={events.list.createCta} />}
       />
 
       <Film
@@ -261,7 +263,7 @@ export const Giveaways: React.FC = () => {
                 </div>
               </section>
 
-              {/* Fluxo de criação em preview */}
+              {/* O fluxo de criação, simulado na página; o a sério é no Event Center. */}
               <section className="pb-14 sm:pb-20">
                 <p className="text-sm font-medium text-gray-400 mb-3">{c.wizard.eyebrow}</p>
                 <h2 className="font-display font-bold text-3xl sm:text-4xl text-white mb-4">{c.wizard.title}</h2>
@@ -271,7 +273,7 @@ export const Giveaways: React.FC = () => {
             </div>
           </FilmSection>
 
-          {/* Fecho: a forma volta, e a lista de espera — o botão principal da página. */}
+          {/* Fecho: a forma volta, e o Event Center — o botão principal da página. */}
           <FilmSection id="gw-close" length="150svh" label={c.participants.title}>
             <GiveawaysClose c={c} caption={t.film.captions.again} />
           </FilmSection>
@@ -287,14 +289,14 @@ export const Giveaways: React.FC = () => {
           >
             &larr; {c.outro.back}
           </Link>
-          <p className="text-xs text-gray-400">&copy; 2026 Instant Win Protocol</p>
+          <p className="text-xs text-gray-400">&copy; 2026 Keptra</p>
         </div>
       </footer>
     </div>
   );
 };
 
-/** O fecho: a forma da campanha ao centro, e a lista de espera para quem quer entrar. */
+/** O fecho: a forma da campanha ao centro, e o Event Center para quem quer entrar. */
 function GiveawaysClose({ c, caption }: { c: GiveawaysCopy; caption: string }) {
   const live = useFilmMode() === 'live';
   return (
@@ -305,7 +307,9 @@ function GiveawaysClose({ c, caption }: { c: GiveawaysCopy; caption: string }) {
         <p className="text-sm font-medium text-gray-400 mb-3">{c.participants.eyebrow}</p>
         <h2 className="font-display font-bold text-2xl sm:text-4xl text-white mb-4">{c.participants.title}</h2>
         <p className="text-gray-400 leading-relaxed max-w-xl mx-auto mb-8">{c.participants.body}</p>
-        <WaitlistLink primary label={c.waitlist.cta} withArrow className="inline-flex w-full sm:w-auto px-10 h-14 sm:h-16 text-lg sm:text-xl" />
+        <Link to="/events" className="iw-btn iw-btn-primary inline-flex w-full gap-3 px-10 h-14 font-extrabold text-lg sm:w-auto sm:h-16 sm:text-xl">
+          {c.participants.cta} <ArrowRight className="w-5 h-5" aria-hidden="true" />
+        </Link>
       </div>
     </div>
   );

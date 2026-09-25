@@ -1,29 +1,17 @@
 import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
-import { SiteHeader } from '../SiteHeader';
+import { SiteHeader, KeptraBrand } from '../SiteHeader';
 
 /*
  * The frame of every Keptra screen. T0: one identity (the app's system, named
  * Keptra), and the business area apart from the customer's — its own label in
  * the header and its own navigation. T21: laid out for the computer first (a wide
  * container, nothing marooned in a narrow column), and complete on a phone (the
- * navigation folds into a menu of finger-sized links, nothing hidden).
+ * navigation folds into a menu of finger-sized links, nothing hidden). The core
+ * (orders, the pool, the console) is Keptra itself, so the header shows the logo
+ * alone, with no module name.
  */
-
-export function KeptraMark({ area }: { area?: 'business' }) {
-  return (
-    <Link to="/" className="flex min-h-[44px] items-center gap-2.5" aria-label="Keptra, home">
-      <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-control border-2 border-white font-display text-lg font-black leading-none text-white">
-        K
-      </span>
-      <span className="font-display text-2xl font-bold tracking-tight text-white">Keptra</span>
-      {area === 'business' && (
-        <span className="ml-1 rounded-md border border-dark-line px-2 py-0.5 text-xs font-medium text-gray-300">Business</span>
-      )}
-    </Link>
-  );
-}
 
 interface NavItem {
   readonly to: string;
@@ -64,7 +52,7 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
           navigation, and the other area as the one secondary action. */}
       <SiteHeader
         lang={false}
-        brand={<KeptraMark area={area === 'business' ? 'business' : undefined} />}
+        brand={<KeptraBrand tag={area === 'business' ? 'Business' : undefined} />}
         actions={
           <>
             <nav aria-label={area === 'business' ? 'Business' : 'Main'} className="hidden items-center gap-1 lg:flex">

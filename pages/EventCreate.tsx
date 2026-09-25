@@ -340,7 +340,7 @@ export const EventCreate: React.FC = () => {
   const rulesStageDone = durationSeconds > 0n && slotCapNum > 0 && winnersCount > 0;
 
   return (
-    <EventShell width="narrow" back={{ to: '/events', label: copy.nav.link }} wallet>
+    <EventShell width="narrow" wallet>
       <h1 className="font-display font-bold text-[clamp(2.1rem,6vw,3rem)] leading-tight tracking-tight">
         {c.title}
       </h1>

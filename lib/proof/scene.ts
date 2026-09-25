@@ -257,13 +257,15 @@ function ringsAt(center: Vec, radius: number, count: number): Strand[] {
 }
 
 /**
- * The Event Center's three modules: a module carries a mark only if it has a
- * settled draw of its own; otherwise rings. The lottery, live, is in green.
+ * Keptra's three modules — Instant Win, Giveaways, the Event Center: a module
+ * carries a mark only if it has a settled draw of its own; otherwise rings. All
+ * three are live, so all three are green. Giveaways and the Event Center run on
+ * the one GiveawayManagerV2, so their latest draw, and their mark, is the same.
  */
 function modules(lottery: MarkParams | null, campaign: MarkParams | null): Strand[] {
-  const at = (params: MarkParams | null, x: number, accent: number) =>
-    params ? rosetteStrands(params, 16, 0.36, [x, 0, 0], 0.5, accent) : ringsAt([x, 0, 0], 0.34, 16).map((s) => ({ ...s, accent }));
-  return [...at(lottery, -0.92, 1), ...at(campaign, 0, 0), ...ringsAt([0.92, 0, 0], 0.34, 16)];
+  const at = (params: MarkParams | null, x: number) =>
+    params ? rosetteStrands(params, 16, 0.36, [x, 0, 0], 0.5, 1) : ringsAt([x, 0, 0], 0.34, 16).map((s) => ({ ...s, accent: 1 }));
+  return [...at(lottery, -0.92), ...at(campaign, 0), ...at(campaign, 0.92)];
 }
 
 function pack(strands: Strand[]): Float32Array {

@@ -7,7 +7,7 @@ import { EventShell } from '../components/EventShell';
 import { ShareButton } from '../components/ShareButton';
 import { BrandByline, IdentityBanner, useCampaignIdentity } from '../components/CampaignIdentity';
 import { useEventsCopy } from './events.i18n';
-import { Check, Loader2, ExternalLink, ArrowRight, Ban, Plus } from 'lucide-react';
+import { Check, Loader2, ExternalLink, ArrowRight, Ban, Plus, LayoutList } from 'lucide-react';
 import { HeaderAction } from '../components/SiteHeader';
 import { ProofMark } from '../components/proof/ProofMark';
 import { CountUp } from '../components/proof/CountUp';
@@ -245,11 +245,14 @@ export const EventCenter: React.FC = () => {
     <EventShell
       width="wide"
       extras={
+        // Só o ícone até xl: a 1024px, com "Keptra / Event Center" à esquerda, o rótulo não cabe.
         <Link
           to="/events/mine"
-          className="hidden sm:inline-flex items-center px-3 min-h-[44px] text-sm text-gray-300 hover:text-white transition-colors"
+          title={c.list.myEventsCta}
+          className="hidden sm:inline-flex items-center justify-center min-w-[44px] min-h-[44px] xl:px-3 text-sm text-gray-300 hover:text-white transition-colors"
         >
-          {c.list.myEventsCta}
+          <LayoutList className="h-4 w-4 xl:hidden" aria-hidden="true" />
+          <span className="sr-only xl:not-sr-only">{c.list.myEventsCta}</span>
         </Link>
       }
       actions={<HeaderAction to="/events/create" icon={Plus} label={c.list.createCta} />}
