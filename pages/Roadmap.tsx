@@ -7,6 +7,7 @@ import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { SiteHeader, HeaderAction } from '../components/SiteHeader';
 import { useRoadmapCopy } from './roadmap.i18n';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
+import { SceneCaption } from '../components/film/Chapter';
 import { ProofMark } from '../components/proof/ProofMark';
 import { ProofSeal } from '../components/Proof';
 import { useLatestDraw, type SettledDraw } from '../components/proof/useLatestDraw';
@@ -154,6 +155,7 @@ export const Roadmap: React.FC = () => {
               </div>
               <div className="mx-auto mt-10 w-full max-w-[20rem] lg:mt-0 lg:max-w-none">
                 <FilmAnchor keys={KEYS.hero} className="aspect-square w-full" />
+                <SceneCaption text={t.film.captions.mark} className="lg:mx-0 lg:text-left" />
                 <p className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-gray-400 lg:justify-start">
                   {latest ? (
                     <>
@@ -302,7 +304,7 @@ export const Roadmap: React.FC = () => {
 
           {/* Fecho: a forma volta, e o convite — investidores e parceiros. */}
           <FilmSection id="rm-close" length="150svh" label={c.outro.ctaLine1}>
-            <RoadmapClose c={c} />
+            <RoadmapClose c={c} caption={t.film.captions.again} />
           </FilmSection>
         </main>
       </Film>
@@ -324,11 +326,12 @@ export const Roadmap: React.FC = () => {
 };
 
 /** O fecho: a forma volta, a nota sem datas, e o convite a falar connosco — o botão principal da página. */
-function RoadmapClose({ c }: { c: ReturnType<typeof useRoadmapCopy> }) {
+function RoadmapClose({ c, caption }: { c: ReturnType<typeof useRoadmapCopy>; caption: string }) {
   const live = useFilmMode() === 'live';
   return (
     <div className={clsx('container mx-auto flex max-w-3xl flex-col items-center px-4 sm:px-6 text-center', live ? 'h-full justify-center pt-24 pb-16' : 'py-16 sm:py-24')}>
       <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(56vw,calc(100svh_-_30rem))] sm:max-w-[min(16rem,calc(100svh_-_30rem))]" />
+      <SceneCaption text={caption} />
       <div data-film-panel className="mt-6 w-full">
         {/* Nota antes do CTA: sem datas, sem promessa de calendário. */}
         <p className="text-gray-400 text-sm leading-relaxed max-w-xl mx-auto">{c.outro.note}</p>

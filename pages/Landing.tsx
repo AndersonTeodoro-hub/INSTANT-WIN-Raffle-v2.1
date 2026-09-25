@@ -11,7 +11,7 @@ import { ShareButton } from '../components/ShareButton';
 import { SiteHeader, HeaderAction } from '../components/SiteHeader';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
-import { Chapter, ChapterHead } from '../components/film/Chapter';
+import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { ProofSeal, RoundClock, RoundMeter } from '../components/Proof';
 import { CountUp } from '../components/proof/CountUp';
 import { useLatestDraw, type SettledDraw } from '../components/proof/useLatestDraw';
@@ -139,6 +139,16 @@ export const Landing: React.FC = () => {
   // da lotaria — e a legenda di-lo: é uma espera, não uma prova.
   const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER);
 
+  // O separador diz o produto e a página, como na /giveaways e na /roadmap; o do
+  // index.html (Keptra) volta à saída.
+  useEffect(() => {
+    const prevTitle = document.title;
+    document.title = t.metaTitle;
+    return () => {
+      document.title = prevTitle;
+    };
+  }, [t]);
+
   return (
     // overflow-x-clip e não hidden: hidden faz da raiz um contentor de scroll e os capítulos deixavam de fixar.
     <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
@@ -197,6 +207,7 @@ export const Landing: React.FC = () => {
                   <FilmAnchor keys={KEYS.hero} className="aspect-square w-full">
                     <HeroReadouts round={round} c={c} />
                   </FilmAnchor>
+                  <SceneCaption text={t.film.captions.mark} className="lg:mx-0 lg:text-left" />
                   <MarkCaption draw={latest} loading={loading} t={t} c={c} />
                 </div>
               </div>
@@ -218,19 +229,19 @@ export const Landing: React.FC = () => {
           </section>
 
           {/* a) O bilhete materializa-se. */}
-          <Chapter id="film-ticket" keys={KEYS.ticket} label={t.how.steps[0].title}>
+          <Chapter id="film-ticket" keys={KEYS.ticket} label={t.how.steps[0].title} caption={t.film.captions.ticket}>
             <ChapterHead index={1} label={t.how.eyebrow} title={t.how.steps[0].title} />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.how.steps[0].body}</p>
           </Chapter>
 
           {/* b) A aleatoriedade do Chainlink VRF resolve-se a partir do caos. */}
-          <Chapter id="film-draw" keys={KEYS.draw} label={t.how.steps[1].title}>
+          <Chapter id="film-draw" keys={KEYS.draw} label={t.how.steps[1].title} caption={t.film.captions.draw}>
             <ChapterHead index={2} label={t.how.eyebrow} title={t.how.steps[1].title} />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.how.steps[1].body}</p>
           </Chapter>
 
           {/* c) A cadeia sela a prova. */}
-          <Chapter id="film-seal" keys={KEYS.seal} label={t.transparency.title}>
+          <Chapter id="film-seal" keys={KEYS.seal} label={t.transparency.title} caption={t.film.captions.seal}>
             <ChapterHead index={3} label={t.transparency.eyebrow} title={t.transparency.title} />
             <p className="mt-5 max-w-[50ch] text-sm sm:text-base leading-relaxed text-gray-300">
               {t.transparency.vrfPre}
@@ -258,20 +269,20 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           {/* d) Os vencedores são revelados, com a forma do sorteio. */}
-          <Chapter id="film-reveal" keys={KEYS.reveal} label={t.film.revealTitle}>
+          <Chapter id="film-reveal" keys={KEYS.reveal} label={t.film.revealTitle} caption={t.film.captions.reveal}>
             <ChapterHead index={4} label={c.winners.title} title={t.film.revealTitle} />
             <p className="mt-4 max-w-[46ch] text-sm sm:text-base leading-relaxed text-gray-300">{t.film.markLine}</p>
             <RevealList draw={latest} loading={loading} t={t} c={c} />
           </Chapter>
 
           {/* e) O prémio sai do contrato para quem ganhou. */}
-          <Chapter id="film-payout" keys={KEYS.payout} wide label={t.how.steps[2].title}>
+          <Chapter id="film-payout" keys={KEYS.payout} wide label={t.how.steps[2].title} caption={t.film.captions.payout}>
             <ChapterHead index={5} label={t.how.eyebrow} title={t.how.steps[2].title} />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.how.steps[2].body}</p>
           </Chapter>
 
           {/* f) Keptra: o escrow, a entrega provada, e o pool quando uma marca falha. */}
-          <Chapter id="film-keptra" keys={KEYS.escrow} wide label={t.film.keptra.title}>
+          <Chapter id="film-keptra" keys={KEYS.escrow} wide label={t.film.keptra.title} caption={t.film.captions.escrow}>
             <ChapterHead index={6} label="Keptra" title={t.film.keptra.title} />
             <p className="mt-5 max-w-[46ch] text-base leading-relaxed text-gray-300">{t.film.keptra.body}</p>
             <p className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-gray-400" aria-hidden="true">
@@ -297,7 +308,7 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           {/* g) Os módulos do Event Center. */}
-          <Chapter id="film-modules" keys={KEYS.modules} wide label={t.modules.title}>
+          <Chapter id="film-modules" keys={KEYS.modules} wide label={t.modules.title} caption={t.film.captions.modules}>
             <ChapterHead index={7} label={t.modules.eyebrow} title={t.modules.title} />
             <p className="mt-5 max-w-[46ch] text-base leading-relaxed text-gray-300">{t.modules.sub}</p>
           </Chapter>
@@ -550,6 +561,7 @@ function CloseChapter({ t }: { t: Copy }) {
   return (
     <div className={clsx('container mx-auto flex max-w-3xl flex-col items-center px-6 text-center', live ? 'h-full justify-center pt-24 pb-16' : 'py-20 md:py-28')}>
       <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(70vw,calc(100svh_-_24rem))] sm:max-w-[min(22rem,calc(100svh_-_24rem))]" />
+      <SceneCaption text={t.film.captions.again} />
       <div data-film-panel className="mt-8">
         {/* Em pré-lançamento a manchete passa a ser a da lista de espera: anunciar
             um sorteio "já a rolar" ao lado de um botão de espera seria contraditório. */}

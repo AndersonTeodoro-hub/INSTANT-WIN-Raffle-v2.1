@@ -11,12 +11,15 @@ export function Chapter({
   keys,
   wide = false,
   label,
+  caption,
   children,
 }: {
   id: string;
   keys: readonly KeySpec[];
   wide?: boolean;
   label: string;
+  /** O que a forma representa neste capítulo, em linguagem simples. */
+  caption: string;
   children: React.ReactNode;
 }) {
   const live = useFilmMode() === 'live';
@@ -28,15 +31,18 @@ export function Chapter({
           live ? 'h-full content-center pb-16 pt-28 md:pt-24 lg:py-0' : 'py-16 sm:py-24',
         )}
       >
-        <FilmAnchor
-          keys={keys}
-          className={clsx(
-            'mx-auto w-full lg:order-2',
-            wide
-              ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_27rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
-              : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
-          )}
-        />
+        <div className="min-w-0 lg:order-2">
+          <FilmAnchor
+            keys={keys}
+            className={clsx(
+              'mx-auto w-full',
+              wide
+                ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_27rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
+                : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
+            )}
+          />
+          <SceneCaption text={caption} />
+        </div>
         <div data-film-panel className="min-w-0 lg:order-1">
           {children}
         </div>
@@ -59,3 +65,15 @@ export function ChapterHead({ index, label, title }: { index: number; label: str
   );
 }
 
+
+/**
+ * A legenda junto da forma: o que ela representa ali, para quem não conhece a
+ * cadeia. Aparece e sai com o painel do capítulo; na versão parada, sempre.
+ */
+export function SceneCaption({ text, className }: { text: string; className?: string }) {
+  return (
+    <p data-film-panel className={clsx('mx-auto mt-3 max-w-[44ch] text-center text-xs leading-relaxed text-gray-300', className)}>
+      {text}
+    </p>
+  );
+}

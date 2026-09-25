@@ -11,7 +11,11 @@ const STORAGE_KEY = 'iw-lang';
 
 // Technical terms kept in English across all languages (industry convention):
 // Chainlink VRF, USDC, Arbitrum One, on-chain, wallet, smart contract, open-source.
+export type SceneCaptionKey = 'mark' | 'ticket' | 'draw' | 'seal' | 'reveal' | 'payout' | 'escrow' | 'modules' | 'again' | 'entry' | 'prize' | 'pick';
+
 export interface LandingCopy {
+  /** O título do separador da página inicial: o produto e a página. */
+  metaTitle: string;
   header: { enterApp: string; ariaLanguage: string };
   hero: { badge: string; headlineTop: string; headlineBottom: string; sub: string; cta: string };
   /**
@@ -77,6 +81,12 @@ export interface LandingCopy {
       layers: [string, string, string];
       cta: string;
     };
+    /**
+     * A legenda junto da forma: o que ela representa naquele capítulo, em
+     * linguagem simples (components/film/Chapter.tsx SceneCaption). As últimas
+     * três são só da /giveaways.
+     */
+    captions: Record<SceneCaptionKey, string>;
   };
   footer: {
     contractsLabel: string;
@@ -88,6 +98,7 @@ export interface LandingCopy {
 }
 
 const en: LandingCopy = {
+  metaTitle: 'Instant Win — Provably fair events',
   header: { enterApp: 'Enter App', ariaLanguage: 'Language' },
   hero: {
     badge: 'Powered by Chainlink VRF',
@@ -187,6 +198,20 @@ const en: LandingCopy = {
       layers: ['Bond', 'Risk reserve', 'Capital'],
       cta: 'See the guarantee pool',
     },
+    captions: {
+      mark: 'This shape is drawn from the proof of the latest draw. Every draw has its own, and no one can fake it.',
+      ticket: 'A ticket. Each one is one chance in the round.',
+      draw: 'The tangle is chance before the draw; the shape is the result, once it is picked.',
+      seal: 'The result, closed inside a block of the public record. From then on, no one can change it.',
+      reveal: 'The same shape, seen face on. The green lines are the winners.',
+      payout: 'The prize, in amber, goes from the contract to the winner\'s wallet.',
+      escrow: 'Your payment waits in the middle. The green path to the store opens only once delivery is proven; the three layers below cover a failure.',
+      modules: 'The three modules. A shape marks one that already has a draw; rings mark one that has none yet. Green is live.',
+      again: 'The shape of the latest draw, once more: the proof, drawn.',
+      entry: 'An entry. The participant pays nothing for it.',
+      prize: 'A coin: the prize, in any token, held by the contract until the draw.',
+      pick: 'The tangle is chance; the shape is the result. The green lines are the winners.',
+    },
   },
   footer: {
     contractsLabel: 'Verified Contracts · Arbitrum One',
@@ -197,6 +222,7 @@ const en: LandingCopy = {
 };
 
 const pt: LandingCopy = {
+  metaTitle: 'Instant Win — Eventos comprovadamente justos',
   header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
     badge: 'Com tecnologia Chainlink VRF',
@@ -296,6 +322,20 @@ const pt: LandingCopy = {
       layers: ['Caução', 'Reserva de risco', 'Capital'],
       cta: 'Ver o pool de garantia',
     },
+    captions: {
+      mark: 'Esta forma é desenhada a partir da prova do último sorteio. Cada sorteio tem a sua, e ninguém consegue falsificá-la.',
+      ticket: 'Um bilhete. Cada um é uma chance na rodada.',
+      draw: 'O emaranhado é o acaso antes do sorteio; a forma é o resultado, depois de escolhido.',
+      seal: 'O resultado, fechado dentro de um bloco do registro público. A partir daí, ninguém pode mudá-lo.',
+      reveal: 'A mesma forma, vista de frente. As linhas verdes são os ganhadores.',
+      payout: 'O prêmio, em âmbar, sai do contrato para a wallet de quem ganhou.',
+      escrow: 'O seu pagamento espera no meio. O caminho verde até a loja só abre quando a entrega é provada; as três camadas de baixo cobrem uma falha.',
+      modules: 'Os três módulos. Uma forma marca o que já tem um sorteio; anéis marcam o que ainda não tem. Verde é o que está no ar.',
+      again: 'A forma do último sorteio, outra vez: a prova, desenhada.',
+      entry: 'Uma inscrição. Quem participa não paga nada por ela.',
+      prize: 'Uma moeda: o prêmio, em qualquer token, guardado pelo contrato até o sorteio.',
+      pick: 'O emaranhado é o acaso; a forma é o resultado. As linhas verdes são os ganhadores.',
+    },
   },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
@@ -306,6 +346,7 @@ const pt: LandingCopy = {
 };
 
 const es: LandingCopy = {
+  metaTitle: 'Instant Win — Eventos demostrablemente justos',
   header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
     badge: 'Con tecnología Chainlink VRF',
@@ -404,6 +445,20 @@ const es: LandingCopy = {
       path: ['Tú', 'Escrow', 'Tienda'],
       layers: ['Fianza', 'Reserva de riesgo', 'Capital'],
       cta: 'Ver el pool de garantía',
+    },
+    captions: {
+      mark: 'Esta forma se dibuja a partir de la prueba del último sorteo. Cada sorteo tiene la suya, y nadie puede falsificarla.',
+      ticket: 'Un boleto. Cada uno es una oportunidad en la ronda.',
+      draw: 'La maraña es el azar antes del sorteo; la forma es el resultado, una vez elegido.',
+      seal: 'El resultado, cerrado dentro de un bloque del registro público. Desde entonces, nadie puede cambiarlo.',
+      reveal: 'La misma forma, vista de frente. Las líneas verdes son los ganadores.',
+      payout: 'El premio, en ámbar, sale del contrato hacia la wallet de quien ganó.',
+      escrow: 'Tu pago espera en el medio. El camino verde hacia la tienda solo se abre cuando la entrega está probada; las tres capas de abajo cubren un fallo.',
+      modules: 'Los tres módulos. Una forma marca el que ya tiene un sorteo; los anillos, el que aún no lo tiene. El verde es lo que está en marcha.',
+      again: 'La forma del último sorteo, otra vez: la prueba, dibujada.',
+      entry: 'Una participación. Quien participa no paga nada por ella.',
+      prize: 'Una moneda: el premio, en cualquier token, guardado por el contrato hasta el sorteo.',
+      pick: 'La maraña es el azar; la forma es el resultado. Las líneas verdes son los ganadores.',
     },
   },
   footer: {

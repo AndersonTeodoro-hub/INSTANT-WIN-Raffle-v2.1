@@ -11,10 +11,10 @@ import { ProofSeal } from '../components/Proof';
 import { useGiveawaysCopy } from './giveaways.i18n';
 import type { GiveawaysCopy } from './giveaways.i18n';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
-import { Chapter, ChapterHead } from '../components/film/Chapter';
+import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { useLatestCampaignDraw } from '../components/proof/useLatestDraw';
 import { shortProof } from '../lib/proof/mark';
-import { useLang, translations } from './landing.i18n';
+import { useLang, translations, type SceneCaptionKey } from './landing.i18n';
 
 /*
  * O filme da /giveaways: a forma é a da última campanha liquidada do Event
@@ -42,6 +42,9 @@ const KEYS = {
 
 /** Capítulos com a cena larga (o fluxo do prémio, os vários sorteios). */
 const WIDE = [false, false, false, true, true];
+
+/** A legenda de cada forma, posicional com KEYS.bullets. */
+const CAPTIONS: readonly SceneCaptionKey[] = ['entry', 'prize', 'pick', 'payout', 'modules'];
 
 /** "— the creator funds…" → "The creator funds…": o resto da frase, como parágrafo do capítulo. */
 const asParagraph = (rest: string) => {
@@ -180,6 +183,7 @@ export const Giveaways: React.FC = () => {
               </div>
               <div className="mx-auto mt-10 w-full max-w-[24rem] lg:mt-0 lg:max-w-none">
                 <FilmAnchor keys={KEYS.hero} className="aspect-square w-full" />
+                <SceneCaption text={t.film.captions.mark} className="lg:mx-0 lg:text-left" />
                 <p className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-gray-400 lg:justify-start">
                   {campaign.draw ? (
                     <>
@@ -207,7 +211,7 @@ export const Giveaways: React.FC = () => {
             do protocolo, o contrato — e a cena que lhe corresponde.
           */}
           {c.hero.bullets.map((b, i) => (
-            <Chapter key={b.lead} id={`gw-claim-${i + 1}`} keys={KEYS.bullets[i]} wide={WIDE[i]} label={b.lead}>
+            <Chapter key={b.lead} id={`gw-claim-${i + 1}`} keys={KEYS.bullets[i]} wide={WIDE[i]} label={b.lead} caption={t.film.captions[CAPTIONS[i]]}>
               <ChapterHead index={i + 1} label={c.hero.eyebrow} title={b.lead} />
               <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{asParagraph(b.rest)}</p>
               <div className="mt-6 max-w-sm">
@@ -269,7 +273,7 @@ export const Giveaways: React.FC = () => {
 
           {/* Fecho: a forma volta, e a lista de espera — o botão principal da página. */}
           <FilmSection id="gw-close" length="150svh" label={c.participants.title}>
-            <GiveawaysClose c={c} />
+            <GiveawaysClose c={c} caption={t.film.captions.again} />
           </FilmSection>
         </main>
       </Film>
@@ -291,11 +295,12 @@ export const Giveaways: React.FC = () => {
 };
 
 /** O fecho: a forma da campanha ao centro, e a lista de espera para quem quer entrar. */
-function GiveawaysClose({ c }: { c: GiveawaysCopy }) {
+function GiveawaysClose({ c, caption }: { c: GiveawaysCopy; caption: string }) {
   const live = useFilmMode() === 'live';
   return (
     <div className={clsx('container mx-auto flex max-w-2xl flex-col items-center px-6 text-center', live ? 'h-full justify-center pt-24 pb-16' : 'py-16 sm:py-24')}>
       <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(66vw,calc(100svh_-_26rem))] sm:max-w-[min(20rem,calc(100svh_-_26rem))]" />
+      <SceneCaption text={caption} />
       <div data-film-panel className="mt-8">
         <p className="text-sm font-medium text-gray-400 mb-3">{c.participants.eyebrow}</p>
         <h2 className="font-display font-bold text-2xl sm:text-4xl text-white mb-4">{c.participants.title}</h2>

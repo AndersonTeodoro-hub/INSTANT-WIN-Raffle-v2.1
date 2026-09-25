@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { Zap, Ticket, User } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAccount } from 'wagmi';
@@ -56,6 +56,14 @@ export const GameTabs: React.FC = () => {
     { path: '/play/raffle', label: c.nav.raffle, icon: Ticket, end: false },
     { path: '/play/identity', label: c.nav.identity, icon: User, end: false },
   ];
+
+  // O separador diz o produto e a página em que se está.
+  const { pathname } = useLocation();
+  const current = tabs.find((tab) => (tab.end ? pathname.replace(/\/$/, '') === tab.path : pathname.startsWith(tab.path)));
+  const title = current ? `Instant Win — ${current.label}` : 'Instant Win';
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
 
   return (
     <nav aria-label="Lottery" className="mx-auto mb-8 flex w-full max-w-6xl justify-center sm:mb-10 sm:justify-start">

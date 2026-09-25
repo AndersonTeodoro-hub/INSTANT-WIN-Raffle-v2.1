@@ -163,7 +163,7 @@ export function Film({
 
   return (
     <FilmContext.Provider value={value}>
-      <div data-film-mode={mode ?? 'pending'} className={clsx(mode === 'live' && 'film-live')}>
+      <div className={clsx(mode === 'live' && 'film-live')}>
         {mode === 'live' && (
           <>
             <canvas ref={canvasRef} aria-hidden="true" className="film-canvas pointer-events-none fixed inset-0 z-0 h-full w-full" />
