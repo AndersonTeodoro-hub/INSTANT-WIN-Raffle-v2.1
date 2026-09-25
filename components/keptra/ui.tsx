@@ -22,7 +22,7 @@ export function Card({ children, className = '', as: Tag = 'section' }: { childr
 }
 
 export function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-gray-400">{children}</p>;
+  return <p className="text-sm font-medium text-gray-400">{children}</p>;
 }
 
 export function PageTitle({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: React.ReactNode }) {
@@ -132,6 +132,37 @@ export function Notice({ tone = 'info', title, children }: { tone?: 'info' | 'er
   );
 }
 
+/**
+ * A signed action the chain has confirmed (the relay answered CONFIRMED): the
+ * seal draws itself with one ring going out, and the transaction that proves it
+ * is one tap away. A transaction still confirming is never shown this way.
+ */
+export function DoneOnChain({ text, txHash }: { text: string; txHash?: string }) {
+  return (
+    <div role="status" className="iw-swap flex items-start gap-3 rounded-card border border-success/40 bg-success/[0.06] p-4 text-sm leading-relaxed">
+      <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full border border-success/40 bg-black/50">
+        <span aria-hidden="true" className="iw-done-ring absolute inset-0 rounded-full border border-success/60" />
+        <ProofSeal className="h-4 w-4 text-success" />
+      </span>
+      <div className="min-w-0">
+        <p className="font-semibold text-white">{text}</p>
+        {txHash && (
+          <a
+            href={`${ARBISCAN}/tx/${txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex min-h-[32px] items-center gap-1.5 text-xs text-gray-300 hover:text-success"
+          >
+            Transaction <span className="font-mono text-success">{`${txHash.slice(0, 6)}…${txHash.slice(-4)}`}</span>
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="sr-only">(opens Arbiscan)</span>
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** A figure: the label above, the value in the data face. */
 export function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: React.ReactNode }) {
   return (
@@ -180,7 +211,7 @@ export function Badge({ children, tone = 'neutral' }: { children: React.ReactNod
     warning: 'border-gray-400/50 text-gray-200',
     danger: 'border-red-500/40 text-red-300',
   }[tone];
-  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-wider ${style}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${style}`}>{children}</span>;
 }
 
 export function Field({ label, hint, error, children, id }: { label: string; hint?: string; error?: string | null; children: React.ReactNode; id: string }) {

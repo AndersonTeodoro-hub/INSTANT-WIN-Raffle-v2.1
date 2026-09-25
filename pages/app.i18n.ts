@@ -163,6 +163,18 @@ export interface AppCopy {
     /** "I just won " + valor + " USDC on Instant Win — ..." */
     sharePre: string;
     sharePost: string;
+    /** Depois de o claim confirmar on-chain: o percurso do prémio, do contrato à wallet. */
+    claimed: string;
+    contract: string;
+    yourWallet: string;
+    claimTx: string;
+  };
+  /** A forma da prova de um sorteio (components/proof): o que ela é e de onde vem. */
+  proof: {
+    /** aria: "Proof shape of round " + id */
+    markRound: string;
+    vrfTx: string;
+    settled: string;
   };
   username: {
     title: string;
@@ -322,6 +334,15 @@ const en: AppCopy = {
     ariaViewTx: 'View transaction on Arbiscan',
     sharePre: 'I just won',
     sharePost: 'USDC on Instant Win — provably fair, verified on-chain.',
+    claimed: 'Claimed. The contract paid it to your wallet.',
+    contract: 'Contract',
+    yourWallet: 'Your wallet',
+    claimTx: 'Claim transaction',
+  },
+  proof: {
+    markRound: 'Proof shape of round',
+    vrfTx: 'VRF transaction',
+    settled: 'Settled on-chain',
   },
   username: {
     title: 'Your Identity',
@@ -479,6 +500,15 @@ const pt: AppCopy = {
     ariaViewTx: 'Ver a transação no Arbiscan',
     sharePre: 'Acabei de ganhar',
     sharePost: 'USDC no Instant Win — comprovadamente justo, verificado on-chain.',
+    claimed: 'Sacado. O contrato pagou na sua wallet.',
+    contract: 'Contrato',
+    yourWallet: 'Sua wallet',
+    claimTx: 'Transação do saque',
+  },
+  proof: {
+    markRound: 'Forma da prova da rodada',
+    vrfTx: 'Transação do VRF',
+    settled: 'Liquidada on-chain',
   },
   username: {
     title: 'Sua identidade',
@@ -636,6 +666,15 @@ const es: AppCopy = {
     ariaViewTx: 'Ver la transacción en Arbiscan',
     sharePre: 'Acabo de ganar',
     sharePost: 'USDC en Instant Win — demostrablemente justo, verificado on-chain.',
+    claimed: 'Retirado. El contrato lo pagó a tu wallet.',
+    contract: 'Contrato',
+    yourWallet: 'Tu wallet',
+    claimTx: 'Transacción del retiro',
+  },
+  proof: {
+    markRound: 'Forma de la prueba de la ronda',
+    vrfTx: 'Transacción del VRF',
+    settled: 'Liquidada on-chain',
   },
   username: {
     title: 'Tu identidad',

@@ -50,6 +50,34 @@ export interface LandingCopy {
    * Usado também no banner de /play, para haver uma só fonte desta mensagem.
    */
   prelaunch: { headline: string; cta: string };
+  /**
+   * O filme da página inicial (segunda passagem visual). Só as frases que a
+   * narrativa exige; tudo o resto reutiliza o texto que já existia acima.
+   */
+  film: {
+    /** Botão que pára o movimento contínuo da cena (WCAG 2.2.2). */
+    pause: string;
+    play: string;
+    /** Legenda da forma: "<markOfRound> 42" / "<markOfCampaign> 2". */
+    markOfRound: string;
+    markOfCampaign: string;
+    markPending: string;
+    /** O conceito, numa linha, no capítulo da revelação. */
+    markLine: string;
+    revealTitle: string;
+    campaignLabel: string;
+    seeCampaign: string;
+    keptra: {
+      title: string;
+      body: string;
+      failure: string;
+      /** Os nós do percurso: quem paga, o escrow, a loja. */
+      path: [string, string, string];
+      /** A ordem de absorção de uma falha: caução, reserva, capital. */
+      layers: [string, string, string];
+      cta: string;
+    };
+  };
   footer: {
     contractsLabel: string;
     responsible: string;
@@ -141,6 +169,25 @@ const en: LandingCopy = {
   },
   finalCta: { title: 'The next draw is already running.', share: 'Share' },
   prelaunch: { headline: 'Day 0 is coming.', cta: 'Join the waitlist' },
+  film: {
+    pause: 'Pause motion',
+    play: 'Play motion',
+    markOfRound: 'Drawn from the VRF transaction of round',
+    markOfCampaign: 'Drawn from the VRF seed of campaign',
+    markPending: 'Waiting for the first settled draw.',
+    markLine: 'Every settled draw leaves a shape drawn from its own proof. Same proof, same shape.',
+    revealTitle: 'Winners, with their proof.',
+    campaignLabel: 'Campaign',
+    seeCampaign: 'See the campaign',
+    keptra: {
+      title: 'The same proof, for what you buy.',
+      body: 'Your payment waits in an on-chain escrow. A proven delivery opens the way to the store.',
+      failure: "If a brand fails a winner, the pool pays: the brand's bond first, then the risk reserve, then the capital.",
+      path: ['You', 'Escrow', 'Store'],
+      layers: ['Bond', 'Risk reserve', 'Capital'],
+      cta: 'See the guarantee pool',
+    },
+  },
   footer: {
     contractsLabel: 'Verified Contracts · Arbitrum One',
     responsible: "18+. Play responsibly. This is a game of chance — never play with funds you can't afford to lose.",
@@ -231,6 +278,25 @@ const pt: LandingCopy = {
   },
   finalCta: { title: 'O próximo sorteio já está rolando.', share: 'Compartilhar' },
   prelaunch: { headline: 'O Dia 0 está chegando.', cta: 'Entrar na lista' },
+  film: {
+    pause: 'Pausar movimento',
+    play: 'Retomar movimento',
+    markOfRound: 'Desenhada a partir da transação do VRF da rodada',
+    markOfCampaign: 'Desenhada a partir da semente do VRF da campanha',
+    markPending: 'Aguardando o primeiro sorteio liquidado.',
+    markLine: 'Cada sorteio liquidado deixa uma forma desenhada a partir da própria prova. Mesma prova, mesma forma.',
+    revealTitle: 'Ganhadores, com a prova.',
+    campaignLabel: 'Campanha',
+    seeCampaign: 'Ver a campanha',
+    keptra: {
+      title: 'A mesma prova, para o que você compra.',
+      body: 'Seu pagamento espera num escrow on-chain. Uma entrega provada abre o caminho até a loja.',
+      failure: 'Se uma marca falha com um ganhador, o pool paga: primeiro a caução da marca, depois a reserva de risco, depois o capital.',
+      path: ['Você', 'Escrow', 'Loja'],
+      layers: ['Caução', 'Reserva de risco', 'Capital'],
+      cta: 'Ver o pool de garantia',
+    },
+  },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
     responsible: 'É preciso ter 18+. Jogue com responsabilidade. Este é um jogo de azar — nunca jogue com dinheiro que você não pode perder.',
@@ -321,6 +387,25 @@ const es: LandingCopy = {
   },
   finalCta: { title: 'El próximo sorteo ya está en marcha.', share: 'Compartir' },
   prelaunch: { headline: 'El Día 0 se acerca.', cta: 'Unirse a la lista' },
+  film: {
+    pause: 'Pausar movimiento',
+    play: 'Reanudar movimiento',
+    markOfRound: 'Dibujada a partir de la transacción del VRF de la ronda',
+    markOfCampaign: 'Dibujada a partir de la semilla del VRF de la campaña',
+    markPending: 'Esperando el primer sorteo liquidado.',
+    markLine: 'Cada sorteo liquidado deja una forma dibujada a partir de su propia prueba. Misma prueba, misma forma.',
+    revealTitle: 'Ganadores, con su prueba.',
+    campaignLabel: 'Campaña',
+    seeCampaign: 'Ver la campaña',
+    keptra: {
+      title: 'La misma prueba, para lo que compras.',
+      body: 'Tu pago espera en un escrow on-chain. Una entrega probada abre el camino hasta la tienda.',
+      failure: 'Si una marca le falla a un ganador, el pool paga: primero la fianza de la marca, luego la reserva de riesgo, luego el capital.',
+      path: ['Tú', 'Escrow', 'Tienda'],
+      layers: ['Fianza', 'Reserva de riesgo', 'Capital'],
+      cta: 'Ver el pool de garantía',
+    },
+  },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
     responsible: 'Solo 18+. Juega con responsabilidad. Este es un juego de azar — nunca juegues con dinero que no puedas permitirte perder.',

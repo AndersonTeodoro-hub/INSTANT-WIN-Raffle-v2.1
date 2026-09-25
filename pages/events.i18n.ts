@@ -68,6 +68,8 @@ export interface EventsCopy {
     steps: { identity: string; entry: string; prize: string };
     proofLine: string;
     previousWinners: { title: string; empty: string; you: string };
+    /** A forma da prova de uma campanha liquidada: de onde vem (a semente do VRF, on-chain). */
+    proof: { markCampaign: string; vrfSeed: string; vrfRequest: string; settled: string };
     outcome: {
       pending: string;
       wonTitle: string;
@@ -325,6 +327,7 @@ const en: EventsCopy = {
     },
     proofLine: 'Winners are drawn by Chainlink VRF, and no function in the contract lets anyone choose or change them — not the creator, and not us. Only a drawn address can claim its prize, and only within 90 days of the draw; after that, the creator can take back whatever was never claimed. If the campaign is cancelled, the creator can take the prize back. In an NFT campaign with fewer winners than items, the creator can also take back the items nobody won. If you entered through our bridge, the drawn address is one of the bridge’s wallets: only the bridge can claim that prize, and it sends it on only to a wallet you have confirmed.',
     previousWinners: { title: 'Winners', empty: 'No winners drawn yet.', you: 'This is you' },
+    proof: { markCampaign: 'Proof shape of campaign', vrfSeed: 'VRF seed', vrfRequest: 'VRF request', settled: 'Settled on-chain' },
     outcome: {
       pending: 'The draw is done. Confirming what it means for your entry…',
       wonTitle: 'You won',
@@ -583,6 +586,7 @@ const pt: EventsCopy = {
     },
     proofLine: 'Os vencedores são sorteados pela Chainlink VRF e nenhuma função do contrato permite que alguém os escolha ou troque — nem quem criou a campanha, nem nós. Só um endereço sorteado pode levantar o seu prémio, e só nos 90 dias após o sorteio; depois disso, quem criou a campanha pode recuperar o que nunca foi levantado. Se a campanha for cancelada, quem a criou pode recuperar o prémio. Numa campanha NFT com menos vencedores do que itens, pode também recuperar os itens que ninguém ganhou. Se participou através da nossa ponte, o endereço sorteado é uma das carteiras da ponte: só a ponte pode levantar esse prémio, e só o envia para uma carteira que tenha confirmado.',
     previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.', you: 'É você' },
+    proof: { markCampaign: 'Forma da prova da campanha', vrfSeed: 'Semente do VRF', vrfRequest: 'Pedido ao VRF', settled: 'Liquidada on-chain' },
     outcome: {
       pending: 'O sorteio foi feito. A confirmar o que significa para a sua participação…',
       wonTitle: 'Ganhou',
@@ -841,6 +845,7 @@ const es: EventsCopy = {
     },
     proofLine: 'Los ganadores los sortea Chainlink VRF y ninguna función del contrato permite que alguien los elija o los cambie — ni quien creó la campaña, ni nosotros. Solo una dirección sorteada puede cobrar su premio, y solo dentro de los 90 días después del sorteo; pasado ese plazo, quien creó la campaña puede recuperar lo que nunca se cobró. Si la campaña se cancela, quien la creó puede recuperar el premio. En una campaña NFT con menos ganadores que ítems, también puede recuperar los ítems que nadie ganó. Si participaste a través de nuestro puente, la dirección sorteada es una de las wallets del puente: solo el puente puede cobrar ese premio, y solo lo envía a una wallet que hayas confirmado.',
     previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.', you: 'Eres tú' },
+    proof: { markCampaign: 'Forma de la prueba de la campaña', vrfSeed: 'Semilla del VRF', vrfRequest: 'Solicitud al VRF', settled: 'Liquidada on-chain' },
     outcome: {
       pending: 'El sorteo ya se hizo. Confirmando qué significa para tu participación…',
       wonTitle: 'Has ganado',

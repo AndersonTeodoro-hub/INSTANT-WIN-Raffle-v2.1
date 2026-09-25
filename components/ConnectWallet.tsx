@@ -6,7 +6,12 @@ import { Button } from './Button';
 import { Wallet, LogOut, AlertTriangle, Smartphone, Monitor } from 'lucide-react';
 import { useAppCopy } from '../pages/app.i18n';
 
-export const ConnectWallet: React.FC = () => {
+/**
+ * `inPage`: o mesmo componente como acção principal de um ecrã que precisa da
+ * carteira (criar um sorteio, os meus sorteios, identidade) — âmbar e com o
+ * rótulo sempre visível. No cabeçalho continua secundário e só com o ícone no telemóvel.
+ */
+export const ConnectWallet: React.FC<{ inPage?: boolean }> = ({ inPage = false }) => {
   const { address, isConnected } = useAccount();
   const c = useAppCopy();
   const chainId = useChainId();
@@ -54,10 +59,10 @@ export const ConnectWallet: React.FC = () => {
         type="button"
         onClick={() => setShowModal(true)}
         title={c.wallet.connect}
-        className="iw-btn iw-btn-secondary min-w-[44px] px-3 text-sm sm:px-4"
+        className={inPage ? 'iw-btn iw-btn-primary px-6 text-sm font-bold' : 'iw-btn iw-btn-secondary min-w-[44px] px-3 text-sm sm:px-4'}
       >
         <Wallet className="w-4 h-4 shrink-0" aria-hidden="true" />
-        <span className="sr-only sm:not-sr-only">{c.wallet.connect}</span>
+        <span className={inPage ? undefined : 'sr-only sm:not-sr-only'}>{c.wallet.connect}</span>
       </button>
 
       {/*
@@ -110,3 +115,13 @@ export const ConnectWallet: React.FC = () => {
     </>
   );
 };
+/** O estado de um ecrã que precisa da carteira: diz porquê e oferece ligá-la ali mesmo. */
+export const ConnectPrompt: React.FC<{ message: string }> = ({ message }) => (
+  <div className="iw-surface-raised flex flex-col items-start gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+    <p className="flex items-center gap-3 text-base text-gray-200">
+      <Wallet className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+      {message}
+    </p>
+    <ConnectWallet inPage />
+  </div>
+);

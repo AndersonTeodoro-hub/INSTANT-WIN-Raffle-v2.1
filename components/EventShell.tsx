@@ -57,7 +57,7 @@ export const EventShell: React.FC<{
 
     <main
       className={clsx(
-        'flex-1 container mx-auto px-4 sm:px-6 py-10 sm:py-14',
+        'iw-screen flex-1 container mx-auto px-4 sm:px-6 py-10 sm:py-14',
         width === 'wide' && 'max-w-6xl',
         width === 'regular' && 'max-w-3xl',
         width === 'narrow' && 'max-w-2xl',
@@ -69,7 +69,7 @@ export const EventShell: React.FC<{
     <footer className="border-t border-dark-border py-8 bg-black/80">
       <div className="container mx-auto px-4 space-y-3 text-center">
         <PublicFooterNav />
-        <p className="font-mono text-[10px] text-gray-400">&copy; 2026 Instant Win Protocol</p>
+        <p className="text-xs text-gray-400">&copy; 2026 Instant Win Protocol</p>
       </div>
     </footer>
   </div>

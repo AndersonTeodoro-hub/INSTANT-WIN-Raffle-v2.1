@@ -12,6 +12,7 @@ import {
   Badge,
   Button,
   Card,
+  DoneOnChain,
   Empty,
   Field,
   Loading,
@@ -186,28 +187,33 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   // P6-17: `at` is the order as it was when the answer came, so an error the order has since outgrown is not shown.
-  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string; at?: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string; at?: string; txHash?: string } | null>(null);
   const now = Math.floor(Date.now() / 1000);
   const at = `${order.state}:${order.trackingRegistered}`;
   // P6-17: an answer lost on the way, and the order read again shows the step done —
   // the page says it is done, never "done" and the error side by side.
-  const shown = message?.tone === 'error' && message.at !== undefined && message.at !== at ? { tone: 'success' as const, text: 'Done: the order shows it, although the answer was lost on the way.' } : message;
+  // A signed step the chain confirmed is shown as done on-chain, with its transaction; then no second notice.
+  const done = message?.tone === 'success' && message.txHash ? { text: message.text, txHash: message.txHash } : null;
+  const shown = message?.tone === 'error' && message.at !== undefined && message.at !== at ? { tone: 'success' as const, text: 'Done: the order shows it, although the answer was lost on the way.' } : done ? null : message;
   // V1 (A1): whether the number is registered is the bridge's answer (store/orders), not this page's memory —
   // so the store declares the shipment in another session, after a reload, from the notice's link, or after a lost answer.
   const actions = storeActions(order, now, order.trackingRegistered);
 
-  const run = async (label: string, work: () => Promise<{ ok: boolean; text?: string }>) => {
+  const run = async (label: string, work: () => Promise<{ ok: boolean; text?: string; txHash?: string }>) => {
     setBusy(label);
     setMessage(null);
     const result = await work();
     setBusy(null);
-    setMessage(result.ok ? { tone: 'success', text: result.text ?? 'Done.' } : { tone: 'error', text: result.text ?? 'That did not work.', at });
+    setMessage(result.ok ? { tone: 'success', text: result.text ?? 'Done.', txHash: result.txHash } : { tone: 'error', text: result.text ?? 'That did not work.', at });
     // P6-17: read the order again either way — a step whose answer was lost shows up as done.
     onChange();
   };
   const relayed = (body: Record<string, unknown> & { kind: string }) => async () => {
     const outcome = await relay(body);
-    if (outcome.status === 'done') return { ok: true, text: outcome.result.status === 'CONFIRMED' ? 'Done on-chain.' : 'Sent; confirming on-chain.' };
+    if (outcome.status === 'done')
+      return outcome.result.status === 'CONFIRMED'
+        ? { ok: true, text: 'Done on-chain.', txHash: outcome.result.txHash }
+        : { ok: true, text: 'Sent; confirming on-chain.' };
     if (outcome.status === 'cancelled') return { ok: false, text: 'Nothing was signed.' };
     return { ok: false, text: outcome.error };
   };
@@ -296,6 +302,7 @@ function StoreOrderCard({ order, onChange }: { order: StoreOrder; onChange: () =
               ))}
           </div>
           {actions.includes('refund') && <RefundForm orderId={order.orderId} run={(amount) => run('refund', relayed({ kind: 'refund', orderId: order.orderId, amount }))} busy={busy === 'refund'} />}
+          {done && <DoneOnChain text={done.text} txHash={done.txHash} />}
           {shown && <Notice tone={shown.tone}>{shown.text}</Notice>}
         </div>
       </div>
@@ -912,7 +919,8 @@ function VoucherCampaign({ vouchers, phoneVerified, onCreated }: { vouchers: rea
             </Field>
           </div>
           {message && <div className="mt-5"><Notice tone={message.tone}>{message.text}</Notice></div>}
-          <Button className="mt-5" busy={busy} disabled={!phoneVerified} onClick={() => void create()}>
+          {/* One amber button per screen: on this one it is the new obligation's. */}
+          <Button tone="secondary" className="mt-5" busy={busy} disabled={!phoneVerified} onClick={() => void create()}>
             Review and create campaign
           </Button>
         </>

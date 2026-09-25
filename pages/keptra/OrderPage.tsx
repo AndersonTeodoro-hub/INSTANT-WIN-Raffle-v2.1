@@ -5,11 +5,13 @@ import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { RequireAccount } from '../../components/keptra/SignIn';
 import { QrCode } from '../../components/keptra/QrCode';
 import { ProofSeal } from '../../components/Proof';
+import { MoneyPath } from '../../components/proof/MoneyPath';
+import { useFirstSight } from '../../components/proof/DrawReveal';
 import { useBridgeRead, useDescription, useOrderOnChain, useTerms, type OrderRead } from '../../components/keptra/hooks';
-import { Button, Card, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
+import { AddressLink, Button, Card, DoneOnChain, Empty, Eyebrow, Facts, Loading, NotAvailable, Notice, ReadError } from '../../components/keptra/ui';
 import { myOrders, orderEvidence, type Evidence } from '../../lib/keptra/api';
 import { CHAIN_FAILED } from '../../lib/keptra/reads';
-import { keptraConfigured, OrderState } from '../../lib/keptra/contracts';
+import { KEPTRA_ESCROW, keptraConfigured, OrderState } from '../../lib/keptra/contracts';
 import { codeFor, groupCode } from '../../lib/keptra/deliveryCode';
 import { formatUsdc, formatUtc, timeLeft } from '../../lib/keptra/format';
 import { orderStatusText, recipientActions, type RecipientAction } from '../../lib/keptra/orders';
@@ -58,7 +60,7 @@ function OrderBody({ orderId }: { orderId: string }) {
   const listed = useBridgeRead(myOrders, []);
   const row = listed.read.status === 'ready' ? (listed.read.value.orders.find((order) => order.orderId === orderId) ?? null) : undefined;
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string; txHash?: string } | null>(null);
   const chain = useOrderOnChain(BigInt(orderId));
   const terms = useTerms(row ? BigInt(row.termsId) : null);
   const describing = useDescription(row?.termsId ?? null);
@@ -91,7 +93,11 @@ function OrderBody({ orderId }: { orderId: string }) {
     setBusy(null);
     if (outcome.status === 'refused') setMessage({ tone: 'error', text: outcome.error });
     if (outcome.status === 'done') {
-      setMessage({ tone: 'success', text: outcome.result.status === 'CONFIRMED' ? 'Done. The order is updated on-chain.' : 'Sent. It is being confirmed on-chain.' });
+      setMessage(
+        outcome.result.status === 'CONFIRMED'
+          ? { tone: 'success', text: 'Done. The order is updated on-chain.', txHash: outcome.result.txHash }
+          : { tone: 'success', text: 'Sent. It is being confirmed on-chain.' },
+      );
       void chain.refetch();
       listed.reload();
     }
@@ -111,8 +117,12 @@ function OrderBody({ orderId }: { orderId: string }) {
           </p>
         </div>
 
+        {/* Delivered and closed, the proof done: where the money went. */}
+        {facts.state === OrderState.CLOSED && !row.prize && <PaidPath orderId={orderId} outcome={row.outcome} payout={terms.terms?.payout ?? null} />}
+
+        {/* The window is the normal course of an order, not an alarm: it only asks for attention in its last day. */}
         {facts.state === OrderState.WINDOW && row.windowEndsAt && (
-          <Notice tone="warning" title={`The window closes ${timeLeft(row.windowEndsAt, now)} — ${formatUtc(row.windowEndsAt)}`}>
+          <Notice tone={Number(row.windowEndsAt) - now < 86_400 ? 'warning' : 'info'} title={`The window closes ${timeLeft(row.windowEndsAt, now)} — ${formatUtc(row.windowEndsAt)}`}>
             If it arrived as described, confirm it. If it did not arrive, or is not as described, contest before then. Without a contest the store is paid
             {(facts.flags & 2) !== 0 ? ' under the refusal terms' : ''}.
             {/* The window opening: how much of it has run, filled in when the page opens. */}
@@ -130,7 +140,7 @@ function OrderBody({ orderId }: { orderId: string }) {
           <div className="mt-4">
             <Facts
               rows={[
-                ['Held in escrow', onChain((order) => <span className="font-mono">{row.prize ? 'Bond and coverage of the prize' : formatUsdc(order.paid)}</span>)],
+                ['Held in escrow', onChain((order) => (row.prize ? 'Bond and coverage of the prize' : <span className="font-mono">{formatUsdc(order.paid)}</span>))],
                 ['Quantity', onChain((order) => String(order.quantity))],
                 ['Delivery', row.mode === 'CARRIER' ? 'By carrier, tracked by the Keptra oracle' : 'By the store, with your delivery code'],
                 ['Ships by', formatUtc(row.shipBy)],
@@ -209,12 +219,35 @@ function OrderBody({ orderId }: { orderId: string }) {
           )}
           {message && (
             <div className="mt-4">
-              <Notice tone={message.tone}>{message.text}</Notice>
+              {message.txHash ? <DoneOnChain text={message.text} txHash={message.txHash} /> : <Notice tone={message.tone}>{message.text}</Notice>}
             </div>
           )}
         </Card>
       </aside>
     </div>
+  );
+}
+
+/**
+ * A closed order's money, drawn as it moved, the first time this device sees it:
+ * paid into the Keptra escrow and released to the store on a proven delivery, or
+ * returned to the buyer by the contract's rule. Both ends link to the chain.
+ */
+function PaidPath({ orderId, outcome, payout }: { orderId: string; outcome: number | null; payout: `0x${string}` | null }) {
+  const first = useFirstSight(`order-closed-${orderId}`);
+  const toStore = outcome === 0;
+  const toYou = outcome === 1 || outcome === 3 || outcome === 4;
+  if (!toStore && !toYou) return null;
+  const escrow = { label: 'Keptra escrow', detail: <AddressLink address={KEPTRA_ESCROW} /> };
+  const nodes = toStore ? [{ label: 'You' }, escrow, { label: 'Store', detail: payout ? <AddressLink address={payout} /> : undefined }] : [escrow, { label: 'You' }];
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2.5 font-display text-2xl font-bold tracking-tight">
+        <ProofSeal className="h-5 w-5 text-success" />
+        {toStore ? 'Released on proof' : 'Returned by rule'}
+      </h2>
+      <MoneyPath tone="proof" animate={first} nodes={nodes} className="mt-6" />
+    </Card>
   );
 }
 

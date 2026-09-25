@@ -4,6 +4,7 @@ import { CONTRACTS, USERNAME_ABI } from '../constants';
 import { Button } from '../components/Button';
 import { Check, X, Loader2, Search, UserCircle } from 'lucide-react';
 import { useAppCopy } from './app.i18n';
+import { ConnectPrompt } from '../components/ConnectWallet';
 
 export const Username: React.FC = () => {
   const { isConnected, address } = useAccount();
@@ -56,10 +57,16 @@ export const Username: React.FC = () => {
   // Verificar se já tem username registado
   const hasRegisteredUsername = currentUsername && currentUsername !== '';
 
+  // Sem carteira: o título na fonte de títulos, como no estado ligado, e a acção de a ligar ali mesmo.
   if (!isConnected) return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <h2 className="text-2xl font-bold text-white mb-4">{c.username.title}</h2>
-        <p className="text-gray-400">{c.username.connectPrompt}</p>
+    <div className="flex flex-col items-center pt-6 sm:pt-16">
+      <div className="text-center mb-8 sm:mb-12 px-1">
+        <h1 className="font-display font-bold text-4xl sm:text-5xl text-white mb-3 uppercase tracking-tight">{c.username.title}</h1>
+        <p className="text-gray-400 text-sm sm:text-base">{c.username.subtitle}</p>
+      </div>
+      <div className="w-full max-w-xl">
+        <ConnectPrompt message={c.username.connectPrompt} />
+      </div>
     </div>
   );
 

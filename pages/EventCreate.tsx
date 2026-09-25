@@ -14,6 +14,7 @@ import {
 import { Button } from '../components/Button';
 import { Banner } from '../components/Banner';
 import { EventShell } from '../components/EventShell';
+import { ConnectPrompt } from '../components/ConnectWallet';
 import { Step } from '../components/Step';
 import {
   draftTouched,
@@ -346,7 +347,7 @@ export const EventCreate: React.FC = () => {
       <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-400">{c.intro}</p>
 
       <div className="mt-8 space-y-3">
-        {!isConnected && <Banner message={c.connectPrompt} tone="notice" />}
+        {!isConnected && <ConnectPrompt message={c.connectPrompt} />}
         {paused === true && <Banner message={c.pausedBanner} tone="notice" />}
         {moduleRegistered === false && <Banner message={c.moduleNotRegistered} />}
       </div>

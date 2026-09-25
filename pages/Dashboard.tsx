@@ -6,6 +6,7 @@ import { User, Wallet, Coins, Ticket, ArrowRight, Zap, Loader2 } from 'lucide-re
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { RoundClock, RoundMeter } from '../components/Proof';
+import { CountUp } from '../components/proof/CountUp';
 import { useAppCopy } from './app.i18n';
 
 export const Dashboard: React.FC = () => {
@@ -113,7 +114,7 @@ export const Dashboard: React.FC = () => {
         <div className="flex flex-col items-center px-4 py-10 text-center sm:px-6 sm:py-14">
           {/* A ronda: ao vivo on-chain, portanto verde e a pulsar; cinzenta enquanto fecha. */}
           <p
-            className={`inline-flex items-center gap-2.5 rounded-full border px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.18em] ${
+            className={`inline-flex items-center gap-2.5 rounded-full border px-4 py-1.5 text-xs font-semibold ${
               live ? 'border-success/30 bg-success/[0.07] text-success' : 'border-dark-line text-gray-400'
             }`}
           >
@@ -127,13 +128,13 @@ export const Dashboard: React.FC = () => {
             <RoundClock
               seconds={timeLeft}
               closing={isTransitioning ? c.dashboard.closing : undefined}
-              className="text-[clamp(2.4rem,13vw,8.5rem)]"
+              className="justify-center text-[clamp(2.4rem,13vw,8.5rem)]"
             />
           </h1>
 
           <div className="mt-6 w-full max-w-xl">
             <RoundMeter seconds={timeLeft} closing={isTransitioning} />
-            <p className="mt-3 font-mono text-xs uppercase tracking-widest text-gray-400 sm:text-sm">
+            <p className="mt-3 text-xs text-gray-400 sm:text-sm">
               {isTransitioning ? c.dashboard.endedAwaitingClose : c.dashboard.timeRemaining}
             </p>
           </div>
@@ -142,7 +143,8 @@ export const Dashboard: React.FC = () => {
             <div className="min-w-0">
               <dt className="text-xs font-medium text-gray-400">{c.dashboard.totalPrizePool}</dt>
               <dd className="mt-2 flex items-baseline gap-2 font-mono font-bold text-brand">
-                <span className="truncate text-4xl sm:text-5xl">{formatUnits(totalPool as bigint, 6)}</span>
+                {/* O prémio conta até ao valor lido da cadeia, e de um valor ao seguinte quando entra um bilhete. */}
+                <CountUp value={totalPool as bigint} decimals={6} from0 className="truncate text-4xl sm:text-5xl" />
                 <span className="text-base text-gray-400">USDC</span>
               </dd>
             </div>
@@ -150,7 +152,7 @@ export const Dashboard: React.FC = () => {
               <dt className="text-xs font-medium text-gray-400">{c.dashboard.ticketsSold}</dt>
               <dd className="mt-2 flex items-center justify-end gap-2 font-mono text-4xl font-bold text-white sm:text-5xl">
                 <Ticket className="h-6 w-6 text-gray-400" aria-hidden="true" />
-                {ticketCount.toString()}
+                <CountUp value={ticketCount} decimals={0} />
               </dd>
             </div>
           </dl>

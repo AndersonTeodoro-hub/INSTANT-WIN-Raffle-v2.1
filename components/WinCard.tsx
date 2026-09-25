@@ -12,6 +12,11 @@ import { Button } from './Button';
 import { Share2, Check, ExternalLink } from 'lucide-react';
 import { ProofSeal } from './Proof';
 import { useAppCopy } from '../pages/app.i18n';
+import { CountUp } from './proof/CountUp';
+import { ProofMark } from './proof/ProofMark';
+import { MoneyPath } from './proof/MoneyPath';
+import { useFirstSight } from './proof/DrawReveal';
+import { shortProof } from '../lib/proof/mark';
 
 const LOG_CHUNK = 9_000n;
 const MAX_CHUNKS = 30;
@@ -23,8 +28,12 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /**
  * Recibo de vitória. Aparece quando há prémio por reclamar ou quando um claim
- * acabou de confirmar. Deliberadamente sem animação: é um comprovativo, não uma
- * máquina de casino. Âmbar só no valor; verde só na prova on-chain.
+ * acabou de confirmar. Celebra-se a prova, não a sorte: a primeira vez que este
+ * aparelho vê a vitória, o valor conta até ao que o contrato creditou e a forma
+ * do sorteio ganho grava-se a partir da transacção do VRF que o liquidou; depois
+ * do claim confirmado on-chain, o percurso do prémio — do contrato à wallet — com
+ * a transacção que o prova. Sem confettis nem sons: é um comprovativo. Âmbar só
+ * no valor e no percurso do prémio; verde só na prova on-chain.
  */
 export const WinCard: React.FC<{
   /** Fallback quando não se encontra o evento (ex.: fatia dev, ou log fora da janela). */
@@ -93,6 +102,9 @@ export const WinCard: React.FC<{
   const amount = win?.amount ?? fallbackAmount;
   const proofTx = claimTxHash ?? win?.txHash;
   const name = username && (username as string).length > 0 ? `@${username}` : address ? short(address) : '';
+  // A vitória celebra-se uma vez por sorteio ganho, e o claim uma vez por transacção.
+  const firstWin = useFirstSight(win?.txHash ? `win-${win.txHash}` : null);
+  const firstClaim = useFirstSight(claimTxHash ? `claim-${claimTxHash}` : null);
 
   const shareText = `${c.winCard.sharePre} ${formatUnits(amount, 6)} ${c.winCard.sharePost} ${SITE}`;
 
@@ -112,40 +124,80 @@ export const WinCard: React.FC<{
 
   return (
     <div className="iw-surface-raised iw-swap !rounded-card p-5 mb-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <p className="font-mono text-sm text-white truncate">{name}</p>
-        {win?.rank ? (
-          <span className="font-mono text-[10px] uppercase tracking-widest text-gray-400 border border-gray-700 rounded px-2 py-0.5 shrink-0">
-            {rankLabel[win.rank] ?? `#${win.rank}`}
-          </span>
-        ) : null}
+      <div className="flex items-start gap-4">
+        {win?.txHash && (
+          <ProofMark
+            proof={win.txHash}
+            size={84}
+            draw={firstWin}
+            label={`${c.proof.markRound} ${win.roundId.toString()}`}
+            className="hidden min-[400px]:block"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="font-mono text-sm text-white truncate">{name}</p>
+            {win?.rank ? (
+              <span className="rounded border border-gray-700 px-2 py-0.5 text-xs text-gray-300 shrink-0">
+                {rankLabel[win.rank] ?? `#${win.rank}`}
+              </span>
+            ) : null}
+          </div>
+
+          <p className="font-mono text-4xl sm:text-5xl font-bold text-brand tabular-nums leading-none">
+            <CountUp key={firstWin ? 'first' : 'known'} value={amount} decimals={6} from0={firstWin && !claimTxHash} delay={firstWin ? 350 : 0} duration={1300} />
+            <span className="ml-2 font-sans text-base text-gray-400 font-normal">USDC</span>
+          </p>
+
+          {win?.roundId !== undefined && (
+            <p className="font-mono text-[11px] text-gray-400 mt-2">{c.winCard.round} {win.roundId.toString()}</p>
+          )}
+        </div>
       </div>
 
-      <p className="font-mono text-4xl sm:text-5xl font-bold text-brand tabular-nums leading-none">
-        {formatUnits(amount, 6)}
-        <span className="ml-2 font-sans text-base text-gray-400 font-normal">USDC</span>
-      </p>
-
-      {win?.roundId !== undefined && (
-        <p className="font-mono text-[11px] text-gray-400 mt-2">{c.winCard.round} {win.roundId.toString()}</p>
-      )}
-
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-dark-border pt-3">
-        <span className="flex items-center gap-2 font-mono text-[11px] text-success uppercase tracking-widest">
-          <ProofSeal className="w-4 h-4" /> {c.winCard.verified}
-        </span>
-        {proofTx && (
+      {claimTxHash ? (
+        // O claim confirmou on-chain: o prémio saiu do contrato para a wallet.
+        <div className="mt-4 border-t border-dark-border pt-4">
+          <p className="flex items-center gap-2 text-sm font-medium text-success">
+            <ProofSeal className="h-4 w-4" /> {c.winCard.claimed}
+          </p>
+          <MoneyPath
+            tone="prize"
+            animate={firstClaim}
+            className="mt-4"
+            nodes={[
+              { label: c.winCard.contract, detail: <span className="font-mono">{short(CONTRACTS.RAFFLE_MANAGER)}</span> },
+              { label: c.winCard.yourWallet, detail: address ? <span className="font-mono">{short(address)}</span> : undefined },
+            ]}
+          />
           <a
-            href={`${ARBISCAN_TX}${proofTx}`}
+            href={`${ARBISCAN_TX}${claimTxHash}`}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={c.winCard.ariaViewTx}
-            className="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 text-gray-400 hover:text-white transition-colors"
+            className="mt-3 inline-flex min-h-[44px] items-center gap-2 text-sm text-gray-300 transition-colors hover:text-success"
           >
-            <ExternalLink className="w-4 h-4" />
+            {c.winCard.claimTx} <span className="font-mono text-success">{shortProof(claimTxHash)}</span>
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
           </a>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-dark-border pt-3">
+          <span className="flex items-center gap-2 text-xs font-medium text-success">
+            <ProofSeal className="w-4 h-4" /> {c.winCard.verified}
+          </span>
+          {proofTx && (
+            <a
+              href={`${ARBISCAN_TX}${proofTx}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={c.winCard.ariaViewTx}
+              className="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 text-gray-400 hover:text-white transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          )}
+        </div>
+      )}
 
       <Button
         variant="outline"

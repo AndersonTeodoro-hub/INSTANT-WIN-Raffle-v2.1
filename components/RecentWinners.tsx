@@ -9,6 +9,7 @@ import {
   PRIZE_AWARDED_EVENT,
 } from '../constants';
 import { Trophy, Check } from 'lucide-react';
+import { ProofMark } from './proof/ProofMark';
 import { useAppCopy } from '../pages/app.i18n';
 import type { AppCopy } from '../pages/app.i18n';
 
@@ -140,6 +141,16 @@ export const RecentWinners: React.FC = () => {
     query: { enabled: uniqueAddrs.length > 0, staleTime: 300_000 },
   });
 
+  const rounds = useMemo(() => {
+    const out: { id: bigint; txHash: `0x${string}`; timestamp?: number; winners: Winner[] }[] = [];
+    for (const w of winners ?? []) {
+      const last = out[out.length - 1];
+      if (last && last.id === w.roundId) last.winners.push(w);
+      else out.push({ id: w.roundId, txHash: w.txHash, timestamp: w.timestamp, winners: [w] });
+    }
+    return out;
+  }, [winners]);
+
   const nameOf = (addr: string) => {
     const i = uniqueAddrs.indexOf(addr as `0x${string}`);
     const n = i >= 0 ? (names?.[i]?.result as string | undefined) : undefined;
@@ -152,56 +163,57 @@ export const RecentWinners: React.FC = () => {
         <h2 className="font-display text-2xl font-bold text-white tracking-tight flex items-center gap-2">
           <Trophy className="w-5 h-5 text-brand shrink-0" aria-hidden="true" /> {c.winners.title}
         </h2>
-        <span className="flex items-center gap-1.5 shrink-0 rounded-full border border-success/25 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-success">
+        <span className="flex items-center gap-1.5 shrink-0 rounded-full border border-success/25 px-2.5 py-1 text-xs font-medium text-success">
           <Check className="w-3 h-3 shrink-0" strokeWidth={3} aria-hidden="true" />
           {c.winners.onChain}
         </span>
       </div>
 
       {isLoading && (
-        <p className="font-mono text-sm text-gray-400">{c.winners.reading}</p>
+        <p className="text-sm text-gray-400">{c.winners.reading}</p>
       )}
 
       {!isLoading && (!winners || winners.length === 0) && (
-        <p className="font-mono text-sm text-gray-400">{c.winners.empty}</p>
+        <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.winners.empty}</p>
       )}
 
-      {winners && winners.length > 0 && (
-        <ul className="divide-y divide-dark-border">
-          {winners.map((w, i) => (
-            <li
-              key={`${w.txHash}-${w.rank}`}
-              // Os resultados entram em cascata curta: é uma lista a chegar da cadeia.
-              style={{ ['--i' as string]: Math.min(i, 8) }}
-              className="iw-rise flex items-center justify-between gap-3 py-3 min-h-[44px]"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="font-mono text-xs text-gray-400 w-5 shrink-0 tabular-nums">{w.rank}</span>
-                <div className="min-w-0">
-                  <p className="font-mono text-sm text-white truncate">{nameOf(w.winner)}</p>
-                  <p className="flex flex-wrap items-baseline gap-x-3 font-mono text-[11px] text-gray-400 tabular-nums">
-                    <span>
-                      {c.winners.round} {w.roundId.toString()}
-                    </span>
-                    <span className="text-gray-400">{relativeTime(w.timestamp, c.winners)}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="font-mono text-sm sm:text-base font-bold text-brand tabular-nums">
-                  {formatUnits(w.amount, 6)}
-                </span>
+      {/* Um sorteio por bloco: a sua forma, a ronda e a transacção do VRF que o
+          liquidou; por baixo, os três vencedores. */}
+      {rounds.length > 0 && (
+        <ul className="space-y-5">
+          {rounds.map((round, r) => (
+            <li key={round.id.toString()} style={{ ['--i' as string]: Math.min(r, 6) }} className="iw-rise">
+              <div className="flex items-center gap-3">
+                <ProofMark proof={round.txHash} size={40} label={`${c.proof.markRound} ${round.id.toString()}`} />
+                <p className="min-w-0 flex-1 text-sm text-gray-300">
+                  {c.winners.round} <span className="font-mono text-white tabular-nums">{round.id.toString()}</span>
+                  {round.timestamp !== undefined && (
+                    <span className="ml-2 font-mono text-xs text-gray-400">{relativeTime(round.timestamp, c.winners)}</span>
+                  )}
+                </p>
                 <a
-                  href={`${ARBISCAN_TX}${w.txHash}`}
+                  href={`${ARBISCAN_TX}${round.txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={`${c.winners.ariaVerifyPre} ${w.roundId} ${c.winners.ariaVerifyPost}`}
+                  aria-label={`${c.winners.ariaVerifyPre} ${round.id} ${c.winners.ariaVerifyPost}`}
                   className="flex items-center justify-center w-11 h-11 -mr-2 text-success hover:text-success-hover transition-colors"
                 >
                   <Check className="w-4 h-4" strokeWidth={3} />
                 </a>
               </div>
+              <ol className="mt-1 divide-y divide-dark-border border-y border-dark-border">
+                {round.winners.map((w) => (
+                  <li key={`${w.txHash}-${w.rank}`} className="flex items-center justify-between gap-3 py-2.5 min-h-[44px]">
+                    <span className="flex items-center gap-3 min-w-0">
+                      <span className="font-mono text-xs text-gray-400 w-5 shrink-0 tabular-nums">{w.rank}</span>
+                      <span className="font-mono text-sm text-white truncate">{nameOf(w.winner)}</span>
+                    </span>
+                    <span className="font-mono text-sm sm:text-base font-bold text-brand tabular-nums shrink-0">
+                      {formatUnits(w.amount, 6)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </li>
           ))}
         </ul>

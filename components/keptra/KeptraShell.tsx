@@ -19,7 +19,7 @@ export function KeptraMark({ area }: { area?: 'business' }) {
       </span>
       <span className="font-display text-2xl font-bold tracking-tight text-white">Keptra</span>
       {area === 'business' && (
-        <span className="ml-1 rounded-md border border-dark-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-gray-300">Business</span>
+        <span className="ml-1 rounded-md border border-dark-line px-2 py-0.5 text-xs font-medium text-gray-300">Business</span>
       )}
     </Link>
   );
@@ -104,7 +104,7 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
           </nav>
         )}
       </SiteHeader>
-      <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
+      <main id="main" className="iw-screen mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
         {children}
       </main>
       <footer className="border-t border-dark-border bg-black/80">
@@ -117,7 +117,7 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
             <Link to="/pool" className="inline-flex min-h-[32px] items-center hover:text-white">
               Guarantee pool
             </Link>
-            <span className="inline-flex min-h-[32px] items-center font-mono">© 2026 Keptra</span>
+            <span className="inline-flex min-h-[32px] items-center">© 2026 Keptra</span>
           </div>
         </div>
       </footer>

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
-import { formatUnits } from 'viem';
 import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status } from '../lib/giveaway-v2-abi';
 import { EventShell } from '../components/EventShell';
@@ -10,6 +9,9 @@ import { BrandByline, IdentityBanner, useCampaignIdentity } from '../components/
 import { useEventsCopy } from './events.i18n';
 import { Check, Loader2, ExternalLink, ArrowRight, Ban, Plus } from 'lucide-react';
 import { HeaderAction } from '../components/SiteHeader';
+import { ProofMark } from '../components/proof/ProofMark';
+import { CountUp } from '../components/proof/CountUp';
+import { shortProof, uintHex } from '../lib/proof/mark';
 
 const MAX_LISTED = 30;
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -41,7 +43,7 @@ type GiveawayTuple = {
 
 const STATUS_KEY = ['NONE', 'OPEN', 'CLOSED', 'DRAW_REQUESTED', 'SEED_RECEIVED', 'SETTLED', 'CANCELLED'] as const;
 
-function EventCard({ id }: { id: bigint }) {
+function EventCard({ id, index }: { id: bigint; index: number }) {
   const c = useEventsCopy();
 
   const { data: giveaway } = useReadContract({
@@ -94,10 +96,14 @@ function EventCard({ id }: { id: bigint }) {
   const taken = left !== undefined ? g.slotCap - Number(left) : null;
   const filledPct = taken !== null && g.slotCap > 0 ? Math.min(100, (taken / g.slotCap) * 100) : 0;
 
+  // Liquidada: a forma do sorteio, desenhada da semente que o Chainlink VRF entregou ao contrato.
+  const seedProof = g.status === GiveawayV2Status.SETTLED ? uintHex(g.seed) : null;
+
   return (
     <Link
       to={`/events/${id.toString()}`}
-      className={`iw-surface group flex flex-col overflow-hidden ${isCancelled ? '!border-dashed !bg-dark-bg' : ''} ${isOpen ? '!border-dark-line' : ''}`}
+      style={{ ['--i' as string]: Math.min(index, 8) }}
+      className={`iw-surface iw-rise group flex flex-col overflow-hidden ${isCancelled ? '!border-dashed !bg-dark-bg' : ''} ${isOpen ? '!border-dark-line' : ''}`}
     >
       {identity && (
         <div className="border-b border-dark-border/80">
@@ -128,6 +134,16 @@ function EventCard({ id }: { id: bigint }) {
           </div>
         )}
 
+        {seedProof !== null && (
+          <div className="mt-4 flex items-center gap-3">
+            <ProofMark proof={seedProof} size={56} label={`${c.detail.proof.markCampaign} ${id.toString()}`} className="transition-transform duration-500 ease-out group-hover:rotate-12" />
+            <p className="min-w-0 text-xs text-gray-400">
+              {c.detail.proof.vrfSeed}
+              <span className="mt-0.5 block truncate font-mono text-success">{shortProof(seedProof)}</span>
+            </p>
+          </div>
+        )}
+
         <div className="mt-5 flex items-end justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm text-gray-400">{c.list.card.prize}</p>
@@ -136,7 +152,7 @@ function EventCard({ id }: { id: bigint }) {
                 isCancelled ? 'text-gray-400 line-through decoration-gray-600' : 'text-brand'
               }`}
             >
-              {formatUnits(displayAmount, decimals)}
+              <CountUp value={displayAmount} decimals={decimals} />
             </p>
           </div>
           <p className="shrink-0 pb-0.5 font-mono text-xs text-gray-400">{symbol}</p>
@@ -187,7 +203,7 @@ export function EventStatus({ status, label }: { status: number; label: string }
   const cancelled = status === GiveawayV2Status.CANCELLED;
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.12em] ${
+      className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium ${
         live || settled ? 'border-success/30 bg-success/[0.07] text-success' : 'border-dark-line text-gray-400'
       }`}
     >
@@ -267,8 +283,8 @@ export const EventCenter: React.FC = () => {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {ids.map((id) => (
-            <EventCard key={id.toString()} id={id} />
+          {ids.map((id, index) => (
+            <EventCard key={id.toString()} id={id} index={index} />
           ))}
         </div>
       </div>
@@ -280,7 +296,7 @@ export const EventCenter: React.FC = () => {
         className="iw-surface mt-12 flex items-center justify-between gap-3 min-h-[44px] px-4 py-3 font-mono text-[11px] text-gray-400 hover:!border-success/40 hover:text-success"
       >
         <span className="flex flex-wrap items-baseline gap-x-2 min-w-0">
-          <span className="text-gray-400">{c.list.contractLabel}</span>
+          <span className="font-sans text-gray-400">{c.list.contractLabel}</span>
           <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
         </span>
         <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />

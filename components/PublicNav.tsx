@@ -82,7 +82,7 @@ export const PublicFooterNav: React.FC = () => {
             to={item.to}
             aria-current={isActive ? 'page' : undefined}
             className={clsx(
-              'inline-flex items-center min-h-[44px] px-1 font-mono text-[11px] uppercase tracking-widest transition-colors',
+              'inline-flex items-center min-h-[44px] px-1 text-xs font-medium transition-colors',
               isActive ? 'text-gray-300' : 'text-gray-400 hover:text-white',
             )}
           >

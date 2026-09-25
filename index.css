@@ -62,6 +62,22 @@
   --dur-focal: 700ms;
 }
 
+/*
+ * A luz do cursor numa superfície (components/PointerLight.tsx escreve-as no
+ * elemento por baixo do rato). Registadas e não herdadas: um cartão dentro de
+ * outro não recebe a luz do pai, e mudar o valor não recalcula os filhos.
+ */
+@property --mx {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: -1000px;
+}
+@property --my {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: -1000px;
+}
+
 html {
   background-color: var(--ground);
   -webkit-tap-highlight-color: transparent;
@@ -79,6 +95,11 @@ body {
 ::selection {
   background: rgba(245, 158, 11, 0.3);
   color: #ffffff;
+}
+
+input,
+textarea {
+  caret-color: var(--prize);
 }
 
 /* Dados alinham em colunas: os números da casa são sempre tabulares. */
@@ -155,13 +176,17 @@ input::-webkit-inner-spin-button {
   .iw-surface {
     border: 1px solid var(--line);
     border-radius: var(--radius-card);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 120px), var(--surface-1);
+    background:
+      radial-gradient(420px circle at var(--mx) var(--my), rgba(255, 255, 255, 0.045), transparent 70%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 120px), var(--surface-1);
     box-shadow: var(--edge-light);
   }
   .iw-surface-raised {
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-panel);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 160px), var(--surface-2);
+    background:
+      radial-gradient(520px circle at var(--mx) var(--my), rgba(255, 255, 255, 0.05), transparent 70%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 160px), var(--surface-2);
     box-shadow: var(--edge-light), var(--lift);
   }
   a.iw-surface,
@@ -292,6 +317,159 @@ input::-webkit-inner-spin-button {
   }
 }
 
+
+/*
+ * ---------------------------------------------------------------------------
+ * A prova é o espectáculo (segunda passagem)
+ * ---------------------------------------------------------------------------
+ */
+
+/* Entrada de cada ecrã: a página assenta, o cabeçalho fica onde estava. */
+.iw-screen {
+  animation: iw-screen 520ms var(--ease-out) both;
+}
+@keyframes iw-screen {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/*
+ * A forma da prova a gravar-se: cada fio no seu tempo, depois o aro com os
+ * dígitos da prova. Só na primeira vez que um aparelho vê um sorteio.
+ */
+.iw-mark-draw .iw-mark-rosette path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: iw-engrave 1500ms var(--ease-in-out) forwards;
+  animation-delay: calc(var(--i, 0) * 26ms);
+}
+.iw-mark-draw .iw-mark-rim {
+  animation: iw-fade 700ms var(--ease-out) 900ms both;
+}
+@keyframes iw-engrave {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A revelação: a forma, o selo, os vencedores um a um, a prova. */
+.iw-reveal-moment.is-first .iw-reveal-seal {
+  animation: iw-rise 420ms var(--ease-out) 950ms both;
+}
+.iw-reveal-moment.is-first .iw-reveal-seal .iw-seal path {
+  animation-delay: 1050ms;
+}
+.iw-reveal-moment.is-first .iw-reveal-row {
+  animation: iw-rise 460ms var(--ease-out) both;
+  animation-delay: calc(1150ms + var(--i, 0) * 170ms);
+}
+.iw-reveal-moment.is-first .iw-reveal-proof {
+  animation: iw-fade 500ms var(--ease-out) 1800ms both;
+}
+
+/* O carril da protecção de uma oferta: desce no telemóvel, corre para a direita no computador. */
+.iw-rail-fill {
+  transform-origin: top center;
+  animation: iw-fill-y 1300ms var(--ease-in-out) 150ms both;
+}
+@media (min-width: 640px) {
+  .iw-rail-fill {
+    transform-origin: left center;
+    animation-name: iw-fill;
+  }
+}
+@keyframes iw-fill-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Feito on-chain (Keptra): um anel sai do selo, uma vez. */
+.iw-done-ring {
+  animation: iw-ping 1100ms var(--ease-out) 350ms 1 both;
+}
+
+/* A tensão do fim da ronda: cada segundo cai no seu mostrador; a ponta da linha bate. */
+.iw-tick {
+  animation: iw-tick 260ms var(--ease-out) both;
+}
+.iw-clock[data-tension='2'] .iw-tick {
+  animation: iw-tick-strong 320ms var(--ease-out) both;
+}
+@keyframes iw-tick {
+  from {
+    transform: translateY(-18%);
+    opacity: 0.4;
+  }
+}
+@keyframes iw-tick-strong {
+  from {
+    transform: translateY(-24%) scale(1.08);
+    opacity: 0.3;
+  }
+}
+.iw-meter-tip {
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  animation: iw-beat 700ms var(--ease-out) both;
+}
+.iw-meter-tip[data-tension='2'] {
+  animation-duration: 480ms;
+}
+@keyframes iw-beat {
+  from {
+    scale: 2.1;
+    opacity: 0.2;
+  }
+}
+
+/*
+ * O percurso do dinheiro (um prémio reclamado, uma encomenda paga à loja): a
+ * linha enche de uma ponta à outra uma vez e a ponta viaja com ela.
+ */
+.iw-path-fill {
+  transform-origin: left center;
+  animation: iw-fill 1400ms var(--ease-in-out) 200ms both;
+}
+.iw-path-runner {
+  animation: iw-run 1400ms var(--ease-in-out) 200ms both;
+}
+@keyframes iw-run {
+  from {
+    transform: translateX(-100%);
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 0;
+  }
+}
+.iw-path-node {
+  animation: iw-rise 420ms var(--ease-out) both;
+}
+
+/*
+ * O filme (components/film/Film.tsx). O painel de cada capítulo aparece quando
+ * o capítulo chega ao meio do ecrã. Por omissão está visível: sem JavaScript,
+ * ou na versão parada, nada fica escondido.
+ */
+.film-canvas {
+  animation: iw-fade 900ms var(--ease-out) 120ms both;
+}
+.film-live [data-film-section] [data-film-panel] {
+  transition:
+    opacity 640ms var(--ease-out),
+    transform 760ms var(--ease-out);
+}
+.film-live [data-film-section][data-active='false'] [data-film-panel] {
+  opacity: 0;
+  transform: translateY(28px);
+}
+
 @keyframes iw-ping {
   from {
     transform: scale(1);
@@ -403,6 +581,7 @@ input::-webkit-inner-spin-button {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

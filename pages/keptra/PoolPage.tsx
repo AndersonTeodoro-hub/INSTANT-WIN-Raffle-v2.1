@@ -110,9 +110,10 @@ function PoolBody() {
           <Stat label="Losses paid" value={text('lossesPaid', usdcOf)} />
         </dl>
         <PoolMeter capital={value('totalAssets')} reserved={value('reservedTotal')} maxBps={value('maxUtilisationBps')} />
-        <AbsorptionOrder />
       </Card>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <AbsorptionOrder reserve={text('riskReserve', usdcOf)} capital={text('totalAssets', usdcOf)} />
+      {/* Each card as tall as what it holds: no card stretched into an empty box. */}
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
         <Card>
           <SectionTitle>Protection fees</SectionTitle>
           <dl className="grid grid-cols-2 gap-6">
@@ -127,7 +128,7 @@ function PoolBody() {
           </dl>
           <FeesDistributed pool={pool} attempt={attempt} report={reportFailure} />
         </Card>
-        <Providers pool={pool} supply={value('totalSupply')} attempt={attempt} report={reportFailure} />
+        <Providers pool={pool} supply={value('totalSupply')} capital={value('totalAssets')} attempt={attempt} report={reportFailure} />
       </div>
       <Debts pool={pool} attempt={attempt} report={reportFailure} />
       <p className="text-xs text-gray-400">
@@ -162,26 +163,40 @@ function PoolMeter({ capital, reserved, maxBps }: { capital: bigint | number | n
 
 /**
  * When a brand fails, who pays first — the order the paragraph above states,
- * drawn as a rail: the brand's bond, then the risk reserve, then the pool's
- * capital. It runs once when the page opens, each step lighting after the one
- * before, so the order reads as an order.
+ * given its own place: the brand's bond, then the risk reserve, then the pool's
+ * capital, each with what it holds where the chain says. The rail fills once
+ * when the page opens, each layer arriving after the one before, so the order
+ * reads as an order.
  */
-function AbsorptionOrder() {
-  const steps = ['Bond', 'Risk reserve', 'Capital'];
+function AbsorptionOrder({ reserve, capital }: { reserve: string; capital: string }) {
+  const layers = [
+    { name: 'Bond', body: "The brand's own deposit, paid first.", figure: null },
+    { name: 'Risk reserve', body: 'Absorbs losses before providers', figure: reserve },
+    { name: 'Capital', body: "The providers' capital, paid last.", figure: capital },
+  ];
   return (
-    <ol className="relative mt-6 grid grid-cols-3 gap-2">
-      <span aria-hidden="true" className="absolute left-[16.6%] right-[16.6%] top-[0.95rem] h-px overflow-hidden bg-dark-line">
-        <span className="iw-meter block h-full bg-white/60" />
-      </span>
-      {steps.map((step, index) => (
-        <li key={step} style={{ ['--i' as string]: index * 3 }} className="iw-rise relative flex flex-col items-center gap-2 text-center">
-          <span className="grid h-8 w-8 place-items-center rounded-full border border-dark-line bg-dark-raised font-mono text-xs text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            {index + 1}
-          </span>
-          <span className="text-xs text-gray-300">{step}</span>
-        </li>
-      ))}
-    </ol>
+    <section aria-labelledby="absorption" className="iw-surface-raised p-5 sm:p-7">
+      <h2 id="absorption" className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+        Who pays when a brand fails
+      </h2>
+      <ol className="relative mt-6 grid gap-4 sm:grid-cols-3">
+        <span aria-hidden="true" className="absolute left-[1.15rem] top-4 bottom-4 w-px overflow-hidden bg-dark-line sm:left-8 sm:right-8 sm:top-[1.15rem] sm:bottom-auto sm:h-px sm:w-auto">
+          <span className="iw-rail-fill block h-full w-full bg-white/60" />
+        </span>
+        {layers.map((layer, index) => (
+          <li key={layer.name} className="iw-path-node relative flex gap-4 sm:flex-col sm:gap-3" style={{ animationDelay: `${150 + index * 420}ms` }}>
+            <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full border border-dark-line bg-dark-raised font-mono text-sm text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-white">{layer.name}</p>
+              <p className="mt-1 text-sm leading-relaxed text-gray-300">{layer.body}</p>
+              {layer.figure && <p className="mt-2 font-mono text-lg font-semibold tabular-nums text-white">{layer.figure}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -233,7 +248,19 @@ function FeesDistributed({ pool, attempt, report }: { pool: `0x${string}`; attem
 }
 
 /** H2 and T11: the providers' shares, from the pool's ProviderSet events and their balances. */
-function Providers({ pool, supply, attempt, report }: { pool: `0x${string}`; supply: bigint | number | null; attempt: number; report: Reporter }) {
+function Providers({
+  pool,
+  supply,
+  capital,
+  attempt,
+  report,
+}: {
+  pool: `0x${string}`;
+  supply: bigint | number | null;
+  capital: bigint | number | null;
+  attempt: number;
+  report: Reporter;
+}) {
   const client = usePublicClient();
   const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
   useEffect(() => {
@@ -272,19 +299,36 @@ function Providers({ pool, supply, attempt, report }: { pool: `0x${string}`; sup
       ) : providers.length === 0 ? (
         <p className="text-sm text-gray-400">No provider authorised yet.</p>
       ) : (
-        <ul className="divide-y divide-dark-border">
-          {providers.map((provider, index) => {
-            const read = balances.data?.[index];
-            const shares = read?.status === 'success' ? (read.result as bigint) : null;
-            const share = shares !== null && supply ? Number((shares * 10_000n) / BigInt(supply)) : null;
-            return (
-              <li key={provider} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-                <AddressLink address={provider} />
-                <span className="font-mono text-white">{share !== null ? `${(share / 100).toFixed(2)}% of the shares` : read?.status === 'failure' || balances.isError ? NOT_READ : '…'}</span>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          {/* The shares as one bar: each provider's part of the pool, drawn from the balances read below. */}
+          <div aria-hidden="true" className="flex h-2 w-full overflow-hidden rounded-full bg-white/[0.07]">
+            {providers.map((provider, index) => {
+              const read = balances.data?.[index];
+              const shares = read?.status === 'success' ? (read.result as bigint) : null;
+              const part = shares !== null && supply ? Number((shares * 10_000n) / BigInt(supply)) / 10_000 : 0;
+              return <span key={provider} className="iw-meter h-full border-r border-black bg-white/70 last:border-r-0" style={{ width: `${part * 100}%` }} />;
+            })}
+          </div>
+          <ul className="mt-4 divide-y divide-dark-border">
+            {providers.map((provider, index) => {
+              const read = balances.data?.[index];
+              const shares = read?.status === 'success' ? (read.result as bigint) : null;
+              const share = shares !== null && supply ? Number((shares * 10_000n) / BigInt(supply)) : null;
+              // Their part of the capital, from the two figures already read (shares of the supply × capital).
+              const held = shares !== null && supply && capital !== null ? (shares * BigInt(capital)) / BigInt(supply) : null;
+              return (
+                <li key={provider} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                  <AddressLink address={provider} />
+                  <span className="text-right">
+                    <span className="block font-mono text-white">{share !== null ? `${(share / 100).toFixed(2)}% of the shares` : read?.status === 'failure' || balances.isError ? NOT_READ : '…'}</span>
+                    {held !== null && <span className="block font-mono text-xs text-gray-400">{formatUsdc(held)} of capital</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-4 text-xs leading-relaxed text-gray-400">Its capital comes from the providers Keptra authorises. Their capital pays after the brand's bond and the risk reserve.</p>
+        </>
       )}
     </Card>
   );

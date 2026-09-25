@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { KeyRound, Mail } from 'lucide-react';
+import { KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import { requestCode, verifyCode, type AccountStatus, type Role } from '../../lib/keptra/api';
 import { useKeptra } from './KeptraProvider';
 import { Button, Card, Field, Loading, Notice, ReadError, inputClass } from './ui';
@@ -136,14 +136,24 @@ export function AccountSetup({ role, status }: { role: Role; status: AccountStat
   const [error, setError] = useState<string | null>(null);
   const account = status.accounts.find((item) => item.role === role);
   if (account === undefined || account.configured) return null;
+  // A step of the way in, not a problem: no alert language (triangle, warning tone) — a card with its one action.
   return (
-    <Notice tone="warning" title={role === 'CREATOR' ? 'Set up your business account' : 'Set up your account'}>
-      <p>
+    // A plain region, not a card: it also sits inside the account page's cards.
+    <div className="max-w-xl rounded-card border border-dark-line bg-white/[0.02] p-5">
+      <div className="flex items-center gap-3">
+        <ShieldCheck className="h-5 w-5 text-gray-300" aria-hidden="true" />
+        <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">{role === 'CREATOR' ? 'Set up your business account' : 'Set up your account'}</h2>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-gray-300">
         One signature creates your {role === 'CREATOR' ? 'business ' : ''}account on Arbitrum One with its recovery protection switched on. Keptra pays the network fee.
       </p>
-      {error && <p className="mt-2 text-red-200">{error}</p>}
+      {error && (
+        <div className="mt-4">
+          <Notice tone="error">{error}</Notice>
+        </div>
+      )}
       <Button
-        className="mt-3"
+        className="mt-5"
         busy={busy}
         onClick={async () => {
           setBusy(true);
@@ -155,7 +165,7 @@ export function AccountSetup({ role, status }: { role: Role; status: AccountStat
       >
         Set up with passkey
       </Button>
-    </Notice>
+    </div>
   );
 }
 

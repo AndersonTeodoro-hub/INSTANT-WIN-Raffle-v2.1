@@ -75,6 +75,42 @@ export function OfferPage() {
               )}
             </div>
 
+            {/*
+              How the money is protected, right under the price it protects: the
+              three steps it follows, on one rail that fills once when the offer
+              opens (the value arriving at each step in turn).
+            */}
+            <section aria-labelledby="protection" className="iw-surface-raised p-5 sm:p-7">
+              <h2 id="protection" className="flex items-center gap-2.5 font-display text-2xl font-bold tracking-tight sm:text-3xl">
+                <ShieldCheck className="h-6 w-6 text-success" aria-hidden="true" />
+                How your money is protected
+              </h2>
+              <ol className="relative mt-6 grid gap-5 sm:grid-cols-3 sm:gap-4">
+                <span aria-hidden="true" className="absolute left-[1.15rem] top-3 bottom-3 w-px overflow-hidden bg-dark-line sm:left-4 sm:right-4 sm:top-[1.15rem] sm:bottom-auto sm:h-px sm:w-auto">
+                  <span className="iw-rail-fill block h-full w-full bg-success/70" />
+                </span>
+                {[
+                  [ShieldCheck, 'Held on-chain', 'Your payment goes to the Keptra escrow contract, not to the store.'],
+                  [PackageCheck, 'Released on proof', 'The store is paid when delivery is proven and 5 days pass without a contest — or when you confirm.'],
+                  [Undo2, 'Returned by rule', 'If it never ships or never arrives, the contract returns your money. Anyone can trigger it.'],
+                ].map(([Icon, title, body], index) => {
+                  const StepIcon = Icon as typeof ShieldCheck;
+                  return (
+                    <li key={title as string} className="iw-path-node relative flex gap-4 sm:flex-col sm:gap-3" style={{ animationDelay: `${150 + index * 420}ms` }}>
+                      <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full border border-success/40 bg-dark-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                        <StepIcon className="h-4 w-4 text-white" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs text-gray-400">0{index + 1}</p>
+                        <p className="mt-1 font-semibold text-white">{title as string}</p>
+                        <p className="mt-1 text-sm leading-relaxed text-gray-300">{body as string}</p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+
             <Card>
               <h2 className="font-display text-2xl font-bold tracking-tight">About the product</h2>
               {description ? (
@@ -108,32 +144,6 @@ export function OfferPage() {
               </div>
             </Card>
 
-            <Card>
-              <h2 className="font-display text-2xl font-bold tracking-tight">How your money is protected</h2>
-              {/* A sequence the money follows, so it is drawn as one: a rail that links the three steps. */}
-              <ol className="relative mt-5 grid gap-4 sm:grid-cols-3">
-                <span aria-hidden="true" className="absolute left-[1.15rem] top-3 bottom-3 w-px bg-dark-line sm:left-4 sm:right-4 sm:top-[1.15rem] sm:bottom-auto sm:h-px sm:w-auto" />
-                {[
-                  [ShieldCheck, 'Held on-chain', 'Your payment goes to the Keptra escrow contract, not to the store.'],
-                  [PackageCheck, 'Released on proof', 'The store is paid when delivery is proven and 5 days pass without a contest — or when you confirm.'],
-                  [Undo2, 'Returned by rule', 'If it never ships or never arrives, the contract returns your money. Anyone can trigger it.'],
-                ].map(([Icon, title, body], index) => {
-                  const StepIcon = Icon as typeof ShieldCheck;
-                  return (
-                    <li key={title as string} className="relative flex gap-4 sm:flex-col sm:gap-3">
-                      <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full border border-dark-line bg-dark-raised shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-                        <StepIcon className="h-4 w-4 text-white" aria-hidden="true" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-mono text-xs text-gray-400">0{index + 1}</p>
-                        <p className="mt-1 font-semibold text-white">{title as string}</p>
-                        <p className="mt-1 text-sm text-gray-400">{body as string}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            </Card>
           </div>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">

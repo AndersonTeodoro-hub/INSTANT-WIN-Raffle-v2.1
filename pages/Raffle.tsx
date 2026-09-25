@@ -7,7 +7,8 @@ import { Button } from '../components/Button';
 import { ClaimPanel, PreviousRound } from '../components/RoundPanels';
 import { RecentWinners } from '../components/RecentWinners';
 import { Clock, Ticket, Info, AlertTriangle, ExternalLink, Sprout } from 'lucide-react';
-import { ProofSeal, RoundMeter } from '../components/Proof';
+import { ProofSeal, RoundClock, RoundMeter } from '../components/Proof';
+import { CountUp } from '../components/proof/CountUp';
 import { useAppCopy } from './app.i18n';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -199,14 +200,6 @@ export const Raffle: React.FC = () => {
     });
   };
 
-  const formatTime = (seconds: number) => {
-    const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-    const h = Math.floor(safe / 3600);
-    const m = Math.floor((safe % 3600) / 60);
-    const s = safe % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
   const needsApproval = () => {
     if (!ticketAmount || !allowance || totalCost <= 0n) return true;
     return (allowance as bigint) < totalCost;
@@ -240,7 +233,7 @@ export const Raffle: React.FC = () => {
       {/* ============ O PRÉMIO: o que uma lotaria anuncia primeiro ============ */}
 
       <div className="text-center">
-        <p className="inline-flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.16em] uppercase text-gray-400">
+        <p className="inline-flex items-center gap-2 text-xs font-medium text-gray-400">
           <span aria-hidden="true" className="iw-live" data-idle={isTransitioning || !isOpen} />
           {roundId !== undefined && (
             <span className="text-gray-400">
@@ -250,12 +243,9 @@ export const Raffle: React.FC = () => {
           {statusLabel}
         </p>
 
-        {/* O prémio volta a assentar, com um desfoque curto, cada vez que o pool muda. */}
-        <h1
-          key={totalPool.toString()}
-          className="iw-swap mt-5 font-mono font-bold text-brand tracking-tighter leading-[0.9] tabular-nums text-[clamp(3.5rem,17vw,7.5rem)] [text-shadow:0_0_48px_rgba(245,158,11,0.25)]"
-        >
-          {formatUnits(totalPool, 6)}
+        {/* O prémio conta até ao valor lido da cadeia ao abrir, e de um valor ao seguinte sempre que o pool muda. */}
+        <h1 className="mt-5 font-mono font-bold text-brand tracking-tighter leading-[0.9] tabular-nums text-[clamp(3.5rem,17vw,7.5rem)] [text-shadow:0_0_48px_rgba(245,158,11,0.25)]">
+          <CountUp value={totalPool} decimals={6} from0 duration={1400} />
         </h1>
         <p className="mt-1 font-display text-2xl font-bold tracking-wide text-gray-400">USDC</p>
         <p className="mt-3 text-sm text-gray-400">{c.raffle.currentPrizePool}</p>
@@ -264,8 +254,8 @@ export const Raffle: React.FC = () => {
           <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-success/25 bg-success/[0.06] px-3 py-1.5 max-w-full">
             <Sprout className="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
             {/* "Seeded round" é selo de marca: fica em inglês nos três idiomas. */}
-            <span className="font-mono text-[11px] font-medium text-success truncate">
-              Seeded round · {formatUnits(seed, 6)} {c.raffle.seededCarriedIn}
+            <span className="text-xs font-medium text-success truncate">
+              Seeded round · <span className="font-mono">{formatUnits(seed, 6)}</span> {c.raffle.seededCarriedIn}
             </span>
           </p>
         )}
@@ -279,13 +269,13 @@ export const Raffle: React.FC = () => {
           {/* Cabeça do talão: marca impressa à esquerda, série à direita. */}
           <div className="flex items-baseline justify-between gap-3 px-6 pt-5">
             <span className="font-display text-lg font-bold tracking-tight text-white">Instant Win</span>
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400 tabular-nums">
+            <span className="text-xs text-gray-400 tabular-nums">
               {c.raffle.ticket.round} {roundId?.toString() ?? '—'}
             </span>
           </div>
 
           <div className="px-6 pt-4 pb-6">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+            <p className="text-xs text-gray-400">
               {c.raffle.ticket.holder}
             </p>
             {needsUsername ? (
@@ -335,7 +325,7 @@ export const Raffle: React.FC = () => {
             {/* Quantidade: o número que o jogador escreve no bilhete. */}
             <div className="flex items-end justify-between gap-4 border-b border-dark-border pb-5">
               <label className="min-w-0">
-                <span className="block font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                <span className="block text-xs text-gray-400">
                   {c.raffle.tickets}
                 </span>
                 <input
@@ -357,7 +347,7 @@ export const Raffle: React.FC = () => {
             {/* Total e chances, lado a lado como num talão. */}
             <dl className="grid grid-cols-2 gap-4 py-5">
               <div>
-                <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                <dt className="text-xs text-gray-400">
                   {c.raffle.ticket.total}
                 </dt>
                 <dd className="mt-1 font-mono text-xl font-bold text-white tabular-nums">
@@ -366,7 +356,7 @@ export const Raffle: React.FC = () => {
                 </dd>
               </div>
               <div>
-                <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+                <dt className="text-xs text-gray-400">
                   {c.raffle.yourOdds}
                 </dt>
                 <dd className="mt-1 font-mono text-xl font-bold text-white tabular-nums">
@@ -407,22 +397,19 @@ export const Raffle: React.FC = () => {
 
             {/* O relógio, onde um bilhete de papel traz a data do sorteio. */}
             <div className="mt-5 flex items-center justify-between gap-3">
-              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+              <span className="flex items-center gap-2 text-xs text-gray-400">
                 <Clock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                 {drawLabel}
               </span>
-              <span
-                key={isTransitioning ? 'closed' : 'open'}
-                className={`iw-swap font-mono text-xl font-bold tabular-nums ${
-                  isTransitioning
-                    ? 'text-gray-400'
-                    : closingSoon
-                      ? 'text-brand animate-pulse'
-                      : 'text-white'
-                }`}
-              >
-                {isTransitioning ? '00:00:00' : formatTime(timeLeft)}
-              </span>
+              {/* No último minuto o relógio ganha tensão (Proof.tsx): cada segundo cai no
+                  seu lugar. Sem âmbar — o âmbar é do prémio e do botão. */}
+              {isTransitioning ? (
+                <span key="closed" className="iw-swap font-mono text-xl font-bold tabular-nums text-gray-400">
+                  00:00:00
+                </span>
+              ) : (
+                <RoundClock seconds={timeLeft} plain className="text-xl" />
+              )}
             </div>
             {/* Quanto da ronda já passou, por baixo do relógio do talão. */}
             <RoundMeter seconds={timeLeft} closing={isTransitioning} className="mt-3" />
@@ -496,7 +483,7 @@ export const Raffle: React.FC = () => {
             ))}
           </dl>
 
-          <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.18em] text-gray-400">
+          <p className="mt-6 text-xs font-medium text-gray-400">
             {c.raffle.prizeSplit}
           </p>
           <dl className="mt-2 space-y-1.5">

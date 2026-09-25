@@ -16,10 +16,11 @@ import { TELEGRAM_URL } from '../constants';
  * `target="_blank"` só quando o destino é mesmo um link externo — com um
  * placeholder abriria um separador em branco a cada clique.
  */
-export const WaitlistLink: React.FC<{ label: string; className?: string; withArrow?: boolean }> = ({
+export const WaitlistLink: React.FC<{ label: string; className?: string; withArrow?: boolean; primary?: boolean }> = ({
   label,
   className = '',
   withArrow = false,
+  primary = false,
 }) => {
   const isExternal = /^https?:\/\//i.test(TELEGRAM_URL);
   return (
@@ -29,7 +30,8 @@ export const WaitlistLink: React.FC<{ label: string; className?: string; withArr
       className={clsx(
         // Sem `display` aqui de propósito: o header esconde-o abaixo de sm e um
         // `inline-flex` na base ficava a competir com o `hidden` do call site.
-        'iw-btn iw-btn-secondary font-bold',
+        // `primary`: quando é o botão principal do ecrã (o único âmbar dele).
+        primary ? 'iw-btn iw-btn-primary font-extrabold' : 'iw-btn iw-btn-secondary font-bold',
         className,
       )}
     >

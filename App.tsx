@@ -1,11 +1,12 @@
 import React from 'react';
 import { WagmiProvider } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { wagmiConfig, PRELAUNCH, TELEGRAM_URL } from './constants';
 
 import { Navbar, GameTabs } from './components/Navbar';
 import { PublicFooterNav } from './components/PublicNav';
+import { PointerLight } from './components/PointerLight';
 import { Landing } from './pages/Landing';
 import { Roadmap } from './pages/Roadmap';
 import { Giveaways } from './pages/Giveaways';
@@ -64,20 +65,26 @@ const PrelaunchBanner: React.FC = () => {
  * do jogo, o chão comum (luz fria de cima e grelha, index.css `.iw-ground`) e o
  * rodapé. O âmbar fica para o valor do prémio e o CTA do bilhete.
  */
-const GameLayout: React.FC = () => (
-  <div className="iw-ground min-h-screen flex flex-col font-sans text-white overflow-x-hidden">
-    <Navbar />
+const GameLayout: React.FC = () => {
+  // Os separadores do jogo partilham o cabeçalho: só o ecrã por baixo entra de novo.
+  const { pathname } = useLocation();
+  return (
+    <div className="iw-ground min-h-screen flex flex-col font-sans text-white overflow-x-hidden">
+      <Navbar />
 
-    {PRELAUNCH && <PrelaunchBanner />}
+      {PRELAUNCH && <PrelaunchBanner />}
 
-    <main className="flex-1 container mx-auto px-4 py-8 sm:py-10">
-      <GameTabs />
-      <Outlet />
-    </main>
+      <main className="flex-1 container mx-auto px-4 py-8 sm:py-10">
+        <GameTabs />
+        <div key={pathname} className="iw-screen">
+          <Outlet />
+        </div>
+      </main>
 
-    <GameFooter />
-  </div>
-);
+      <GameFooter />
+    </div>
+  );
+};
 
 /**
  * Rodapé das páginas do jogo. O aviso de jogo responsável segue o idioma que o
@@ -101,11 +108,11 @@ const GameFooter: React.FC = () => {
         <p className="mx-auto max-w-[62ch] text-xs leading-relaxed text-gray-400">
           {t.footer.responsibleShort}
         </p>
-        <p className="flex justify-center items-center gap-2 font-mono text-[11px] text-success">
+        <p className="flex justify-center items-center gap-2 text-xs font-medium text-success">
           <span aria-hidden="true" className="iw-live" />
           {c.footer.liveOn}
         </p>
-        <p className="font-mono text-[10px] text-gray-400">© 2026 Instant Win Protocol</p>
+        <p className="text-xs text-gray-400">© 2026 Instant Win Protocol</p>
       </div>
     </footer>
   );
@@ -116,6 +123,7 @@ const App: React.FC = () => {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
+          <PointerLight />
           <KeptraProvider>
           <Routes>
             <Route path="/" element={<Landing />} />
