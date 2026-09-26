@@ -843,9 +843,11 @@ await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with thei
   }
 });
 
-await test(['U35', 'AT18'], 'Q1 and T18: the page’s contract addresses are config.ts’s literals — zero until the deploy, so every Keptra screen says “not available yet” — and its ABIs are the bridge’s own objects (the page’s part checked in the source)', () => {
-  assert.deepEqual([contracts.KEPTRA_ESCROW, contracts.KEPTRA_GUARANTEE, contracts.KEPTRA_VOUCHER], [REAL_KEPTRA.escrow, REAL_KEPTRA.guarantee, REAL_KEPTRA.voucher]);
-  assert.equal(contracts.keptraConfigured(), false);
+await test(['U35', 'AT18'], 'Q1 and T18: the page’s contract addresses are config.ts’s literals — the deploy’s on Arbitrum One; were any zero, every Keptra screen would say “not available yet” — and its ABIs are the bridge’s own objects (the page’s part checked in the source)', () => {
+  const deployed = ['0x6B65fB17Cc548Fb3807F5c9130D4A4991398E246', '0xCa3121f129328B78b10f178F508e1CE0B4b37c2e', '0x3075FA512203e9dC6250Feb4eBA36c55BD2A7a22'];
+  assert.deepEqual([contracts.KEPTRA_ESCROW, contracts.KEPTRA_GUARANTEE, contracts.KEPTRA_VOUCHER], deployed);
+  assert.deepEqual([REAL_KEPTRA.escrow, REAL_KEPTRA.guarantee, REAL_KEPTRA.voucher], deployed);
+  assert.equal(contracts.keptraConfigured(), true);
   assert.equal(contracts.KEPTRA_ESCROW_ABI, bridgeAbi.KEPTRA_ESCROW_ABI);
   assert.equal(contracts.KEPTRA_GUARANTEE_ABI, bridgeAbi.KEPTRA_GUARANTEE_ABI);
   for (const page of ['OfferPage', 'OrdersPage', 'OrderPage', 'VoucherPage', 'BusinessPage', 'PoolPage']) {

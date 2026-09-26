@@ -25,7 +25,7 @@ Ferramentas: `cast` e `forge` (Foundry), com a chave do owner num keystore local
 
 1. Verificar os cinco contratos no Sourcify e no Arbiscan (16.1).
 2. Escrever os endereços do escrow, da garantia e do voucher em `lib/bridge-v2/config.ts` e em `lib/keptra/contracts.ts` (os mesmos três nos dois ficheiros; um teste mantém-nos iguais). Enquanto estiverem a zero, a bridge e as páginas das encomendas não correm (Q1, U35).
-3. Ligar o oráculo (peça 4, `MATRIZ-PECA4-KEPTRA.md` no repositório instant-win-cre): no receiver, `setCallAllowed(<ESCROW>, attest, true)`; no escrow, `cast send <ESCROW> "setOracle(address)" <RECEIVER> --account <owner> --rpc-url $RPC` — com a verificação da secção 5 antes.
+3. Ligar o oráculo (peça 4, `MATRIZ-PECA4-KEPTRA.md` no repositório instant-win-cre). O escrow nasce com o receiver como oráculo; no receiver, `setCallAllowed(<ESCROW>, attest, true)` e `setExpectedWorkflowId(<workflow ID do cre workflow deploy>)`.
 4. O provedor deposita o capital de lançamento, 100 USDC (12.3.2), pelas instruções de `POOL-PROVIDER.md`.
 5. Autorizar a loja e a marca reais (2.2.6, P5): `cast send <ESCROW> "setStore(address,bool)" <CONTA_DE_CRIADOR_DA_LOJA> true --account <owner> --rpc-url $RPC`.
 6. Base de dados: aplicar as migrations `0012`, `0013`, `0014` e `0015`, por esta ordem (Q6, U7). Sem elas, o apagamento a pedido falha.

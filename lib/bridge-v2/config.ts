@@ -38,13 +38,14 @@ export const USDC_DECIMALS = 6 as const;
 /**
  * SPEC-BLOCO-03 piece 5, Adenda P24: the escrow, the guarantee and the voucher of
  * pieces 2 and 3 (commit 5d85a46). Literals, as H1 wants every contract address —
- * and zero until the owner fills them in after the deploy. While any is zero
- * every route and cron step of the orders refuses with "configuration incomplete"
- * (keptraContractsConfigured in orders.ts), and the general rehearsal fails.
+ * the ones of the deploy on Arbitrum One, verified on Sourcify and Arbiscan. Were
+ * any zero, every route and cron step of the orders would refuse with
+ * "configuration incomplete" (keptraContractsConfigured in orders.ts), and the
+ * general rehearsal would fail.
  */
-export const KEPTRA_ESCROW: `0x${string}` = '0x0000000000000000000000000000000000000000';
-export const KEPTRA_GUARANTEE: `0x${string}` = '0x0000000000000000000000000000000000000000';
-export const KEPTRA_VOUCHER: `0x${string}` = '0x0000000000000000000000000000000000000000';
+export const KEPTRA_ESCROW: `0x${string}` = '0x6B65fB17Cc548Fb3807F5c9130D4A4991398E246';
+export const KEPTRA_GUARANTEE: `0x${string}` = '0xCa3121f129328B78b10f178F508e1CE0B4b37c2e';
+export const KEPTRA_VOUCHER: `0x${string}` = '0x3075FA512203e9dC6250Feb4eBA36c55BD2A7a22';
 
 /**
  * SPEC-BLOCO-03 V5 (B3), T14, 10.4: the privacy page's text, the owner's, from its

@@ -42,7 +42,7 @@ import * as db from '../doubles/db.mjs';
 import * as chain from '../doubles/chain.mjs';
 import * as kchain from '../doubles/keptraChain.mjs';
 import * as escrow from '../doubles/escrowChain.mjs';
-import { resetKeptraContracts, setKeptraContracts, REAL_KEPTRA } from '../doubles/config.mjs';
+import { setKeptraContracts, REAL_KEPTRA } from '../doubles/config.mjs';
 import { KEPTRA_TABLES, KEPTRA_UNIQUE, memdb } from '../memdb.mjs';
 import { createPasskey } from '../passkey.mjs';
 import { callsOf } from '../safecalls.mjs';
@@ -235,18 +235,23 @@ async function relayed(passkey, body) {
 }
 
 // ===========================================================================
-// P24 — the addresses are literals, zero until the owner fills them in
+// P24 — the addresses are literals, the ones of the deploy
 // ===========================================================================
 
-await test(['AP24', 'AQ1', 'Q32'], 'P24: the three contract addresses are literals in config.ts, zero today, and never an environment variable', () => {
-  assert.deepEqual(Object.values(REAL_KEPTRA), [
-    '0x0000000000000000000000000000000000000000',
-    '0x0000000000000000000000000000000000000000',
-    '0x0000000000000000000000000000000000000000',
-  ]);
-  const source = read('lib/bridge-v2/config.ts');
-  for (const name of ['KEPTRA_ESCROW', 'KEPTRA_GUARANTEE', 'KEPTRA_VOUCHER']) {
-    assert.match(source, new RegExp(`export const ${name}: \`0x\\$\\{string\\}\` = '0x0{40}';`));
+const DEPLOYED = {
+  KEPTRA_ESCROW: '0x6B65fB17Cc548Fb3807F5c9130D4A4991398E246',
+  KEPTRA_GUARANTEE: '0xCa3121f129328B78b10f178F508e1CE0B4b37c2e',
+  KEPTRA_VOUCHER: '0x3075FA512203e9dC6250Feb4eBA36c55BD2A7a22',
+};
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+await test(['AP24', 'AQ1', 'Q32'], 'P24: the three contract addresses are literals, the deploy’s on Arbitrum One, the same in config.ts and lib/keptra/contracts.ts, and never an environment variable', () => {
+  assert.deepEqual(Object.values(REAL_KEPTRA), Object.values(DEPLOYED));
+  for (const path of ['lib/bridge-v2/config.ts', 'lib/keptra/contracts.ts']) {
+    const source = read(path);
+    for (const [name, address] of Object.entries(DEPLOYED)) {
+      assert.match(source, new RegExp(`export const ${name}: \`0x\\$\\{string\\}\` = '${address}';`), `${path} ${name}`);
+    }
   }
   for (const name of [...env.REQUIRED_ENV, ...env.OPTIONAL_ENV, ...env.KEPTRA_ENV]) {
     assert.ok(!/ESCROW|GUARANTEE|VOUCHER|CONTRACT/.test(name), `${name} could repoint a contract`);
@@ -256,7 +261,7 @@ await test(['AP24', 'AQ1', 'Q32'], 'P24: the three contract addresses are litera
 await test(['AP24', 'AQ1'], 'P24: while an address is zero every order route refuses, the relay refuses order actions, and the pass reads nothing — the general rehearsal reads keptraContractsConfigured', async () => {
   fresh();
   const buyer = await person('participant-1', '0x2222222222222222222222222222222222222222');
-  resetKeptraContracts();
+  setKeptraContracts({ escrow: ZERO_ADDRESS, guarantee: ZERO_ADDRESS, voucher: ZERO_ADDRESS });
   assert.equal(orders.keptraContractsConfigured(), false);
   assert.equal((await post(addressRoute, 'order/address', { ...ADDRESS, termsId: '1' })).status, 503);
   assert.equal((await post(listRoute, 'order/list', {})).status, 503);

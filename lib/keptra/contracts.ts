@@ -2,14 +2,12 @@
  * The contracts the Keptra pages read, and nothing that signs.
  *
  * SPEC-BLOCO-03 Q1 and T18: the addresses of the escrow, the guarantee and the
- * voucher are literals, zero until the owner fills them in after the deploy — the
- * same three config.ts holds for the bridge (a test keeps the two equal). While
- * they are zero the order, offer and pool screens say "not available yet" (U35).
+ * voucher are literals, the ones of the deploy on Arbitrum One — the same three
+ * config.ts holds for the bridge (a test keeps the two equal). Were any zero, the
+ * order, offer and pool screens would say "not available yet" (U35).
  * T18 and Q7, after the batch before the deploy: every ABI entry here and in
  * lib/bridge-v2/abi.ts is held by a test against the ABI compiled from 5d85a46
- * (test/bridge-v2/fork/keptra-5d85a46.json). The addresses stay zero: DeployKeptra
- * puts the contracts at CREATE2 addresses whose creation code carries the role
- * addresses of the deploy, so they are known only then.
+ * (test/bridge-v2/fork/keptra-5d85a46.json).
  *
  * The ABIs the bridge already reads with are re-exported from lib/bridge-v2/abi.ts
  * (it imports viem and nothing else), so there is one copy of each; what only the
@@ -28,9 +26,9 @@ export {
   OrderState,
 } from '../bridge-v2/abi.js';
 
-export const KEPTRA_ESCROW: `0x${string}` = '0x0000000000000000000000000000000000000000';
-export const KEPTRA_GUARANTEE: `0x${string}` = '0x0000000000000000000000000000000000000000';
-export const KEPTRA_VOUCHER: `0x${string}` = '0x0000000000000000000000000000000000000000';
+export const KEPTRA_ESCROW: `0x${string}` = '0x6B65fB17Cc548Fb3807F5c9130D4A4991398E246';
+export const KEPTRA_GUARANTEE: `0x${string}` = '0xCa3121f129328B78b10f178F508e1CE0B4b37c2e';
+export const KEPTRA_VOUCHER: `0x${string}` = '0x3075FA512203e9dC6250Feb4eBA36c55BD2A7a22';
 
 /** USDC on Arbitrum One, 6 decimals — config.ts's USDC. */
 export const USDC: `0x${string}` = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831';

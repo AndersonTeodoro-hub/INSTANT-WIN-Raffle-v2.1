@@ -71,7 +71,7 @@ export interface LandingCopy {
       path: [string, string, string];
       /** A ordem de absorção de uma falha: caução, reserva, capital. */
       layers: [string, string, string];
-      /** O estado on-chain: os contratos do Keptra ainda não estão implementados (lib/keptra/contracts.ts). */
+      /** O estado on-chain: os contratos do Keptra na Arbitrum One (lib/keptra/contracts.ts). */
       status: string;
       cta: string;
     };
@@ -188,7 +188,7 @@ const en: LandingCopy = {
       failure: "If a brand fails a winner, the pool pays: the brand's bond first, then the risk reserve, then the capital.",
       path: ['You', 'Escrow', 'Store'],
       layers: ['Bond', 'Risk reserve', 'Capital'],
-      status: 'The escrow and pool contracts are not on Arbitrum One yet.',
+      status: 'The escrow and pool contracts are on Arbitrum One, verified on Sourcify and Arbiscan.',
       cta: 'See the guarantee pool',
     },
     captions: {
@@ -311,7 +311,7 @@ const pt: LandingCopy = {
       failure: 'Se uma marca falha com um ganhador, o pool paga: primeiro a caução da marca, depois a reserva de risco, depois o capital.',
       path: ['Você', 'Escrow', 'Loja'],
       layers: ['Caução', 'Reserva de risco', 'Capital'],
-      status: 'Os contratos do escrow e do pool ainda não estão na Arbitrum One.',
+      status: 'Os contratos do escrow e do pool estão na Arbitrum One, verificados no Sourcify e no Arbiscan.',
       cta: 'Ver o pool de garantia',
     },
     captions: {
@@ -434,7 +434,7 @@ const es: LandingCopy = {
       failure: 'Si una marca le falla a un ganador, el pool paga: primero la fianza de la marca, luego la reserva de riesgo, luego el capital.',
       path: ['Tú', 'Escrow', 'Tienda'],
       layers: ['Fianza', 'Reserva de riesgo', 'Capital'],
-      status: 'Los contratos del escrow y del pool aún no están en Arbitrum One.',
+      status: 'Los contratos del escrow y del pool están en Arbitrum One, verificados en Sourcify y Arbiscan.',
       cta: 'Ver el pool de garantía',
     },
     captions: {

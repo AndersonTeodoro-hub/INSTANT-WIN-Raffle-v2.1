@@ -175,11 +175,10 @@ const gen = process.env.PREVIEW_GEN_DIR;
 if (!gen) throw new Error('PREVIEW_GEN_DIR is not set');
 mkdirSync(gen, { recursive: true });
 const real = readFileSync(new URL('../../lib/keptra/contracts.ts', import.meta.url), 'utf8');
-const zero = "'0x0000000000000000000000000000000000000000'";
 writeFileSync(`${gen}/contracts.ts`, real
-  .replace(`KEPTRA_ESCROW: \`0x\${string}\` = ${zero}`, `KEPTRA_ESCROW: \`0x\${string}\` = '${ESCROW}'`)
-  .replace(`KEPTRA_GUARANTEE: \`0x\${string}\` = ${zero}`, `KEPTRA_GUARANTEE: \`0x\${string}\` = '${GUARANTEE}'`)
-  .replace(`KEPTRA_VOUCHER: \`0x\${string}\` = ${zero}`, `KEPTRA_VOUCHER: \`0x\${string}\` = '${VOUCHER}'`)
+  .replace(/KEPTRA_ESCROW: `0x\$\{string\}` = '0x[0-9a-fA-F]{40}'/, `KEPTRA_ESCROW: \`0x\${string}\` = '${ESCROW}'`)
+  .replace(/KEPTRA_GUARANTEE: `0x\$\{string\}` = '0x[0-9a-fA-F]{40}'/, `KEPTRA_GUARANTEE: \`0x\${string}\` = '${GUARANTEE}'`)
+  .replace(/KEPTRA_VOUCHER: `0x\$\{string\}` = '0x[0-9a-fA-F]{40}'/, `KEPTRA_VOUCHER: \`0x\${string}\` = '${VOUCHER}'`)
   .replace("from '../bridge-v2/abi.js'", `from '${new URL('../../lib/bridge-v2/abi.ts', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')}'`));
 writeFileSync(`${gen}/rpc.ts`, `export const ARBITRUM_RPC_URL = '${fork.url}';\n`);
 writeFileSync(`${gen}/seed.json`, JSON.stringify({ termsId: String(termsId), ownMeansTermsId: String(second.created.termsId), paidOrder: String(paidOrder.orderId), windowOrder: String(shipped.orderId), obligationId: String(obligation.created.obligationId) }));
