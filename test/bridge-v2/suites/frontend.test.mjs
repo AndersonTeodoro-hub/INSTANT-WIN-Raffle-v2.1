@@ -16,6 +16,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  createPublicClient,
+  custom,
   encodeAbiParameters,
   encodeEventTopics,
   getAddress,
@@ -1630,6 +1632,18 @@ await test(['P6-15', 'P6-16'], 'P6-15 and P6-16: one "Try again" re-reads everyt
   assert.ok(retries.length > 0);
   for (const retry of retries) assert.match(retry, /onRetry=\{\(\) => setAttempt\(\(n\) => n \+ 1\)\}/, retry);
   assert.match(page, /failedOnce\.current\.has\(name\)/);
+});
+
+await test(['U29'], '12.7: the pool panel reads its events from block 0 as a number, which viem sends as "0x0" — arb1.arbitrum.io/rpc refuses the tag "earliest" (-32602) — and no client file asks for that tag (checked in the source)', async () => {
+  const page = codeOf('pages/keptra/PoolPage.tsx');
+  assert.equal((page.match(/getContractEvents\(/g) ?? []).length, 4);
+  assert.deepEqual([...page.matchAll(/fromBlock: ([^,}\s]+)/g)].map((m) => m[1]), ['0n', '0n', '0n', '0n']);
+  for (const path of CLIENT_FILES()) assert.ok(!/(?:fromBlock|toBlock|blockTag):\s*['"]earliest['"]/.test(read(path)), `${path} asks for the block tag "earliest"`);
+  // What goes on the wire: 0n as the hex string the RPC accepts; the tag would go out as it is.
+  const sent = [];
+  const client = createPublicClient({ transport: custom({ request: async ({ method, params }) => (method === 'eth_getLogs' && sent.push(params[0].fromBlock), []) }) });
+  for (const fromBlock of [0n, 'earliest']) await client.getContractEvents({ address: GUARANTEE, abi: contracts.GUARANTEE_READ_ABI, eventName: 'DebtRecorded', fromBlock });
+  assert.deepEqual(sent, ['0x0', 'earliest']);
 });
 
 await test(['P6-17'], 'P6-17: after a lost answer the store’s console never shows "done" and the error together — an error the re-read order has outgrown becomes "done" (checked in the source)', () => {

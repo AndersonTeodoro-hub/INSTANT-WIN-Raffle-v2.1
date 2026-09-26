@@ -214,9 +214,10 @@ function FeesDistributed({ pool, attempt, report }: { pool: `0x${string}`; attem
   useEffect(() => {
     if (!client) return;
     let live = true;
+    // Block 0n, not the tag 'earliest': the app's RPC (lib/rpc.ts) refuses the tag with -32602.
     void Promise.all([
-      client.getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'ObligationCreated', fromBlock: 'earliest' }),
-      client.getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'FeeReceived', fromBlock: 'earliest' }),
+      client.getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'ObligationCreated', fromBlock: 0n }),
+      client.getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'FeeReceived', fromBlock: 0n }),
     ])
       .then(([created, received]) => {
         if (!live) return;
@@ -267,7 +268,7 @@ function Providers({
     if (!client) return;
     let live = true;
     void client
-      .getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'ProviderSet', fromBlock: 'earliest' })
+      .getContractEvents({ address: pool, abi: POOL_READ_ABI, eventName: 'ProviderSet', fromBlock: 0n })
       .then((logs) => {
         if (!live) return;
         const allowed = new Map<string, boolean>();
@@ -342,7 +343,7 @@ function Debts({ pool, attempt, report }: { pool: `0x${string}`; attempt: number
     if (!client) return;
     let live = true;
     void client
-      .getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'DebtRecorded', args: { source: pool }, fromBlock: 'earliest' })
+      .getContractEvents({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, eventName: 'DebtRecorded', args: { source: pool }, fromBlock: 0n })
       .then((logs) => live && setFound({ status: 'ready', value: [...new Set(logs.map((log) => (log.args as { brand: `0x${string}` }).brand))] }))
       .catch(() => live && setFound((now) => (now.status === 'ready' ? now : { status: 'failed', error: CHAIN_FAILED })));
     return () => {
