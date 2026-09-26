@@ -1,0 +1,93 @@
+/**
+ * The double of lib/bridge-v2/escrowChain.ts, for the suites that run under the
+ * loader. SPEC-BLOCO-03 piece 5. The real reads run against the contracts of
+ * 5d85a46 on the fork (test/bridge-v2/fork/orders.fork.mjs); here only what the
+ * relay, the routes and the orders pass DO with the answers is under test.
+ *
+ * The pure half (orderIdFromLogs) is the real module's. So is realOrderOutcome,
+ * which a test puts in place of orderOutcome to run the real search of the log
+ * against the chain double's getContractEvents (Adenda R2).
+ */
+
+import {
+  obligationFromLogs,
+  offerIdFromLogs,
+  orderIdFromLogs,
+  orderOutcome as realOrderOutcome,
+  voucherIdsFromLogs,
+} from '../../../lib/bridge-v2/escrowChain.ts';
+
+export { obligationFromLogs, offerIdFromLogs, orderIdFromLogs, realOrderOutcome, voucherIdsFromLogs };
+
+export const calls = [];
+
+const ZERO = '0x0000000000000000000000000000000000000000';
+
+/** Nothing exists unless a test says so: no order, no voucher. */
+const DEFAULTS = () => ({
+  ordersHead: { orderCount: 1n, now: BigInt(Math.floor(Date.now() / 1000)), block: 1_000n },
+  // P5-1: the block read after the orders; by default the head's.
+  latestBlock: () => behaviour.ordersHead.block ?? 1_000n,
+  readOrders: [],
+  readTerms: new Error('no terms'),
+  regionsOf: [],
+  trackingHashUsed: false,
+  escrowArbiter: ZERO,
+  // V5 (B11): the reputation and the pool, as the escrow and the guarantee name them.
+  keptraPeripherals: ['0x00000000000000000000000000000000ee7a0001', '0x00000000000000000000000000000000ee7a0002'],
+  // The whole range searched, and no OrderClosed in it.
+  orderOutcome: (_orderId, _from, to) => ({ outcome: null, searchedTo: to }),
+  readObligation: new Error('no obligation'),
+  voucherLastId: 0n,
+  voucherBalanceOf: 0n,
+  readVouchers: [],
+  campaignItems: [],
+  voucherReleasable: false,
+  brandParams: { bondBps: 5_000, protectionBps: 300, canCreate: true, debt: 0n },
+  // AB4: no terms and no obligation past the ones given.
+  termsCreatedSince: (nextTerms, nextObligation) => ({ offers: [], obligations: [], nextTerms, nextObligation, more: false }),
+});
+
+export let behaviour = DEFAULTS();
+
+export function reset() {
+  calls.length = 0;
+  behaviour = DEFAULTS();
+}
+
+export function set(overrides) {
+  Object.assign(behaviour, overrides);
+}
+
+async function answer(name, args) {
+  calls.push({ name, args });
+  const value = behaviour[name];
+  const resolved = typeof value === 'function' ? await value(...args) : value;
+  if (resolved instanceof Error) throw resolved;
+  return resolved;
+}
+
+export const ordersHead = (...args) => answer('ordersHead', args);
+export const latestBlock = (...args) => answer('latestBlock', args);
+export const readOrders = (...args) => answer('readOrders', args);
+export const readTerms = (...args) => answer('readTerms', args);
+export const termsCreatedSince = (...args) => answer('termsCreatedSince', args);
+export const regionsOf = (...args) => answer('regionsOf', args);
+export const trackingHashUsed = (...args) => answer('trackingHashUsed', args);
+export const escrowArbiter = (...args) => answer('escrowArbiter', args);
+export const keptraPeripherals = (...args) => answer('keptraPeripherals', args);
+export const orderOutcome = (...args) => answer('orderOutcome', args);
+export const readObligation = (...args) => answer('readObligation', args);
+export const voucherLastId = (...args) => answer('voucherLastId', args);
+export const voucherBalanceOf = (...args) => answer('voucherBalanceOf', args);
+export const readVouchers = (...args) => answer('readVouchers', args);
+export const campaignItems = (...args) => answer('campaignItems', args);
+export const voucherReleasable = (...args) => answer('voucherReleasable', args);
+export const brandParams = (...args) => answer('brandParams', args);
+
+/** readOrder is readOrders of one, as in the real module. */
+export async function readOrder(orderId) {
+  const [found] = await readOrders([orderId]);
+  if (found === undefined) throw new Error('no order');
+  return found;
+}

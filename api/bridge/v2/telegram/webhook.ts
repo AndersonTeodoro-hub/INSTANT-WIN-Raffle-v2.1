@@ -7,7 +7,11 @@ import {
   hashPhone,
   hashTelegramChatId,
   hashTelegramId,
+  livePhoneHash,
+  storeTelegramChat,
 } from '../../../../lib/bridge-v2/phone.js';
+import { hashRecoveryCode } from '../../../../lib/bridge-v2/linkcodes.js';
+import { advanceRecovery, claimRecoveryForChat, recoveryAwaitingChat } from '../../../../lib/bridge-v2/accounts.js';
 import { BOT_MESSAGES, askForContact, isFromTelegram, sendAndClearKeyboard, sendText } from '../../../../lib/bridge-v2/telegram.js';
 import { claimSpend } from '../../../../lib/bridge-v2/spend.js';
 import type { Logger } from '../../../../lib/bridge-v2/log.js';
@@ -134,8 +138,13 @@ async function handleUpdate(request: Request, log: Logger): Promise<Response> {
 
     const link = await claimLinkForChat(code, chatId);
     if (link === null) {
-      await sendText(chatId, BOT_MESSAGES.linkInvalid);
-      return ok();
+      // SPEC-BLOCO-03 A14: a change-of-access code arrives the same way. Its own
+      // hash label, so an entry code can never match it or the other way round.
+      const recovery = await claimRecoveryForChat(await hashRecoveryCode(code), await hashTelegramChatId(chatId));
+      if (recovery === null) {
+        await sendText(chatId, BOT_MESSAGES.linkInvalid);
+        return ok();
+      }
     }
 
     await askForContact(chatId);
@@ -180,6 +189,24 @@ async function handleUpdate(request: Request, log: Logger): Promise<Response> {
 
   const link = await consumeLinkForChat(chatId);
   if (link === null) {
+    // SPEC-BLOCO-03 A14: the contact that confirms a change of access. The
+    // number must be the one this account already confirmed — the second factor
+    // is possession of THAT number, not of any number — and nothing is bound.
+    const recovery = await recoveryAwaitingChat(await hashTelegramChatId(chatId));
+    if (recovery !== null) {
+      if ((await livePhoneHash(recovery.participantId)) !== phoneHash) {
+        await log.event('recovery.refused', { reason: 'number_mismatch' });
+        await sendAndClearKeyboard(chatId, BOT_MESSAGES.numberNotAccount);
+        return ok();
+      }
+      if (await advanceRecovery(recovery.id, 'AWAITING_PHONE', 'PHONE_VERIFIED', { phone_verified_at: new Date().toISOString() })) {
+        // A5: the chat the security notices of this change will go to.
+        await storeTelegramChat(recovery.participantId, chatId);
+        await log.event('recovery.verified');
+      }
+      await sendAndClearKeyboard(chatId, BOT_MESSAGES.confirmed);
+      return ok();
+    }
     // No live link for this chat: either it was already used, or the contact
     // arrived without a /start. Both are the same answer.
     await sendAndClearKeyboard(chatId, BOT_MESSAGES.linkInvalid);
@@ -198,6 +225,9 @@ async function handleUpdate(request: Request, log: Logger): Promise<Response> {
   );
 
   if (outcome === 'VERIFIED') {
+    // SPEC-BLOCO-03 A5: kept encrypted, so the account's security notices can
+    // reach this chat. The HMAC above is what matches it; this is what reads it.
+    await storeTelegramChat(link.participantId, chatId);
     await log.event('phone.bound');
     await log.event('entry.verified', { giveaway_id: link.giveawayId.toString() });
     await sendAndClearKeyboard(chatId, BOT_MESSAGES.confirmed);

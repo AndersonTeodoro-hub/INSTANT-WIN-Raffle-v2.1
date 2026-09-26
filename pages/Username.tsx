@@ -4,6 +4,7 @@ import { CONTRACTS, USERNAME_ABI } from '../constants';
 import { Button } from '../components/Button';
 import { Check, X, Loader2, Search, UserCircle } from 'lucide-react';
 import { useAppCopy } from './app.i18n';
+import { ConnectPrompt } from '../components/ConnectWallet';
 
 export const Username: React.FC = () => {
   const { isConnected, address } = useAccount();
@@ -56,10 +57,16 @@ export const Username: React.FC = () => {
   // Verificar se já tem username registado
   const hasRegisteredUsername = currentUsername && currentUsername !== '';
 
+  // Sem carteira: o título na fonte de títulos, como no estado ligado, e a acção de a ligar ali mesmo.
   if (!isConnected) return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <h2 className="text-2xl font-bold text-white mb-4">{c.username.title}</h2>
-        <p className="text-gray-500">{c.username.connectPrompt}</p>
+    <div className="flex flex-col items-center pt-6 sm:pt-16">
+      <div className="text-center mb-8 sm:mb-12 px-1">
+        <h1 className="font-display font-bold text-4xl sm:text-5xl text-white mb-3 uppercase tracking-tight">{c.username.title}</h1>
+        <p className="text-gray-400 text-sm sm:text-base">{c.username.subtitle}</p>
+      </div>
+      <div className="w-full max-w-xl">
+        <ConnectPrompt message={c.username.connectPrompt} />
+      </div>
     </div>
   );
 
@@ -68,17 +75,17 @@ export const Username: React.FC = () => {
       
       <div className="text-center mb-8 sm:mb-12 px-1">
         <h1 className="font-display font-bold text-4xl sm:text-5xl text-white mb-3 uppercase tracking-tight">{c.username.title}</h1>
-        <p className="text-gray-500 text-sm sm:text-base">{c.username.subtitle}</p>
+        <p className="text-gray-400 text-sm sm:text-base">{c.username.subtitle}</p>
       </div>
 
-      <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-10 w-full max-w-xl">
+      <div className="iw-surface p-5 sm:p-10 w-full max-w-xl">
         
         {/* Current Identity */}
         {hasRegisteredUsername && (
              <div className="mb-8 p-4 bg-dark-input rounded-xl border border-dark-border flex items-center gap-4">
                  <UserCircle className="w-10 h-10 text-brand" />
                  <div>
-                     <p className="text-xs text-gray-500 uppercase font-bold">{c.username.currentAlias}</p>
+                     <p className="text-xs text-gray-400 uppercase font-bold">{c.username.currentAlias}</p>
                      <p className="text-xl font-bold text-white">@{currentUsername}</p>
                  </div>
              </div>
@@ -92,16 +99,16 @@ export const Username: React.FC = () => {
         ) : (
           <div className="space-y-6">
               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{c.username.chooseLabel}</label>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{c.username.chooseLabel}</label>
                   <div className="relative group">
                       <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                          <Search className="w-5 h-5 text-gray-600 group-focus-within:text-white transition-colors" />
+                          <Search className="w-5 h-5 text-gray-400 group-focus-within:text-white transition-colors" />
                       </div>
                       <input
                           type="text"
                           value={inputName}
                           onChange={(e) => setInputName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                          className={`w-full bg-dark-input border rounded-xl py-4 pl-12 pr-12 text-white placeholder:text-gray-700 focus:outline-none transition-all ${
+                          className={`w-full bg-dark-input border rounded-xl py-4 pl-12 pr-12 text-white placeholder:text-gray-400 focus:outline-none transition-all ${
                               inputName.length >= 3 
                                   ? isAvailable ? 'border-green-500/50 focus:border-green-500' : 'border-red-500/50 focus:border-red-500'
                                   : 'border-dark-border focus:border-brand'
@@ -114,7 +121,7 @@ export const Username: React.FC = () => {
                       <div className="absolute inset-y-0 right-4 flex items-center">
                           {inputName.length >= 3 && (
                               checkingAvailability ? (
-                                  <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                                  <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
                               ) : isAvailable ? (
                                   <div className="flex items-center bg-green-500/20 px-2 py-1 rounded text-xs font-bold text-green-500 gap-1">
                                       <Check className="w-3 h-3" /> {c.username.available}
@@ -127,7 +134,7 @@ export const Username: React.FC = () => {
                           )}
                       </div>
                   </div>
-                  <p className="mt-2 text-[10px] text-gray-600">{c.username.rules}</p>
+                  <p className="mt-2 text-[10px] text-gray-400">{c.username.rules}</p>
               </div>
 
               <Button 

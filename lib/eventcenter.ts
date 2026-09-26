@@ -87,6 +87,8 @@ export interface EntryStatusResult {
    * The advice the page gives has to be different, or it is wrong.
    */
   readonly selfCustody?: boolean;
+  /** SPEC-BLOCO-03 A4 and 6.2.5: the entry is the participant's Keptra account's, signed and claimed with the passkey. */
+  readonly passkey?: boolean;
   readonly custody: {
     prizeKind: 'TOKEN' | 'NFT';
     requiresOwnWallet: boolean;

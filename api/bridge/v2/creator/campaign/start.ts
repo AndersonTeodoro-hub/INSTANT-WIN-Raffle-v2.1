@@ -4,21 +4,26 @@ import { extractSignals } from '../../../../../lib/bridge-v2/signals.js';
 import { parseAddress, parseIntInRange, parseUint256 } from '../../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../../lib/bridge-v2/session.js';
 import { hasVerifiedPhone } from '../../../../../lib/bridge-v2/phone.js';
-import { getOrCreateCreator } from '../../../../../lib/bridge-v2/creators.js';
+import { findCreatorByParticipant, getOrCreateCreator } from '../../../../../lib/bridge-v2/creators.js';
+import { findAccount } from '../../../../../lib/bridge-v2/accounts.js';
 import { createDraft, findActiveCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
 import {
+  blockNumber,
   currentCreationFee,
+  erc20BalanceOf,
   isModuleRegistered,
   modulePrizeKind,
   slotPrice,
 } from '../../../../../lib/bridge-v2/chain.js';
 import { PrizeKind } from '../../../../../lib/bridge-v2/abi.js';
+import { readAccount } from '../../../../../lib/bridge-v2/relay.js';
 import {
   CONTRACT_MAX_DURATION_SECONDS,
   CONTRACT_MAX_PARTICIPANTS,
   CONTRACT_MAX_WINNERS,
   CONTRACT_MIN_DURATION_SECONDS,
   CONTRACT_MIN_PARTICIPANTS,
+  USDC,
 } from '../../../../../lib/bridge-v2/config.js';
 
 /**
@@ -99,7 +104,25 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
     return refuse(400, 'Creator-without-wallet campaigns support token prizes only, for now.');
   }
 
-  const creator = await getOrCreateCreator(session.participantId);
+  // SPEC-BLOCO-03 6.6.1/6.6.3: a new creator's deposit address is their creator
+  // account, which exists once they have a passkey. Adenda C4 and D1: that
+  // account is the deposit address, so it has to exist on-chain with its
+  // configuration before it is shown; the page has it set up first
+  // (account/relay, kind "configure", role CREATOR). Checked before the creator
+  // row is written, so no row ever names an account that is not deployed — the
+  // one kind of account a recovery gives a new address (D4). Adenda E1: a
+  // creator whose derived index is sealed comes back with no index and the
+  // creator account as its address (creators.ts), so it takes this path too.
+  const known = await findCreatorByParticipant(session.participantId);
+  if (known === null || known.walletIndex === null) {
+    const account = await findAccount(session.participantId, 'CREATOR');
+    if (account === null) return refuse(409, 'Create your passkey first.');
+    if (!(await readAccount(account)).usable) {
+      return refuse(409, 'Set up your creator account first.');
+    }
+  }
+  const creator = known ?? (await getOrCreateCreator(session.participantId));
+  if (creator === null) return refuse(409, 'Create your passkey first.');
 
   const existing = await findActiveCampaign(creator.id);
   if (existing !== null) {
@@ -108,6 +131,17 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
 
   const feeAmount = await currentCreationFee(PrizeKind.TOKEN, prizeAmount);
   const slotsCost = BigInt(slotCap) * (await slotPrice());
+  // P1-3: what the deposit address already holds is not this draft's deposit.
+  // Recorded with the draft, so its expiry counts only what arrives above it.
+  // AB6: and the block read with them — every transfer into the address from it
+  // on is this draft's deposit, whatever the balance does after. Read together:
+  // a transfer in that block counted twice keeps a draft alive, never expires one.
+  const sameToken = prizeToken.toLowerCase() === (USDC as string).toLowerCase();
+  const [baselinePrize, baselineUsdc, depositFromBlock] = await Promise.all([
+    erc20BalanceOf(prizeToken, creator.walletAddress),
+    sameToken ? Promise.resolve(null) : erc20BalanceOf(USDC, creator.walletAddress),
+    blockNumber(),
+  ]);
 
   const outcome = await createDraft(creator.id, {
     module,
@@ -118,6 +152,9 @@ const route = handle('creator/campaign/start', async ({ request, log }) => {
     slotCap,
     feeAmount,
     slotsCost,
+    baselinePrize,
+    baselineUsdc: baselineUsdc ?? baselinePrize,
+    depositFromBlock,
   });
 
   if (outcome.kind === 'ACTIVE_EXISTS') {

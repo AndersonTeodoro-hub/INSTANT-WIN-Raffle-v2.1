@@ -14,6 +14,7 @@ import {
 import { Button } from '../components/Button';
 import { Banner } from '../components/Banner';
 import { EventShell } from '../components/EventShell';
+import { ConnectPrompt } from '../components/ConnectWallet';
 import { Step } from '../components/Step';
 import {
   draftTouched,
@@ -339,14 +340,14 @@ export const EventCreate: React.FC = () => {
   const rulesStageDone = durationSeconds > 0n && slotCapNum > 0 && winnersCount > 0;
 
   return (
-    <EventShell width="narrow" back={{ to: '/events', label: copy.nav.link }} wallet>
+    <EventShell width="narrow" wallet>
       <h1 className="font-display font-bold text-[clamp(2.1rem,6vw,3rem)] leading-tight tracking-tight">
         {c.title}
       </h1>
       <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-400">{c.intro}</p>
 
       <div className="mt-8 space-y-3">
-        {!isConnected && <Banner message={c.connectPrompt} tone="notice" />}
+        {!isConnected && <ConnectPrompt message={c.connectPrompt} />}
         {paused === true && <Banner message={c.pausedBanner} tone="notice" />}
         {moduleRegistered === false && <Banner message={c.moduleNotRegistered} />}
       </div>
@@ -530,7 +531,7 @@ export const EventCreate: React.FC = () => {
           {/* ============ 4. FINANCIAR E LANÇAR ============ */}
           <Step index={4} title={c.stages.funding} headingLevel={2} last>
             <div className="space-y-5">
-              <dl className="rounded-xl border border-dark-border bg-dark-card p-4">
+              <dl className="iw-surface p-4">
                 <div className="flex items-baseline justify-between gap-3 text-sm">
                   <dt className="text-gray-400">{c.costFee}</dt>
                   <dd className="font-mono text-white tabular-nums">

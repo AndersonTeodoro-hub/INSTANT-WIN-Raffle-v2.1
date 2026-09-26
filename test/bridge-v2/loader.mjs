@@ -32,6 +32,13 @@ const DOUBLES = new URL('./doubles/', import.meta.url).href;
 const REDIRECTS = new Map([
   [`${ROOT}lib/bridge-v2/db.ts`, `${DOUBLES}db.mjs`],
   [`${ROOT}lib/bridge-v2/chain.ts`, `${DOUBLES}chain.mjs`],
+  // SPEC-BLOCO-03: the Keptra accounts' chain half. Its real behaviour is the
+  // fork suite's (test/bridge-v2/fork), against the real contracts.
+  [`${ROOT}lib/bridge-v2/keptraChain.ts`, `${DOUBLES}keptraChain.mjs`],
+  // SPEC-BLOCO-03 piece 5: the escrow's reads, doubled like the two above, and
+  // the configuration with its three contract addresses settable (P24).
+  [`${ROOT}lib/bridge-v2/escrowChain.ts`, `${DOUBLES}escrowChain.mjs`],
+  [`${ROOT}lib/bridge-v2/config.ts`, `${DOUBLES}config.mjs`],
 ]);
 
 function redirect(result, parentURL) {

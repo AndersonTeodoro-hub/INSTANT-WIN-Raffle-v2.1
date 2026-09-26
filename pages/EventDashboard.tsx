@@ -7,6 +7,7 @@ import { CONTRACTS } from '../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2PrizeKind } from '../lib/giveaway-v2-abi';
 import { Button } from '../components/Button';
 import { EventShell } from '../components/EventShell';
+import { ConnectPrompt } from '../components/ConnectWallet';
 import { ShareButton } from '../components/ShareButton';
 import { IdentityEditor, useCampaignIdentity } from '../components/CampaignIdentity';
 import { useEventsCopy } from './events.i18n';
@@ -181,7 +182,7 @@ function MyEventRow({ id, creator, refreshAll }: { id: bigint; creator: `0x${str
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p
-            className={`font-mono text-[10px] uppercase tracking-[0.14em] ${
+            className={`text-xs font-medium ${
               isOpen ? 'text-success' : 'text-gray-400'
             }`}
           >
@@ -304,14 +305,14 @@ export const EventDashboard: React.FC = () => {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   return (
-    <EventShell back={{ to: '/events', label: c.nav.link }} wallet>
+    <EventShell wallet>
       <h1 className="font-display font-bold text-[clamp(2.1rem,6vw,3rem)] leading-tight tracking-tight">
         {c.dashboard.title}
       </h1>
       <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-400">{c.dashboard.intro}</p>
 
       <div className="mt-10">
-        {!isConnected && <p className="text-gray-400">{c.dashboard.connectPrompt}</p>}
+        {!isConnected && <ConnectPrompt message={c.dashboard.connectPrompt} />}
 
         {isConnected && isLoading && (
           <p className="flex items-center gap-3 text-gray-400">

@@ -32,7 +32,6 @@ interface Step {
 
 export interface RoadmapCopy {
   meta: { title: string; description: string };
-  waitlist: { short: string };
   hero: { eyebrow: string; title: string; intro: string };
   /** Síntese das quatro fases lado a lado, acima da lista detalhada. */
   overview: { onchainLabel: string; intendedLabel: string; note: string };
@@ -42,11 +41,10 @@ export interface RoadmapCopy {
 
 const en: RoadmapCopy = {
   meta: {
-    title: 'Instant Win — Roadmap',
+    title: 'Roadmap · Keptra',
     description:
-      'Proof, not promise. A live provably fair lottery on Arbitrum One, an onchain Event Center for giveaways and airdrops, web2 onboarding, and token economics under legal structuring.',
+      "Keptra's roadmap. Proof, not promise: a live provably fair lottery on Arbitrum One and a live onchain Event Center for giveaways and airdrops; then a regulated company, and only then a platform instrument.",
   },
-  waitlist: { short: 'Waitlist' },
   hero: {
     eyebrow: 'Roadmap',
     title: 'Proof, Not Promise.',
@@ -80,7 +78,6 @@ const en: RoadmapCopy = {
         },
       ],
       verify: 'Verify it yourself',
-      note: 'The first campaign is coming soon.',
     },
     {
       num: '03',
@@ -108,7 +105,7 @@ const en: RoadmapCopy = {
     ctaLine1: 'Building the rails for transparent, on-chain distribution of tokenized assets.',
     ctaLine2: 'Early conversations with investors and partners are open.',
     ctaButton: 'Talk to us',
-    back: 'Back to instantwin',
+    back: 'Back to Keptra',
   },
 };
 
@@ -127,11 +124,10 @@ const en: RoadmapCopy = {
  */
 const pt: RoadmapCopy = {
   meta: {
-    title: 'Instant Win — Roadmap',
+    title: 'Roadmap · Keptra',
     description:
-      'Prova, não promessa. Uma lotaria comprovadamente justa em funcionamento na Arbitrum One, um Event Center on-chain para sorteios e airdrops, onboarding web2, e economia de token sob estruturação legal.',
+      'O roadmap da Keptra. Prova, não promessa: uma lotaria comprovadamente justa em funcionamento na Arbitrum One e um Event Center on-chain para sorteios e airdrops, também em funcionamento; depois uma empresa regulada, e só então um instrumento da plataforma.',
   },
-  waitlist: { short: 'Lista de espera' },
   hero: {
     eyebrow: 'Roadmap',
     title: 'Prova, não promessa.',
@@ -165,7 +161,6 @@ const pt: RoadmapCopy = {
         },
       ],
       verify: 'Verifique por si mesmo',
-      note: 'A primeira campanha está para breve.',
     },
     {
       num: '03',
@@ -193,17 +188,16 @@ const pt: RoadmapCopy = {
     ctaLine1: 'A construir os trilhos para a distribuição transparente e on-chain de ativos tokenizados.',
     ctaLine2: 'Estão abertas conversas iniciais com investidores e parceiros.',
     ctaButton: 'Fale connosco',
-    back: 'Voltar a instantwin',
+    back: 'Voltar à Keptra',
   },
 };
 
 const es: RoadmapCopy = {
   meta: {
-    title: 'Instant Win — Roadmap',
+    title: 'Roadmap · Keptra',
     description:
-      'Prueba, no promesa. Una lotería demostrablemente justa en funcionamiento en Arbitrum One, un Event Center on-chain para sorteos y airdrops, onboarding web2, y economía de token bajo estructuración legal.',
+      'El roadmap de Keptra. Prueba, no promesa: una lotería demostrablemente justa en funcionamiento en Arbitrum One y un Event Center on-chain para sorteos y airdrops, también en funcionamiento; después una empresa regulada, y solo entonces un instrumento de la plataforma.',
   },
-  waitlist: { short: 'Lista de espera' },
   hero: {
     eyebrow: 'Roadmap',
     title: 'Prueba, no promesa.',
@@ -237,7 +231,6 @@ const es: RoadmapCopy = {
         },
       ],
       verify: 'Verifícalo tú mismo',
-      note: 'La primera campaña está por llegar.',
     },
     {
       num: '03',
@@ -265,7 +258,7 @@ const es: RoadmapCopy = {
     ctaLine1: 'Construyendo los rieles para la distribución transparente y on-chain de activos tokenizados.',
     ctaLine2: 'Están abiertas conversaciones iniciales con inversores y socios.',
     ctaButton: 'Habla con nosotros',
-    back: 'Volver a instantwin',
+    back: 'Volver a Keptra',
   },
 };
 

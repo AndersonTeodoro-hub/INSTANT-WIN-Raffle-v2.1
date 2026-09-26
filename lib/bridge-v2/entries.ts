@@ -13,7 +13,7 @@
  */
 
 import { checked, checkedMaybe, DatabaseError, getDb } from './db.js';
-import { DB_TIMEOUT_MS } from './config.js';
+import { DB_TIMEOUT_MS, ENTER_REMINDER_DELAY_MS } from './config.js';
 import { sha256Hex } from './crypto.js';
 import type { Participant } from './participants.js';
 
@@ -49,6 +49,12 @@ export interface Entry {
   readonly txHash: string | null;
   /** 07/09/2026 decision: true once the participant declared their own address. */
   readonly selfCustody: boolean;
+  /**
+   * SPEC-BLOCO-03 6.5: the address is the participant's Keptra account and the
+   * entry is signed by its passkey. Always selfCustody as well (0012's CHECK):
+   * the bridge signs nothing for it and holds no prize for it.
+   */
+  readonly passkey: boolean;
   /** null until the campaign settles and the pipeline reads the result. */
   readonly outcome: EntryOutcome | null;
 }
@@ -63,6 +69,7 @@ interface EntryRow {
   root_index: string | null;
   tx_hash: string | null;
   self_custody: boolean;
+  passkey?: boolean;
   outcome: EntryOutcome | null;
 }
 
@@ -79,7 +86,7 @@ interface EntryRow {
  * bigint then happens from an exact decimal string.
  */
 const COLUMNS =
-  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash, self_custody, outcome';
+  'id, participant_id, giveaway_id::text, status, wallet_address, phone_hmac, root_index::text, tx_hash, self_custody, passkey, outcome';
 
 function toEntry(row: EntryRow): Entry {
   return {
@@ -92,6 +99,9 @@ function toEntry(row: EntryRow): Entry {
     rootIndex: row.root_index === null ? null : BigInt(row.root_index),
     txHash: row.tx_hash,
     selfCustody: row.self_custody,
+    // ?? false for the same reason as outcome below: a row built by hand, or
+    // selected before 0012, carries undefined.
+    passkey: row.passkey ?? false,
     // ?? null rather than the raw value: a row selected before migration 0010
     // ran, or by a test that builds rows by hand, carries undefined here, and
     // `undefined` and `null` mean the same thing to every reader of this field
@@ -144,7 +154,9 @@ export async function declareOwnAddress(
   const db = getDb();
   const result = await db
     .from('bridge_v2_entries')
-    .update({ wallet_address: address, self_custody: true, updated_at: new Date().toISOString() })
+    // passkey: false — the participant now signs from a wallet of their own, not
+    // from their Keptra account (A11 keeps that path as it was).
+    .update({ wallet_address: address, self_custody: true, passkey: false, updated_at: new Date().toISOString() })
     .eq('id', entryId)
     .in('status', ['AWAITING_CONTACT', 'VERIFIED'])
     .select('id')
@@ -170,9 +182,19 @@ export async function declareOwnAddress(
  * so a second request for the same campaign reuses it rather than opening a
  * parallel one.
  */
-export async function openEntry(participant: Participant, giveawayId: bigint): Promise<Entry> {
+export async function openEntry(
+  participant: Participant,
+  giveawayId: bigint,
+  // SPEC-BLOCO-03 6.5: the participant's Keptra account, when the entry is made
+  // by it. Otherwise the derived wallet, for a participant who still has one and
+  // has no account yet (A12).
+  account: `0x${string}` | null = null,
+): Promise<Entry> {
   const existing = await findEntry(participant.id, giveawayId);
   if (existing !== null) return existing;
+
+  const walletAddress = account ?? participant.walletAddress;
+  if (walletAddress === null) throw new Error('[bridge-v2] an entry needs an account or a derived wallet');
 
   const db = getDb();
   const inserted = await db
@@ -181,7 +203,8 @@ export async function openEntry(participant: Participant, giveawayId: bigint): P
       participant_id: participant.id,
       giveaway_id: giveawayId.toString(),
       status: 'AWAITING_CONTACT',
-      wallet_address: participant.walletAddress,
+      wallet_address: walletAddress,
+      ...(account !== null ? { self_custody: true, passkey: true } : {}),
       idempotency_key: await idempotencyKey(participant.id, giveawayId),
     })
     .select(COLUMNS)
@@ -514,6 +537,8 @@ export interface OutcomeTarget {
   readonly entryId: string;
   readonly walletAddress: `0x${string}`;
   readonly selfCustody: boolean;
+  /** SPEC-BLOCO-03 6.2.5: a Keptra account, whose winner claims with the passkey. */
+  readonly passkey: boolean;
   readonly outcome: EntryOutcome | null;
   /** The canonical address on bridge_v2_participants. Never one from a request. */
   readonly email: string;
@@ -523,6 +548,7 @@ interface OutcomeRow {
   id: string;
   wallet_address: string;
   self_custody: boolean;
+  passkey?: boolean;
   outcome: EntryOutcome | null;
   participant: { email_canonical: string } | null;
 }
@@ -548,7 +574,7 @@ export async function listAwaitingOutcome(
     await db
       .from('bridge_v2_entries')
       .select(
-        'id, wallet_address, self_custody, outcome, participant:bridge_v2_participants!inner(email_canonical)',
+        'id, wallet_address, self_custody, passkey, outcome, participant:bridge_v2_participants!inner(email_canonical)',
       )
       .eq('giveaway_id', giveawayId.toString())
       .eq('status', 'CONFIRMED')
@@ -563,6 +589,7 @@ export async function listAwaitingOutcome(
     entryId: row.id,
     walletAddress: row.wallet_address as `0x${string}`,
     selfCustody: row.self_custody,
+    passkey: row.passkey ?? false,
     outcome: row.outcome ?? null,
     email: row.participant?.email_canonical ?? '',
   }));
@@ -644,4 +671,79 @@ export async function releaseNotice(entryId: string): Promise<void> {
       .eq('id', entryId)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-BLOCO-03 A4 — the "confirm your entry" email
+// ---------------------------------------------------------------------------
+
+/**
+ * Claims the right to send the one reminder a Keptra-account entry gets when its
+ * root is published and the participant has not signed yet. Conditional on the
+ * column being null, so two passes cannot both send (G1).
+ */
+export async function claimEnterReminder(entryId: string): Promise<boolean> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updated = checkedMaybe(
+    'entry.claim_reminder',
+    await db
+      .from('bridge_v2_entries')
+      .update({ enter_reminder_at: now, updated_at: now })
+      .eq('id', entryId)
+      .eq('passkey', true)
+      .is('enter_reminder_at', null)
+      .select('id')
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  );
+  return updated !== null;
+}
+
+/** Puts a reminder back when the provider refused it, as releaseNotice does. */
+export async function releaseEnterReminder(entryId: string): Promise<void> {
+  const db = getDb();
+  checked(
+    'entry.release_reminder',
+    await db
+      .from('bridge_v2_entries')
+      .update({ enter_reminder_at: null, updated_at: new Date().toISOString() })
+      .eq('id', entryId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
+}
+
+/** The canonical email of an entry's participant, for the reminder. Never from a request. */
+export async function participantEmail(participantId: string): Promise<string | null> {
+  const db = getDb();
+  const row = checkedMaybe(
+    'entry.participant_email',
+    await db
+      .from('bridge_v2_participants')
+      .select('email_canonical')
+      .eq('id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as { email_canonical: string } | null;
+  return row === null ? null : row.email_canonical;
+}
+
+/**
+ * A4: whether the root that admitted this entry was published at least
+ * ENTER_REMINDER_DELAY_MS ago. The root's own row carries the moment; the
+ * entry's updated_at does not, because every pass touches it.
+ */
+export async function eligibleLongEnough(giveawayId: bigint, rootIndex: bigint): Promise<boolean> {
+  const db = getDb();
+  const row = checkedMaybe(
+    'entry.root_published',
+    await db
+      .from('bridge_v2_eligibility_roots')
+      .select('created_at')
+      .eq('giveaway_id', giveawayId.toString())
+      .eq('root_index', rootIndex.toString())
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as { created_at: string } | null;
+  return row !== null && new Date(row.created_at).getTime() <= Date.now() - ENTER_REMINDER_DELAY_MS;
 }

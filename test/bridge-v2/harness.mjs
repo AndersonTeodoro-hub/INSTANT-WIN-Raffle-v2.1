@@ -15,6 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { runDeadline } from '../../lib/bridge-v2/runlock.ts';
 
 /**
  * The public Hardhat/Anvil test mnemonic. Not a secret: it is in the Hardhat
@@ -33,8 +34,10 @@ const randomHex = (bytes) => {
 export const TEST_FUNDER_KEYS = [`0x${randomHex(32)}`, `0x${randomHex(32)}`];
 export const TEST_ROLE_KEY = `0x${randomHex(32)}`;
 export const TEST_KEEPER_KEY = `0x${randomHex(32)}`;
+export const TEST_GUARDIAN_KEY = `0x${randomHex(32)}`;
 export const TEST_CRON_SECRET = randomHex(32);
 export const TEST_TELEGRAM_SECRET = randomHex(32);
+export const TEST_ORACLE_TOKEN = randomHex(32);
 
 /**
  * Every name in REQUIRED_ENV, filled with a generated value.
@@ -55,12 +58,17 @@ export function installEnv() {
     BRIDGE_V2_FUNDER_KEYS: TEST_FUNDER_KEYS.join(','),
     BRIDGE_V2_ROLE_KEY: TEST_ROLE_KEY,
     BRIDGE_V2_KEEPER_KEY: TEST_KEEPER_KEY,
+    BRIDGE_V2_GUARDIAN_KEY: TEST_GUARDIAN_KEY,
     RESEND_API_KEY: `re_${randomHex(16)}`,
     BRIDGE_V2_MAIL_FROM: 'Events <no-reply@example.invalid>',
     TELEGRAM_BOT_TOKEN: `${randomHex(4)}:${randomHex(16)}`,
     TELEGRAM_WEBHOOK_SECRET: TEST_TELEGRAM_SECRET,
     TELEGRAM_BOT_USERNAME: 'example_events_bot',
     CRON_SECRET: TEST_CRON_SECRET,
+    // SPEC-BLOCO-03 piece 5 (KEPTRA_ENV).
+    BRIDGE_V2_SHIP24_KEY: `apik_${randomHex(16)}`,
+    BRIDGE_V2_ORACLE_TOKEN: TEST_ORACLE_TOKEN,
+    BRIDGE_V2_ARBITER_EMAIL: 'arbiter@example.invalid',
   });
 }
 
@@ -185,7 +193,16 @@ export function recordingLogger() {
   };
 }
 
-/** A run deadline double with a fixed answer, so a test controls G4 directly. */
-export function deadline(hasTime = true, remaining = 280_000) {
-  return { hasTimeFor: () => hasTime, remainingMs: () => remaining };
+/**
+ * The run deadline, as production builds it: runDeadline() from runlock.ts, so
+ * a reservation is compared against the real budget with the real rule.
+ * `deadline(false)` is a run with nothing left.
+ *
+ * SPEC-BLOCO-03 Adenda C14. This used to be a double that answered hasTimeFor()
+ * with a constant whatever the estimate, and it hid a migration reservation of
+ * 360_000 ms against a 280_000 ms budget: the suites passed and production never
+ * moved a balance (audit finding 1).
+ */
+export function deadline(hasTime = true) {
+  return runDeadline(hasTime ? undefined : 0);
 }

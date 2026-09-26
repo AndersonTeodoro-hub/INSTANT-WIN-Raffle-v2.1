@@ -67,6 +67,12 @@ export const REQUIRED_ENV = [
   // own so that lifecycle gas cannot drain the key that publishes eligibility.
   // Required, not optional, for the reason CRON_SECRET gives below.
   'BRIDGE_V2_KEEPER_KEY',
+  // SPEC-BLOCO-03 A15: the guardian of every Keptra account. It signs one thing,
+  // off-chain — the module's recovery hash for a new owner that passed R-1 — and
+  // the relayer (the funder pool) submits it. It is never an owner of any account
+  // (6.1.4) and cannot move anything without the 7-day window (A7). A root of its
+  // own, so no other role's compromise starts a recovery (section 5).
+  'BRIDGE_V2_GUARDIAN_KEY',
 
   // Email. J7 requires our own authenticated sender domain.
   'RESEND_API_KEY',
@@ -116,6 +122,39 @@ export const OPTIONAL_ENV = [
 ] as const;
 
 export type OptionalEnvName = (typeof OPTIONAL_ENV)[number];
+
+/**
+ * SPEC-BLOCO-03 piece 5 — required by the orders and by nothing else, so a
+ * deployment without them keeps the lottery and the accounts running (I9) while
+ * every order route and step refuses with "configuration incomplete".
+ */
+export const KEPTRA_ENV = [
+  // M1 and O4: the bridge's own key of the dedicated tracking-provider account,
+  // never the oracle's (KEPTRA_TRACKING_API_KEY lives in the CRE only).
+  'BRIDGE_V2_SHIP24_KEY',
+  // M9 and N7: the credential the oracle presents for the list of orders awaiting
+  // proof. The same value is the CRE secret KEPTRA_BRIDGE_TOKEN.
+  'BRIDGE_V2_ORACLE_TOKEN',
+  // P22: where the arbiter is told of a contest. An address, not a secret.
+  'BRIDGE_V2_ARBITER_EMAIL',
+] as const;
+
+export type KeptraEnvName = (typeof KEPTRA_ENV)[number];
+
+/** Reads one of KEPTRA_ENV, like requireEnv (F3, F4). */
+export function requireKeptraEnv(name: KeptraEnvName): string {
+  const value = process.env[name];
+  if (value === undefined || value.length === 0) throw new MissingEnvError([name]);
+  return value;
+}
+
+/** The KEPTRA_ENV names that are missing. */
+export function missingKeptraEnv(): string[] {
+  return KEPTRA_ENV.filter((name) => {
+    const value = process.env[name];
+    return value === undefined || value.length === 0;
+  });
+}
 
 /** Thrown when configuration is missing. Carries names only (F3). */
 export class MissingEnvError extends Error {

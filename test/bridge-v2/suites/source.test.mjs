@@ -143,9 +143,12 @@ await test(['D4'], 'every route that carries data is a POST', () => {
       `${shortName(path)} implements neither guard`,
     );
     // The two crons answer GET because the scheduler uses it, and they carry no
-    // participant data at all: their authorisation is a header.
+    // participant data at all: their authorisation is a header. SPEC-BLOCO-03
+    // piece 5: so does the oracle's list, because the delivery oracle of piece 4
+    // asks with GET (workflow.ts fetchPendingList, B3 of its matrix) — no query
+    // string, its own credential in the header.
     if (/export async function GET/.test(code)) {
-      assert.ok(shortName(path).includes('/cron/'), `${shortName(path)} answers GET`);
+      assert.ok(shortName(path).includes('/cron/') || shortName(path).endsWith('/oracle/pending.ts'), `${shortName(path)} answers GET`);
       assert.match(code, /authorization/);
     }
   }
@@ -281,7 +284,9 @@ await test(['F1'], 'each root is read by the module whose job it is, and by no o
     BRIDGE_V2_ROLE_KEY: ['lib/bridge-v2/chain.ts'],
     BRIDGE_V2_KEEPER_KEY: ['lib/bridge-v2/chain.ts'],
     BRIDGE_V2_CODE_HMAC_KEY: ['lib/bridge-v2/codes.ts', 'lib/bridge-v2/linkcodes.ts'],
-    BRIDGE_V2_PHONE_HMAC_KEY: ['lib/bridge-v2/phone.ts'],
+    // SPEC-BLOCO-03 Adenda P20: the orders' keys (addresses, evidence, the
+    // tracking hash) derive from this root with labels of their own, as B3's did.
+    BRIDGE_V2_PHONE_HMAC_KEY: ['lib/bridge-v2/phone.ts', 'lib/bridge-v2/orders.ts'],
     BRIDGE_V2_SESSION_HMAC_KEY: ['lib/bridge-v2/session.ts'],
     BRIDGE_V2_SIGNAL_HMAC_KEY: ['lib/bridge-v2/ratelimit.ts', 'lib/bridge-v2/signals.ts'],
   };

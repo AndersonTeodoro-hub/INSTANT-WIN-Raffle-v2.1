@@ -1,4 +1,4 @@
-# INSTANT WIN — Roadmap
+# Keptra — Roadmap
 
 **Proof, Not Promise.** Every step below follows the same rule: nothing is announced as done until it is verifiable on-chain.
 
@@ -20,8 +20,6 @@ The lottery was the proof of concept. The Event Center is the product: infrastru
 - **Winner selection always by Chainlink VRF** — no admin can pick, change or block a winner
 - **Same guarantees as the lottery** — immutable contract, pull-payment claims, nothing can ever be trapped
 - **No wallet, no crypto knowledge needed to enter**
-
-The first campaign is coming soon.
 
 Verify it yourself: [`0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739`](https://arbiscan.io/address/0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739)
 

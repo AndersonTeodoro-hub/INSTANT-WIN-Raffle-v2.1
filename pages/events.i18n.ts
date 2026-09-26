@@ -3,10 +3,9 @@ import { useLang } from './landing.i18n';
 // i18n do Event Center (/events/*). Mesmo padrão de app.i18n.ts e
 // giveaways.i18n.ts: objecto de lookup por idioma, useLang partilhado.
 //
-// Não se traduz: INSTANT WIN, USDC, Arbitrum One, Telegram, Event Center.
+// Não se traduz: Keptra, Instant Win, USDC, Arbitrum One, Telegram, Event Center.
 
 export interface EventsCopy {
-  nav: { link: string };
   list: {
     metaTitle: string;
     metaDescription: string;
@@ -68,6 +67,8 @@ export interface EventsCopy {
     steps: { identity: string; entry: string; prize: string };
     proofLine: string;
     previousWinners: { title: string; empty: string; you: string };
+    /** A forma da prova de uma campanha liquidada: de onde vem (a semente do VRF, on-chain). */
+    proof: { markCampaign: string; vrfSeed: string; vrfRequest: string; settled: string };
     outcome: {
       pending: string;
       wonTitle: string;
@@ -129,6 +130,20 @@ export interface EventsCopy {
       confirmExplainer: string;
       confirmed: string;
       invalidAddress: string;
+    };
+    /** SPEC-BLOCO-03 piece 6: entering and claiming with a Keptra account (A4, 6.2.3, 6.2.5). */
+    keptra: {
+      passkeyNeeded: string;
+      setUpCta: string;
+      wrongOrigin: string;
+      confirmEntryBody: string;
+      confirmEntryCta: string;
+      claimBody: string;
+      claimCta: string;
+      claimed: string;
+      voucherBody: string;
+      voucherCta: string;
+      notice: string;
     };
   };
   create: {
@@ -247,9 +262,8 @@ export interface EventsCopy {
 }
 
 const en: EventsCopy = {
-  nav: { link: 'Event Center' },
   list: {
-    metaTitle: 'Event Center — Instant Win',
+    metaTitle: 'Event Center · Keptra',
     metaDescription: 'Live giveaways on GiveawayManagerV2, Arbitrum One. Enter by email and Telegram, or connect a wallet.',
     eyebrow: 'Event Center',
     title: 'Giveaways, live on Arbitrum',
@@ -311,6 +325,7 @@ const en: EventsCopy = {
     },
     proofLine: 'Winners are drawn by Chainlink VRF, and no function in the contract lets anyone choose or change them — not the creator, and not us. Only a drawn address can claim its prize, and only within 90 days of the draw; after that, the creator can take back whatever was never claimed. If the campaign is cancelled, the creator can take the prize back. In an NFT campaign with fewer winners than items, the creator can also take back the items nobody won. If you entered through our bridge, the drawn address is one of the bridge’s wallets: only the bridge can claim that prize, and it sends it on only to a wallet you have confirmed.',
     previousWinners: { title: 'Winners', empty: 'No winners drawn yet.', you: 'This is you' },
+    proof: { markCampaign: 'Proof shape of campaign', vrfSeed: 'VRF seed', vrfRequest: 'VRF request', settled: 'Settled on-chain' },
     outcome: {
       pending: 'The draw is done. Confirming what it means for your entry…',
       wonTitle: 'You won',
@@ -375,14 +390,27 @@ const en: EventsCopy = {
       confirmed: 'Confirmed. Your prize will be sent here.',
       invalidAddress: 'Enter a valid wallet address.',
     },
+    keptra: {
+      passkeyNeeded: 'Entering needs your Keptra account and its passkey. Set it up first — it takes a minute — then come back to this page.',
+      setUpCta: 'Set up my Keptra account',
+      wrongOrigin: 'Passkeys work only on keptra.io. Open this page on keptra.io to continue.',
+      confirmEntryBody: 'Your place is ready. One step is left: confirm your entry with your passkey. Until you do, you are not entered.',
+      confirmEntryCta: 'Confirm my entry with my passkey',
+      claimBody: 'Claim it with your passkey. It stays in the contract until you do, and claims close 90 days after the draw.',
+      claimCta: 'Claim my prize with my passkey',
+      claimed: 'Claimed. The prize is in your Keptra account.',
+      voucherBody: 'Your prize is a voucher for a physical product. Redeem it with a delivery address within 30 days of claiming it.',
+      voucherCta: 'Redeem my voucher',
+      notice: 'You enter with your own Keptra account: your passkey signs the entry, and a prize stays in the contract until you claim it.',
+    },
   },
   create: {
-    metaTitle: 'Create a giveaway — Instant Win',
+    metaTitle: 'Create a giveaway · Event Center · Keptra',
     metaDescription: 'Create a giveaway on GiveawayManagerV2: deposit an ERC-20, ERC-721 or ERC-1155 prize and buy entry slots.',
     title: 'Create a giveaway',
     intro: 'You sign the creation and the deposit yourself, with your own gas. The prize never passes through the platform.',
     connectPrompt: 'Connect a wallet to create a giveaway.',
-    pausedBanner: 'Campaign creation opens at launch. The contract is live and verified on Arbiscan; the entry flow is being finished.',
+    pausedBanner: 'Campaign creation is paused on the contract right now. New campaigns and entries are on hold; claims and refunds are not affected.',
     moduleNotRegistered: 'This prize module is not registered on the contract yet. Creation is disabled.',
     stages: { prize: 'The prize', rules: 'The rules', funding: 'Fund and launch' },
     prizeType: { label: 'Prize type', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
@@ -467,7 +495,7 @@ const en: EventsCopy = {
     },
   },
   dashboard: {
-    metaTitle: 'My giveaways — Instant Win',
+    metaTitle: 'My giveaways · Event Center · Keptra',
     title: 'My giveaways',
     intro: 'Every campaign you created, and what it needs next.',
     connectPrompt: 'Connect a wallet to see your giveaways.',
@@ -492,9 +520,8 @@ const en: EventsCopy = {
 };
 
 const pt: EventsCopy = {
-  nav: { link: 'Event Center' },
   list: {
-    metaTitle: 'Event Center — Instant Win',
+    metaTitle: 'Event Center · Keptra',
     metaDescription: 'Sorteios ao vivo no GiveawayManagerV2, Arbitrum One. Participe por email e Telegram, ou ligue uma carteira.',
     eyebrow: 'Event Center',
     title: 'Sorteios, ao vivo na Arbitrum',
@@ -556,6 +583,7 @@ const pt: EventsCopy = {
     },
     proofLine: 'Os vencedores são sorteados pela Chainlink VRF e nenhuma função do contrato permite que alguém os escolha ou troque — nem quem criou a campanha, nem nós. Só um endereço sorteado pode levantar o seu prémio, e só nos 90 dias após o sorteio; depois disso, quem criou a campanha pode recuperar o que nunca foi levantado. Se a campanha for cancelada, quem a criou pode recuperar o prémio. Numa campanha NFT com menos vencedores do que itens, pode também recuperar os itens que ninguém ganhou. Se participou através da nossa ponte, o endereço sorteado é uma das carteiras da ponte: só a ponte pode levantar esse prémio, e só o envia para uma carteira que tenha confirmado.',
     previousWinners: { title: 'Vencedores', empty: 'Ainda não há vencedores sorteados.', you: 'É você' },
+    proof: { markCampaign: 'Forma da prova da campanha', vrfSeed: 'Semente do VRF', vrfRequest: 'Pedido ao VRF', settled: 'Liquidada on-chain' },
     outcome: {
       pending: 'O sorteio foi feito. A confirmar o que significa para a sua participação…',
       wonTitle: 'Ganhou',
@@ -620,14 +648,27 @@ const pt: EventsCopy = {
       confirmed: 'Confirmado. O seu prémio será enviado para aqui.',
       invalidAddress: 'Introduza um endereço de carteira válido.',
     },
+    keptra: {
+      passkeyNeeded: 'Para participar precisa da sua conta Keptra e da respectiva passkey. Configure-a primeiro — demora um minuto — e volte a esta página.',
+      setUpCta: 'Configurar a minha conta Keptra',
+      wrongOrigin: 'As passkeys só funcionam em keptra.io. Abra esta página em keptra.io para continuar.',
+      confirmEntryBody: 'O seu lugar está pronto. Falta um passo: confirmar a entrada com a sua passkey. Até o fazer, não está inscrito.',
+      confirmEntryCta: 'Confirmar a entrada com a passkey',
+      claimBody: 'Reclame-o com a sua passkey. Fica no contrato até o fazer, e as reclamações fecham 90 dias depois do sorteio.',
+      claimCta: 'Reclamar o prémio com a passkey',
+      claimed: 'Reclamado. O prémio está na sua conta Keptra.',
+      voucherBody: 'O seu prémio é um voucher para um produto físico. Resgate-o com uma morada de entrega até 30 dias depois de o reclamar.',
+      voucherCta: 'Resgatar o voucher',
+      notice: 'Participa com a sua própria conta Keptra: a sua passkey assina a entrada, e um prémio fica no contrato até o reclamar.',
+    },
   },
   create: {
-    metaTitle: 'Criar um sorteio — Instant Win',
+    metaTitle: 'Criar um sorteio · Event Center · Keptra',
     metaDescription: 'Crie um sorteio no GiveawayManagerV2: deposite um prémio ERC-20, ERC-721 ou ERC-1155 e compre slots de entrada.',
     title: 'Criar um sorteio',
     intro: 'Assina a criação e o depósito você mesmo, com o seu próprio gas. O prémio nunca passa pela plataforma.',
     connectPrompt: 'Ligue uma carteira para criar um sorteio.',
-    pausedBanner: 'A criação de campanhas abre no lançamento. O contrato está no ar e verificado no Arbiscan; o fluxo de entrada está a ser terminado.',
+    pausedBanner: 'A criação de campanhas está pausada no contrato neste momento. Novas campanhas e entradas estão suspensas; resgates e reembolsos não são afectados.',
     moduleNotRegistered: 'Este módulo de prémio ainda não está registado no contrato. A criação está desactivada.',
     stages: { prize: 'O prémio', rules: 'As regras', funding: 'Financiar e lançar' },
     prizeType: { label: 'Tipo de prémio', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
@@ -712,7 +753,7 @@ const pt: EventsCopy = {
     },
   },
   dashboard: {
-    metaTitle: 'Os meus sorteios — Instant Win',
+    metaTitle: 'Os meus sorteios · Event Center · Keptra',
     title: 'Os meus sorteios',
     intro: 'Cada campanha que criou, e o que precisa a seguir.',
     connectPrompt: 'Ligue uma carteira para ver os seus sorteios.',
@@ -737,9 +778,8 @@ const pt: EventsCopy = {
 };
 
 const es: EventsCopy = {
-  nav: { link: 'Event Center' },
   list: {
-    metaTitle: 'Event Center — Instant Win',
+    metaTitle: 'Event Center · Keptra',
     metaDescription: 'Sorteos en vivo en GiveawayManagerV2, Arbitrum One. Participa por email y Telegram, o conecta una wallet.',
     eyebrow: 'Event Center',
     title: 'Sorteos, en vivo en Arbitrum',
@@ -801,6 +841,7 @@ const es: EventsCopy = {
     },
     proofLine: 'Los ganadores los sortea Chainlink VRF y ninguna función del contrato permite que alguien los elija o los cambie — ni quien creó la campaña, ni nosotros. Solo una dirección sorteada puede cobrar su premio, y solo dentro de los 90 días después del sorteo; pasado ese plazo, quien creó la campaña puede recuperar lo que nunca se cobró. Si la campaña se cancela, quien la creó puede recuperar el premio. En una campaña NFT con menos ganadores que ítems, también puede recuperar los ítems que nadie ganó. Si participaste a través de nuestro puente, la dirección sorteada es una de las wallets del puente: solo el puente puede cobrar ese premio, y solo lo envía a una wallet que hayas confirmado.',
     previousWinners: { title: 'Ganadores', empty: 'Todavía no hay ganadores sorteados.', you: 'Eres tú' },
+    proof: { markCampaign: 'Forma de la prueba de la campaña', vrfSeed: 'Semilla del VRF', vrfRequest: 'Solicitud al VRF', settled: 'Liquidada on-chain' },
     outcome: {
       pending: 'El sorteo ya se hizo. Confirmando qué significa para tu participación…',
       wonTitle: 'Has ganado',
@@ -865,14 +906,27 @@ const es: EventsCopy = {
       confirmed: 'Confirmada. Tu premio se enviará aquí.',
       invalidAddress: 'Introduce una dirección de wallet válida.',
     },
+    keptra: {
+      passkeyNeeded: 'Para participar necesitas tu cuenta Keptra y su passkey. Configúrala primero — lleva un minuto — y vuelve a esta página.',
+      setUpCta: 'Configurar mi cuenta Keptra',
+      wrongOrigin: 'Las passkeys solo funcionan en keptra.io. Abre esta página en keptra.io para continuar.',
+      confirmEntryBody: 'Tu plaza está lista. Falta un paso: confirmar tu entrada con tu passkey. Hasta que lo hagas, no estás inscrito.',
+      confirmEntryCta: 'Confirmar mi entrada con la passkey',
+      claimBody: 'Reclámalo con tu passkey. Se queda en el contrato hasta que lo hagas, y las reclamaciones cierran 90 días después del sorteo.',
+      claimCta: 'Reclamar mi premio con la passkey',
+      claimed: 'Reclamado. El premio está en tu cuenta Keptra.',
+      voucherBody: 'Tu premio es un vale para un producto físico. Canjéalo con una dirección de entrega en los 30 días siguientes a reclamarlo.',
+      voucherCta: 'Canjear mi vale',
+      notice: 'Participas con tu propia cuenta Keptra: tu passkey firma la entrada, y un premio se queda en el contrato hasta que lo reclames.',
+    },
   },
   create: {
-    metaTitle: 'Crear un sorteo — Instant Win',
+    metaTitle: 'Crear un sorteo · Event Center · Keptra',
     metaDescription: 'Crea un sorteo en GiveawayManagerV2: deposita un premio ERC-20, ERC-721 o ERC-1155 y compra cupos de entrada.',
     title: 'Crear un sorteo',
     intro: 'Firmas la creación y el depósito tú mismo, con tu propio gas. El premio nunca pasa por la plataforma.',
     connectPrompt: 'Conecta una wallet para crear un sorteo.',
-    pausedBanner: 'La creación de campañas abre en el lanzamiento. El contrato está activo y verificado en Arbiscan; el flujo de entrada se está terminando.',
+    pausedBanner: 'La creación de campañas está pausada en el contrato en este momento. Las campañas nuevas y las entradas están suspendidas; los reclamos y reembolsos no se ven afectados.',
     moduleNotRegistered: 'Este módulo de premio aún no está registrado en el contrato. La creación está desactivada.',
     stages: { prize: 'El premio', rules: 'Las reglas', funding: 'Financiar y lanzar' },
     prizeType: { label: 'Tipo de premio', token: 'Token (ERC-20 / USDC)', nft721: 'NFT (ERC-721)', nft1155: 'NFT (ERC-1155)' },
@@ -957,7 +1011,7 @@ const es: EventsCopy = {
     },
   },
   dashboard: {
-    metaTitle: 'Mis sorteos — Instant Win',
+    metaTitle: 'Mis sorteos · Event Center · Keptra',
     title: 'Mis sorteos',
     intro: 'Cada campaña que creaste, y qué necesita a continuación.',
     connectPrompt: 'Conecta una wallet para ver tus sorteos.',

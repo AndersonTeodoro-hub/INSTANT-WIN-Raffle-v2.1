@@ -1,18 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, ExternalLink, Info, RotateCcw, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Info, RotateCcw, Users } from 'lucide-react';
 import { clsx } from 'clsx';
-import { CONTRACTS, EARLY_ACCESS_FORM_URL, GIVEAWAY_LIMITS } from '../constants';
+import { CONTRACTS, GIVEAWAY_LIMITS } from '../constants';
 import { useGiveawaysCopy } from '../pages/giveaways.i18n';
 
 /**
- * Preview do fluxo de criação de campanhas do GiveawayManager.
+ * Simulação do fluxo de criação de campanhas do GiveawayManagerV2.
  *
- * PREVIEW: não há wagmi, não há wallet, não há transacção, não há fetch. Todo o
- * estado vive neste componente e morre com o refresh — de propósito. A criação
- * de campanhas abre depois do lançamento público da lottery; até lá isto é a
- * forma honesta de mostrar o produto: os passos reais, os limites reais do
- * contrato, e um fim que diz o que ainda não dá para fazer em vez de fingir um
- * submit.
+ * SIMULAÇÃO: não há wagmi, não há wallet, não há transacção, não há fetch. Todo
+ * o estado vive neste componente e morre com o refresh — de propósito. Mostra os
+ * passos reais e os limites reais do contrato, e o fim leva à criação a sério,
+ * no Event Center (/events/create), em vez de fingir um submit.
  *
  * Os limites validados aqui vêm todos de GIVEAWAY_LIMITS — nenhum número é
  * escrito à mão neste ficheiro.
@@ -111,7 +110,7 @@ const STEP_COUNT = 5;
 
 const inputClass =
   'w-full min-h-[48px] rounded-lg border border-dark-border bg-dark-input px-4 text-white ' +
-  'placeholder:text-gray-600 focus:outline-none focus:border-gray-500 transition-colors';
+  'placeholder:text-gray-400 focus:outline-none focus:border-gray-500 transition-colors';
 
 const Field: React.FC<{
   label: string;
@@ -122,7 +121,7 @@ const Field: React.FC<{
   className?: string;
 }> = ({ label, hint, error, htmlFor, children, className = '' }) => (
   <div className={className}>
-    <label htmlFor={htmlFor} className="block font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">
+    <label htmlFor={htmlFor} className="block text-xs font-medium text-gray-400 mb-2">
       {label}
     </label>
     {children}
@@ -130,7 +129,7 @@ const Field: React.FC<{
     {error ? (
       <p className="mt-2 text-sm text-red-400 leading-relaxed">{error}</p>
     ) : hint ? (
-      <p className="mt-2 text-sm text-gray-500 leading-relaxed">{hint}</p>
+      <p className="mt-2 text-sm text-gray-400 leading-relaxed">{hint}</p>
     ) : null}
   </div>
 );
@@ -269,7 +268,6 @@ export const GiveawayWizard: React.FC = () => {
 
   const share = prize !== null && Number.isInteger(winners) && winners > 0 ? prize / BigInt(winners) : null;
   const hasDust = prize !== null && share !== null && prize % BigInt(winners) !== 0n;
-  const isExternalForm = /^https?:\/\//i.test(EARLY_ACCESS_FORM_URL);
 
   const money = (units: bigint | null) => (units === null ? '—' : `${formatUnits(units, decimals)} ${symbol}`);
   const durationLabel = Number.isFinite(hours)
@@ -280,19 +278,19 @@ export const GiveawayWizard: React.FC = () => {
     <div className="rounded-2xl border border-dark-border bg-dark-card overflow-hidden">
 
       {/*
-        Aviso permanente de preview. Discreto por desenho — cinzento, mono, sem
+        Aviso permanente de simulação. Discreto por desenho — cinzento, mono, sem
         ícone de alarme: informa que nada aqui toca na blockchain, não assusta.
       */}
       <div className="flex items-center gap-2.5 border-b border-dark-border bg-black/40 px-4 sm:px-8 py-3">
         <span className="w-1.5 h-1.5 rounded-full bg-gray-500 shrink-0" aria-hidden="true" />
-        <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.15em] text-gray-500">
+        <p className="text-xs font-medium text-gray-400">
           {w.banner}
         </p>
       </div>
 
       {/* Progresso. A linha de texto serve mobile; as barras dão a forma. */}
       <div className="px-4 sm:px-8 pt-6">
-        <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-3">
+        <p className="text-xs font-medium text-gray-400 mb-3">
           {`${step + 1} ${w.stepOf} ${STEP_COUNT} · ${w.stepNames[step]}`}
         </p>
         <ol className="flex gap-1.5" aria-hidden="true">
@@ -372,7 +370,7 @@ export const GiveawayWizard: React.FC = () => {
                   onChange={(ev) => set('amount', ev.target.value)}
                   className={`${inputClass} font-mono text-lg pr-20`}
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-sm text-gray-500 pointer-events-none">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-sm text-gray-400 pointer-events-none">
                   {symbol}
                 </span>
               </div>
@@ -412,7 +410,7 @@ export const GiveawayWizard: React.FC = () => {
             </Field>
 
             <div className="rounded-lg border border-dark-border bg-black/30 px-4 py-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <span className="font-mono text-[11px] uppercase tracking-widest text-gray-500">
+              <span className="text-xs font-medium text-gray-400">
                 {w.timing.endsLabel}
               </span>
               <span className="font-mono text-sm text-white">{endsAt}</span>
@@ -475,12 +473,12 @@ export const GiveawayWizard: React.FC = () => {
                   />
                 </Field>
 
-                <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-gray-500">
+                <div className="flex items-center gap-2 text-xs font-medium text-gray-400">
                   <Users className="w-4 h-4 shrink-0" aria-hidden="true" />
                   {`${group(String(allowValid))} ${w.eligibility.allowCount}`}
                 </div>
 
-                <p className="flex gap-3 text-sm text-gray-500 leading-relaxed">
+                <p className="flex gap-3 text-sm text-gray-400 leading-relaxed">
                   <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                   {w.eligibility.merkleNote}
                 </p>
@@ -525,12 +523,12 @@ export const GiveawayWizard: React.FC = () => {
 
             <div className="space-y-3">
               {hasDust && (
-                <p className="flex gap-3 text-sm text-gray-500 leading-relaxed">
+                <p className="flex gap-3 text-sm text-gray-400 leading-relaxed">
                   <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                   {w.review.dustNote}
                 </p>
               )}
-              <p className="flex gap-3 text-sm text-gray-500 leading-relaxed">
+              <p className="flex gap-3 text-sm text-gray-400 leading-relaxed">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                 {w.review.clampNote}
               </p>
@@ -538,7 +536,7 @@ export const GiveawayWizard: React.FC = () => {
           </div>
         )}
 
-        {/* 5 — EARLY ACCESS (em vez de submit) */}
+        {/* 5 — CRIAR: o fim leva ao Event Center (em vez de submit) */}
         {step === 4 && (
           <div className="space-y-6">
             <div>
@@ -550,16 +548,15 @@ export const GiveawayWizard: React.FC = () => {
               Único CTA âmbar do wizard, e o único do ecrã abaixo do herói: é o
               passo que interessa a quem chegou até aqui.
             */}
-            <a
-              href={EARLY_ACCESS_FORM_URL}
-              {...(isExternalForm ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            <Link
+              to="/events/create"
               className="inline-flex w-full sm:w-auto items-center justify-center gap-3 bg-brand hover:bg-amber-400 text-black font-extrabold px-10 h-14 rounded-lg transition-colors"
             >
               {w.submit.cta}
-              <ExternalLink className="w-5 h-5" />
-            </a>
+              <ArrowRight className="w-5 h-5" aria-hidden="true" />
+            </Link>
 
-            <p className="text-sm text-gray-500 leading-relaxed">{w.submit.note}</p>
+            <p className="text-sm text-gray-400 leading-relaxed">{w.submit.note}</p>
           </div>
         )}
       </div>
@@ -570,7 +567,7 @@ export const GiveawayWizard: React.FC = () => {
           type="button"
           onClick={() => setStep((s) => Math.max(0, s - 1))}
           disabled={step === 0}
-          className="inline-flex items-center gap-2 min-h-[48px] px-4 rounded-lg border border-dark-border text-sm font-bold text-gray-300 hover:text-white hover:border-gray-600 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          className="inline-flex items-center gap-2 min-h-[48px] px-4 rounded-lg border border-dark-border text-sm font-bold text-gray-300 hover:text-white hover:border-gray-600 transition-colors disabled:border-dashed disabled:text-gray-400 disabled:pointer-events-none"
         >
           <ArrowLeft className="w-4 h-4" />
           {w.back}
@@ -593,7 +590,9 @@ export const GiveawayWizard: React.FC = () => {
             type="button"
             onClick={() => setStep((s) => Math.min(STEP_COUNT - 1, s + 1))}
             disabled={blocked}
-            className="inline-flex items-center gap-2 min-h-[48px] px-6 rounded-lg bg-white text-black text-sm font-extrabold hover:bg-gray-200 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            // Contorno, como todos os botões que não são o principal do ecrã (o
+            // âmbar do wizard é o "criar" do último passo); era branco cheio, fora do sistema.
+            className="iw-btn iw-btn-secondary gap-2 min-h-[48px] px-6 text-sm font-bold text-white disabled:border-dark-border disabled:text-gray-400 disabled:pointer-events-none"
           >
             {w.next}
             <ArrowRight className="w-4 h-4" />

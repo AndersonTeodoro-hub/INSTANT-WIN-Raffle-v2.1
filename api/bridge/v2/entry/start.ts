@@ -5,6 +5,7 @@ import { parseGiveawayId } from '../../../../lib/bridge-v2/validate.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { getParticipant } from '../../../../lib/bridge-v2/participants.js';
 import { openEntry } from '../../../../lib/bridge-v2/entries.js';
+import { findAccount } from '../../../../lib/bridge-v2/accounts.js';
 import { issueLinkCode } from '../../../../lib/bridge-v2/linkcodes.js';
 import { largestWinnerShare, policyFor, recordPolicy } from '../../../../lib/bridge-v2/custody.js';
 import { readGiveaway, slotsRemaining } from '../../../../lib/bridge-v2/chain.js';
@@ -70,7 +71,16 @@ const route = handle('entry/start', async ({ request, log }) => {
   const participant = await getParticipant(session.participantId);
   if (participant === null) return refuse(401, 'Sign in to continue.');
 
-  const entry = await openEntry(participant, giveawayId);
+  // SPEC-BLOCO-03 6.5 and A12: a participant with a Keptra account enters with
+  // it, and signs the entry with the passkey once the root is published (A4). A
+  // participant from before, with a derived wallet and no account yet, keeps the
+  // old path until they create one. Somebody with neither has a passkey to make.
+  const account = await findAccount(participant.id, 'PARTICIPANT');
+  if (account === null && participant.walletAddress === null) {
+    return refuse(409, 'Create your passkey first.');
+  }
+
+  const entry = await openEntry(participant, giveawayId, account?.safe ?? null);
   if (entry.status !== 'AWAITING_CONTACT') {
     // Already confirmed or already moving. Nothing to re-issue.
     return ok({ status: entry.status });

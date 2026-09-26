@@ -23,6 +23,20 @@ function hashLinkCode(code: string): Promise<string> {
 }
 
 /**
+ * SPEC-BLOCO-03 A14: the deep link a recovery is confirmed through. Same shape
+ * and same root as an entry's link code, its own label, so a code issued for one
+ * purpose never matches the other. The row that holds it is the recovery itself
+ * (accounts.ts); this module only makes and hashes the code.
+ */
+export function newRecoveryCode(): string {
+  return toBase64Url(randomBytes(LINK_CODE_BYTES));
+}
+
+export function hashRecoveryCode(code: string): Promise<string> {
+  return keyedHash('BRIDGE_V2_CODE_HMAC_KEY', 'telegram-recovery-v1', code);
+}
+
+/**
  * Issues a code for one participant and one campaign.
  *
  * 16 bytes of CSPRNG output, base64url, so it is 22 characters and survives a

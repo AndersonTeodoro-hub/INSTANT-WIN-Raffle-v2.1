@@ -73,6 +73,67 @@ export type OpsKind =
   | 'lifecycle.failed'
   | 'lifecycle.deferred'
   | 'lifecycle.skipped'
+  // SPEC-BLOCO-03 section 6: Keptra accounts. Never an address, a key or a
+  // credential in the detail — the kind of action and the reason, nothing else.
+  | 'account.registered'
+  | 'account.relayed'
+  | 'account.refused'
+  // Adenda D4: an account not deployed yet took the new passkey's address.
+  | 'account.readdressed'
+  // Adenda E3: an account found on-chain as 6.1 says, with no mark, was marked.
+  | 'account.recognized'
+  // Adenda E7: a relay campaign whose transaction never landed went back to PENDING_DEPOSIT.
+  | 'creator_campaign.released'
+  // Adenda F1: a recorded guardian was brought into line with the chain's.
+  | 'account.guardian_reconciled'
+  // Adenda F2: a draft nobody funded closed seven days after it was made.
+  | 'creator_campaign.expired'
+  | 'entry.reminded'
+  | 'recovery.requested'
+  | 'recovery.verified'
+  | 'recovery.confirmed'
+  | 'recovery.notified'
+  | 'recovery.finalized'
+  | 'recovery.canceled'
+  | 'recovery.refused'
+  | 'recovery.failed'
+  | 'recovery.expired'
+  | 'migration.authorized'
+  | 'migration.waiting'
+  | 'migration.moved'
+  | 'migration.sealed'
+  | 'migration.failed'
+  | 'migration.readiness'
+  // SPEC-BLOCO-03 piece 5: the orders. The order id and what happened — never an
+  // address, a tracking number, a post code or evidence (section 10, K4).
+  | 'orders.skipped'
+  | 'orders.sent'
+  | 'orders.confirmed'
+  | 'orders.unconfirmed'
+  | 'orders.failed'
+  | 'orders.deferred'
+  | 'order.address_bound'
+  | 'order.address_registered'
+  | 'order.notified'
+  | 'order.recipient_marked'
+  | 'order.tracking_registered'
+  | 'order.tracker_created'
+  // SPEC-BLOCO-03 AA4: a claim given back (P5-2), a shipment out of the retries (P5-3), an order read aside (P5-12).
+  | 'order.address_released'
+  // SPEC-BLOCO-03 AB5: a notice the email provider refused for what it is, recorded and never sent again.
+  | 'order.notice_refused'
+  | 'order.tracker_stopped'
+  | 'order.read_aside'
+  | 'order.evidence_written'
+  // P6-14: the terms a store created, not recorded for its console (the relay stands).
+  | 'store_terms.failed'
+  // SPEC-BLOCO-03 AB4: terms and obligations read from the chain for the stores' consoles.
+  | 'store_terms.indexed'
+  // SPEC-BLOCO-03 piece 6: a description written once (T4); an erasure refused while value is left (T13).
+  | 'offer.description_written'
+  | 'privacy.erase_refused'
+  | 'order.evidence_read'
+  | 'order.erased'
   | 'alert';
 
 /**

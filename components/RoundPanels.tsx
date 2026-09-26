@@ -12,8 +12,12 @@ import { formatUnits } from 'viem';
 import { CONTRACTS, RAFFLE_ABI, RAFFLE_DEPLOY_BLOCK, RoundState, PRIZE_AWARDED_EVENT } from '../constants';
 import { Button } from './Button';
 import { WinCard } from './WinCard';
-import { Gift, Undo2, Trophy, Ban } from 'lucide-react';
+import { Gift, Undo2, Ban } from 'lucide-react';
 import { useAppCopy } from '../pages/app.i18n';
+import { CountUp } from './proof/CountUp';
+import { DrawReveal, useFirstSight } from './proof/DrawReveal';
+
+const ARBISCAN_TX = 'https://arbiscan.io/tx/';
 
 const TICKET_PRICE = 1_000_000n;
 
@@ -94,7 +98,7 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
   const busy = isPending || confirming;
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-7">
+    <div className="iw-surface p-5 sm:p-7">
       <h2 className="font-display text-2xl font-bold text-white tracking-tight mb-5 flex items-center gap-2">
         <Gift className="w-5 h-5 text-brand shrink-0" aria-hidden="true" /> {c.claim.title}
       </h2>
@@ -133,7 +137,7 @@ export const ClaimPanel: React.FC<{ currentRoundId?: bigint }> = ({ currentRound
           {refundables.map((r) => (
             <div
               key={r.id.toString()}
-              className="flex items-center justify-between gap-3 rounded-lg border border-dark-border bg-white/[0.02] px-4 py-3"
+              className="iw-rise flex items-center justify-between gap-3 rounded-control border border-dark-border bg-white/[0.02] px-4 py-3"
             >
               <div>
                 <p className="font-mono text-xs text-gray-400 tabular-nums">{c.claim.round}{r.id.toString()}</p>
@@ -209,11 +213,14 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
         });
 
         if (logs.length > 0) {
+          // A transacção dos logs é a resposta do Chainlink VRF que liquidou a
+          // ronda (PrizeAwarded sai de rawFulfillRandomWords): a prova do sorteio.
           return logs
             .map((l) => ({
               winner: l.args.winner as `0x${string}`,
               rank: Number(l.args.rank),
               amount: l.args.amount as bigint,
+              txHash: l.transactionHash as `0x${string}`,
             }))
             .sort((a, b) => a.rank - b.rank);
         }
@@ -222,24 +229,62 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
         to = from - 1n;
       }
 
-      return [] as { winner: `0x${string}`; rank: number; amount: bigint }[];
+      return [] as { winner: `0x${string}`; rank: number; amount: bigint; txHash: `0x${string}` }[];
     },
   });
 
+  const proof = state === RoundState.SETTLED && winners && winners.length > 0 ? winners[0].txHash : null;
+  const first = useFirstSight(proof);
+
   if (!prevId || state === undefined || state === RoundState.NONE || state === RoundState.OPEN) return null;
 
+  /*
+   * Liquidada e com os vencedores lidos da cadeia: o clímax da plataforma. A
+   * forma do sorteio grava-se a partir da própria prova, o selo desenha-se e os
+   * vencedores chegam um a um — só a primeira vez que este aparelho vê a ronda.
+   */
+  if (state === RoundState.SETTLED && proof !== null && winners) {
+    return (
+      <div className="iw-surface-raised p-5 sm:p-7">
+        <DrawReveal
+          proof={proof}
+          animate={first}
+          markLabel={`${c.proof.markRound} ${prevId.toString()}`}
+          title={`${c.previousRound.round}${prevId.toString()}`}
+          seal={c.proof.settled}
+          proofLabel={c.proof.vrfTx}
+          proofHref={`${ARBISCAN_TX}${proof}`}
+          rows={winners.map((w, i) => ({
+            key: `${w.rank}`,
+            rank: w.rank,
+            who: short(w.winner),
+            amount: (
+              <>
+                <CountUp value={w.amount} decimals={6} from0={first} delay={first ? 1150 + i * 170 : 0} duration={900} /> USDC
+              </>
+            ),
+          }))}
+        >
+          <p className="mt-3 text-sm text-gray-400">
+            {c.previousRound.settledPoolPre}{' '}
+            <span className="font-mono text-gray-300 tabular-nums">{usdc(pool)} USDC</span>
+          </p>
+        </DrawReveal>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl p-5 sm:p-7">
+    <div className="iw-surface p-5 sm:p-7">
       <h2 className="font-display text-2xl font-bold text-white tracking-tight mb-5 flex items-center gap-2">
-        {/* Sem dados nem roleta: o ícone do sorteio a decorrer é a taça apagada. */}
-        {state === RoundState.DRAWING && <Trophy className="w-5 h-5 text-action shrink-0 animate-pulse" aria-hidden="true" />}
-        {state === RoundState.SETTLED && <Trophy className="w-5 h-5 text-brand shrink-0" aria-hidden="true" />}
+        {/* Sem dados nem roleta: o sorteio a decorrer é um estado ao vivo on-chain — o ponto verde a pulsar. */}
+        {state === RoundState.DRAWING && <span className="iw-live mx-1" aria-hidden="true" />}
         {state === RoundState.CANCELLED && <Ban className="w-5 h-5 text-gray-400 shrink-0" aria-hidden="true" />}
         {c.previousRound.round}{prevId.toString()}
       </h2>
 
       {state === RoundState.DRAWING && (
-        <p className="text-sm text-action animate-pulse">{c.previousRound.drawing}</p>
+        <p className="text-sm text-success">{c.previousRound.drawing}</p>
       )}
 
       {state === RoundState.CANCELLED && (
@@ -252,23 +297,7 @@ export const PreviousRound: React.FC<{ currentRoundId?: bigint }> = ({ currentRo
             {c.previousRound.settledPoolPre}{' '}
             <span className="font-mono text-gray-300 tabular-nums">{usdc(pool)} USDC</span>
           </p>
-          {winners && winners.length > 0 ? (
-            <ol className="mt-4 divide-y divide-dark-border border-y border-dark-border">
-              {winners.map((w) => (
-                <li key={w.rank} className="flex items-center justify-between gap-3 py-3 text-sm">
-                  <span className="flex items-center gap-3 min-w-0">
-                    <span className="font-mono text-xs text-gray-400 tabular-nums">{w.rank}</span>
-                    <span className="font-mono text-gray-300 truncate">{short(w.winner)}</span>
-                  </span>
-                  <span className="font-mono font-bold text-brand tabular-nums shrink-0">
-                    {usdc(w.amount)} USDC
-                  </span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-3 text-sm text-gray-400">{c.previousRound.winnersSettled}</p>
-          )}
+          <p className="mt-3 text-sm text-gray-400">{c.previousRound.winnersSettled}</p>
         </div>
       )}
     </div>

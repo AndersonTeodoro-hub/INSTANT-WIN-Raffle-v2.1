@@ -110,7 +110,8 @@ export type TextCheck = { readonly ok: true; readonly value: IdentityText } | { 
 
 const codePoints = (text: string) => Array.from(text).length;
 
-function singleLine(value: unknown, max: number): string | null {
+/** One line of text, normalised; null when empty, too long, invisible-charactered or link-shaped. Shared with lib/keptra-description.ts. */
+export function singleLine(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
   const text = value.normalize('NFC').replace(/\s+/g, ' ').trim();
   const length = codePoints(text);
@@ -119,7 +120,8 @@ function singleLine(value: unknown, max: number): string | null {
   return text;
 }
 
-function multiLine(value: unknown, max: number, maxLines: number): string | null {
+/** Several lines of text, normalised the same way; null when empty, too long, too many lines or invisible-charactered. */
+export function multiLine(value: unknown, max: number, maxLines: number): string | null {
   if (typeof value !== 'string') return null;
   const text = value
     .normalize('NFC')

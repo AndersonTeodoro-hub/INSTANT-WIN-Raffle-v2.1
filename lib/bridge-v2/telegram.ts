@@ -58,6 +58,19 @@ export const BOT_MESSAGES = {
     'Confirmed. You can close this chat and return to the page.',
   failed:
     'Something went wrong. Please try again from the event page.',
+  // SPEC-BLOCO-03 A14: the number presented to confirm a change of access is not
+  // the one this account confirmed.
+  numberNotAccount:
+    'This number is not the one confirmed for this account. The request was not confirmed.',
+  // SPEC-BLOCO-03 6.3.2 and A5: the three security notices of a change of access.
+  // Account security only — R2 and R3 hold, so no link: the domain is named in
+  // text and nothing else is.
+  accessChangeStarted:
+    'A change of access to your Keptra account was requested. It takes effect in 7 days unless you cancel it. If it was not you, open keptra.io and cancel it.',
+  accessChangeHalfway:
+    'Reminder: a change of access to your Keptra account is half-way through its 7 days. If it was not you, open keptra.io and cancel it.',
+  accessChangeLastDay:
+    'Last reminder: a change of access to your Keptra account takes effect in less than 24 hours. If it was not you, open keptra.io and cancel it now.',
 } as const;
 
 interface ApiResult {

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test:bridge-v2": "node --experimental-strip-types --import ./test/bridge-v2/register.mjs test/bridge-v2/run.mjs",
+    "test:proof": "node --experimental-strip-types test/proof/mark.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -14,6 +15,7 @@
     "@tanstack/react-query": "^5.28.0",
     "clsx": "^2.1.0",
     "lucide-react": "^0.363.0",
+    "qrcode": "1.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",

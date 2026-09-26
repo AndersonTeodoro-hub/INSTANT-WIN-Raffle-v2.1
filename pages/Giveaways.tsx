@@ -1,13 +1,56 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, ShieldCheck } from 'lucide-react';
+import { clsx } from 'clsx';
+import { ArrowRight, ExternalLink, Plus, Coins, Shuffle, Users } from 'lucide-react';
 import { CONTRACTS, GIVEAWAY_LIMITS } from '../constants';
-import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
-import { WaitlistLink } from '../components/WaitlistLink';
-import { LangSwitch } from '../components/LangSwitch';
+import { PublicNavLinks, PublicFooterNav, MODULES } from '../components/PublicNav';
+import { SiteHeader, HeaderAction, KeptraBrand } from '../components/SiteHeader';
 import { GiveawayWizard } from '../components/GiveawayWizard';
+import { ProofSeal } from '../components/Proof';
 import { useGiveawaysCopy } from './giveaways.i18n';
 import type { GiveawaysCopy } from './giveaways.i18n';
+import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
+import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
+import { useLatestCampaignDraw } from '../components/proof/useLatestDraw';
+import { shortProof } from '../lib/proof/mark';
+import { useLang, translations, type SceneCaptionKey } from './landing.i18n';
+import { useEventsCopy } from './events.i18n';
+
+/*
+ * O filme da /giveaways: a forma é a da última campanha liquidada do Event
+ * Center (a semente do VRF); cada afirmação do herói é um capítulo, com a peça
+ * que a prova ao lado do texto.
+ */
+const KEYS = {
+  hero: [{ at: 0, shape: 'rosette', zoom: 0.8, pitch: -0.42, yaw: 0.18, spin: 0.06 }],
+  bullets: [
+    [{ at: 0.2, shape: 'ticket', yaw: -0.32, pitch: -0.55, roll: 0.06, zoom: 1.02 }],
+    [{ at: 0.2, shape: 'rings', pitch: -1.05, yaw: 0.45, zoom: 0.9 }],
+    [
+      { at: 0.06, shape: 'chaos', zoom: 0.95, spin: 0.02 },
+      { at: 0.6, shape: 'reveal', tint: 0.3, zoom: 1, spin: 0.015, still: true },
+    ],
+    [{ at: 0.2, shape: 'payout', flow: 1, zoom: 0.86, pitch: -0.28 }],
+    [{ at: 0.2, shape: 'modules', zoom: 0.84, pitch: -0.3 }],
+  ],
+  reading: [
+    { at: 0, shape: 'rings', alpha: 0 },
+    { at: 1, shape: 'rings', alpha: 0 },
+  ],
+  close: [{ at: 0.4, shape: 'rosette', zoom: 0.92, pitch: -0.3, spin: 0.05 }],
+} satisfies Record<string, KeySpec[] | KeySpec[][]>;
+
+/** Capítulos com a cena larga (o fluxo do prémio, os vários sorteios). */
+const WIDE = [false, false, false, true, true];
+
+/** A legenda de cada forma, posicional com KEYS.bullets. */
+const CAPTIONS: readonly SceneCaptionKey[] = ['entry', 'prize', 'pick', 'payout', 'modules'];
+
+/** "— the creator funds…" → "The creator funds…": o resto da frase, como parágrafo do capítulo. */
+const asParagraph = (rest: string) => {
+  const text = rest.replace(/^\s*—\s*/, '');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
 
 const ARBISCAN = 'https://arbiscan.io/address/';
 
@@ -31,9 +74,67 @@ const specValues = (w: GiveawaysCopy['proof']['specWords']) => [
   `${GIVEAWAY_LIMITS.MIN_DURATION_HOURS} ${w.hour} – ${GIVEAWAY_LIMITS.MAX_DURATION_HOURS / 24} ${w.days}`,
 ];
 
+/**
+ * A prova ou a ilustração de cada afirmação do herói, pela ordem de
+ * `hero.bullets`: entrada a zero, qualquer ERC-20, o sorteio do Chainlink VRF,
+ * o contrato de onde se reclama (verde: é verificável agora) e quem pode criar.
+ */
+const BulletEvidence: React.FC<{ index: number; upTo: string }> = ({ index, upTo }) => {
+  const tile = 'flex h-14 items-center gap-3 rounded-control border border-dark-border bg-black/40 px-4';
+  switch (index) {
+    case 0:
+      return (
+        <div className={tile}>
+          <span className="font-mono text-2xl font-bold text-white">0.00</span>
+          <span className="font-mono text-xs text-gray-400">USDC</span>
+        </div>
+      );
+    case 1:
+      return (
+        <div className={tile}>
+          <Coins className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+          <span className="font-mono text-sm text-white">ERC-20</span>
+        </div>
+      );
+    case 2:
+      return (
+        <div className={tile}>
+          <Shuffle className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+          <span className="font-mono text-sm text-white">Chainlink VRF</span>
+        </div>
+      );
+    case 3:
+      return (
+        <a
+          href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${tile} justify-between font-mono text-sm text-success transition-colors duration-200 hover:border-success/40`}
+        >
+          <span className="flex items-center gap-2">
+            <ProofSeal className="h-4 w-4" />
+            {`${CONTRACTS.GIVEAWAY_MANAGER_V2.slice(0, 6)}…${CONTRACTS.GIVEAWAY_MANAGER_V2.slice(-4)}`}
+          </span>
+          <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
+        </a>
+      );
+    default:
+      return (
+        <div className={tile}>
+          <Users className="h-5 w-5 shrink-0 text-gray-300" aria-hidden="true" />
+          <span className="font-mono text-sm text-white">{`${upTo} ${GIVEAWAY_LIMITS.MAX_PARTICIPANTS.toLocaleString('en-US')}`}</span>
+        </div>
+      );
+  }
+};
+
 export const Giveaways: React.FC = () => {
   const c = useGiveawaysCopy();
   const specs = specValues(c.proof.specWords);
+  const [lang] = useLang();
+  const t = translations[lang];
+  const campaign = useLatestCampaignDraw();
+  const events = useEventsCopy();
 
   /*
    * SEO desta rota, mesmo mecanismo da /roadmap: o site é uma SPA com um só
@@ -57,139 +158,159 @@ export const Giveaways: React.FC = () => {
   }, [c]);
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans flex flex-col overflow-x-hidden">
+    <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
+      {/* O cabeçalho da plataforma; a acção do contexto é criar um sorteio, no Event Center. */}
+      <SiteHeader
+        brand={<KeptraBrand module={MODULES.giveaways} />}
+        nav={<PublicNavLinks />}
+        actions={<HeaderAction to="/events/create" icon={Plus} label={events.list.createCta} />}
+      />
 
-      {/* Um só glow ambiente, azul — como a /roadmap. */}
-      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] bg-action/10 rounded-full blur-[120px] pointer-events-none z-0" />
+      <Film
+        proof={campaign.draw?.proof ?? (campaign.loading ? undefined : CONTRACTS.GIVEAWAY_MANAGER_V2)}
+        fallback={CONTRACTS.GIVEAWAY_MANAGER_V2}
+        winners={campaign.draw?.winnersCount ?? 3}
+        campaign={campaign.draw?.proof ?? null}
+        pauseLabel={t.film.pause}
+        playLabel={t.film.play}
+      >
+        <main className="iw-screen relative z-10 flex-1">
+          {/* Herói: a promessa, e ao lado a forma da última campanha liquidada. */}
+          <FilmSection id="gw-hero" pinned={false} label={c.hero.title}>
+            <div className="container mx-auto max-w-6xl px-4 sm:px-6 pt-12 pb-12 sm:pt-20 sm:pb-16 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:items-center lg:gap-14">
+              <div>
+                <p className="text-sm font-medium text-gray-400 mb-4">{c.hero.eyebrow}</p>
+                <h1 className="font-display font-bold text-[clamp(2.5rem,11vw,4.5rem)] leading-[1.02] tracking-tight mb-5">{c.hero.title}</h1>
+                <p className="max-w-[60ch] text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
+              </div>
+              <div className="mx-auto mt-10 w-full max-w-[24rem] lg:mt-0 lg:max-w-none">
+                <FilmAnchor keys={KEYS.hero} className="aspect-square w-full" />
+                <SceneCaption text={t.film.captions.mark} className="lg:mx-0 lg:text-left" />
+                <p className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-gray-400 lg:justify-start">
+                  {campaign.draw ? (
+                    <>
+                      <ProofSeal className="h-3.5 w-3.5 text-success" />
+                      <span>
+                        {t.film.markOfCampaign} <span className="font-mono text-gray-300">{campaign.draw.id.toString()}</span>
+                      </span>
+                      <Link
+                        to={`/events/${campaign.draw.id.toString()}`}
+                        className="inline-flex min-h-[32px] items-center font-mono text-success underline decoration-success/30 underline-offset-4 hover:decoration-success"
+                      >
+                        {shortProof(campaign.draw.proof)}
+                      </Link>
+                    </>
+                  ) : (
+                    t.film.markPending
+                  )}
+                </p>
+              </div>
+            </div>
+          </FilmSection>
 
-      <header className="sticky top-0 z-20 border-b border-dark-border/60 bg-black/70 backdrop-blur-sm">
-        <div className="container mx-auto px-4 sm:px-6 min-h-[64px] md:h-20 flex flex-wrap md:flex-nowrap items-center justify-between md:justify-end gap-3">
-          <Link to="/" className="flex items-baseline gap-2 min-w-0 min-h-[44px] py-2 md:mr-auto">
-            <span className="font-display font-bold text-xl sm:text-2xl text-white tracking-tight leading-none truncate">
-              INSTANT WIN
-            </span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 translate-y-[1px]">
-              <path d="M4 12.5 L9.5 18 L20 6" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </Link>
+          {/*
+            Cada afirmação leva a peça que a prova ou ilustra — um número, o nome
+            do protocolo, o contrato — e a cena que lhe corresponde.
+          */}
+          {c.hero.bullets.map((b, i) => (
+            <Chapter key={b.lead} id={`gw-claim-${i + 1}`} keys={KEYS.bullets[i]} wide={WIDE[i]} label={b.lead} caption={t.film.captions[CAPTIONS[i]]}>
+              <ChapterHead index={i + 1} label={c.hero.eyebrow} title={b.lead} />
+              <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{asParagraph(b.rest)}</p>
+              <div className="mt-6 max-w-sm">
+                <BulletEvidence index={i} upTo={c.proof.specWords.upTo} />
+              </div>
+            </Chapter>
+          ))}
 
-          {/* Filho directo da barra: é o que lhe permite descer para a segunda
-              linha abaixo de md. */}
-          <PublicNavLinks />
+          {/* Leitura: a prova do contrato e o fluxo de criação. A cena sai de cena. */}
+          <FilmSection id="gw-reading" pinned={false} label={c.proof.title}>
+            <FilmAnchor keys={KEYS.reading} ghost className="pointer-events-none absolute left-1/2 top-0 h-[40vh] w-[40vh] -translate-x-1/2" />
+            <div className="container mx-auto px-4 sm:px-6 max-w-4xl">
+              {/* Prova — o único verde da página vive neste bloco. */}
+              <section className="pt-16 pb-12 sm:pt-24 sm:pb-16">
+                <div className="iw-surface-raised p-6 sm:p-8">
+                  <p className="text-sm font-medium text-gray-400 mb-3">{c.proof.eyebrow}</p>
+                  <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-6">{c.proof.title}</h2>
 
-          <div className="flex items-center gap-2">
-            <LangSwitch />
-            <WaitlistLink label={c.waitlist.short} className="hidden sm:inline-flex px-5 text-sm" />
-          </div>
-        </div>
-      </header>
+                  <p className="text-xs text-gray-400 mb-2">{c.proof.verifyLabel}</p>
+                  <a
+                    href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
+                  >
+                    <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
+                    <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  </a>
 
-      <main className="flex-1 relative z-10 container mx-auto px-4 sm:px-6 max-w-3xl">
+                  <p className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-success">
+                    <ProofSeal className="w-4 h-4" />
+                    {c.proof.matchLabel}
+                  </p>
 
-        {/* Herói */}
-        <section className="pt-12 pb-10 sm:pt-20 sm:pb-14">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-4">
-            {c.hero.eyebrow}
-          </p>
-          <h1 className="font-display font-bold text-[clamp(2.5rem,11vw,4rem)] leading-[1.05] mb-5">
-            {c.hero.title}
-          </h1>
-          <p className="text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
+                  {/* Constantes reais do contrato. Duas colunas já em telemóvel:
+                      são pares rótulo/valor curtos e uma coluna só desperdiçava altura. */}
+                  <dl className="mt-8 grid grid-cols-1 min-[420px]:grid-cols-2 gap-x-6 gap-y-5">
+                    {c.proof.specs.map((label, i) => (
+                      <div key={label}>
+                        <dt className="text-xs text-gray-400 mb-1">{label}</dt>
+                        <dd className="font-mono text-lg sm:text-xl font-bold text-white">{specs[i]}</dd>
+                      </div>
+                    ))}
+                  </dl>
 
-          <ul className="mt-8 space-y-3">
-            {c.hero.bullets.map((b) => (
-              <li key={b.lead} className="flex gap-3 text-gray-400 leading-relaxed">
-                <span className="font-mono text-gray-600 shrink-0" aria-hidden="true">&middot;</span>
-                <span>
-                  <strong className="font-semibold text-gray-200">{b.lead}</strong>
-                  {b.rest}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {/* Prova — o único verde da página vive neste bloco. */}
-        <section className="pb-12 sm:pb-16">
-          <div className="bg-dark-card border border-dark-border rounded-xl p-6 sm:p-8">
-            <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-3">
-              {c.proof.eyebrow}
-            </p>
-            <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-6">{c.proof.title}</h2>
-
-            <p className="font-mono text-[11px] uppercase tracking-widest text-gray-500 mb-2">
-              {c.proof.verifyLabel}
-            </p>
-            <a
-              href={`${ARBISCAN}${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between gap-3 min-h-[44px] rounded-lg border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors"
-            >
-              <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
-              <ExternalLink className="w-4 h-4 shrink-0" />
-            </a>
-
-            <p className="mt-3 inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-success">
-              <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
-              {c.proof.matchLabel}
-            </p>
-
-            {/* Constantes reais do contrato. Duas colunas já em telemóvel:
-                são pares rótulo/valor curtos e uma coluna só desperdiçava altura. */}
-            <dl className="mt-8 grid grid-cols-1 min-[420px]:grid-cols-2 gap-x-6 gap-y-5">
-              {c.proof.specs.map((label, i) => (
-                <div key={label}>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-gray-500 mb-1">{label}</dt>
-                  <dd className="font-mono text-lg sm:text-xl font-bold text-white">{specs[i]}</dd>
+                  <p className="text-gray-400 text-sm leading-relaxed mt-8 pt-6 border-t border-dark-border">{c.proof.discipline}</p>
                 </div>
-              ))}
-            </dl>
+              </section>
 
-            <p className="text-gray-500 text-sm leading-relaxed mt-8 pt-6 border-t border-dark-border">
-              {c.proof.discipline}
-            </p>
-          </div>
-        </section>
+              {/* O fluxo de criação, simulado na página; o a sério é no Event Center. */}
+              <section className="pb-14 sm:pb-20">
+                <p className="text-sm font-medium text-gray-400 mb-3">{c.wizard.eyebrow}</p>
+                <h2 className="font-display font-bold text-3xl sm:text-4xl text-white mb-4">{c.wizard.title}</h2>
+                <p className="text-gray-400 leading-relaxed mb-8">{c.wizard.intro}</p>
+                <GiveawayWizard />
+              </section>
+            </div>
+          </FilmSection>
 
-        {/* Fluxo de criação em preview */}
-        <section className="pb-14 sm:pb-20">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-3">
-            {c.wizard.eyebrow}
-          </p>
-          <h2 className="font-display font-bold text-3xl sm:text-4xl text-white mb-4">{c.wizard.title}</h2>
-          <p className="text-gray-400 leading-relaxed mb-8">{c.wizard.intro}</p>
+          {/* Fecho: a forma volta, e o Event Center — o botão principal da página. */}
+          <FilmSection id="gw-close" length="150svh" label={c.participants.title}>
+            <GiveawaysClose c={c} caption={t.film.captions.again} />
+          </FilmSection>
+        </main>
+      </Film>
 
-          <GiveawayWizard />
-        </section>
-
-        {/* CTA de participante: uma só lista de espera para todo o Event Center. */}
-        <section className="pb-16 sm:pb-24 text-center">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 mb-3">
-            {c.participants.eyebrow}
-          </p>
-          <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-4">{c.participants.title}</h2>
-          <p className="text-gray-400 leading-relaxed max-w-xl mx-auto mb-8">{c.participants.body}</p>
-          <WaitlistLink
-            label={c.waitlist.cta}
-            withArrow
-            className="inline-flex w-full sm:w-auto px-10 h-14 sm:h-16 text-lg sm:text-xl"
-          />
-        </section>
-      </main>
-
-      <footer className="border-t border-dark-border py-8 bg-black/80 backdrop-blur-sm relative z-10">
+      <footer className="relative z-10 border-t border-dark-border py-8 bg-black/80">
         <div className="container mx-auto px-4 space-y-4 text-center">
           <PublicFooterNav />
           <Link
             to="/"
-            className="inline-flex items-center min-h-[44px] font-mono text-[11px] uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+            className="inline-flex items-center min-h-[44px] text-xs font-medium text-gray-400 hover:text-white transition-colors"
           >
             &larr; {c.outro.back}
           </Link>
-          <p className="font-mono text-[10px] text-gray-700">&copy; 2026 Instant Win Protocol</p>
+          <p className="text-xs text-gray-400">&copy; 2026 Keptra</p>
         </div>
       </footer>
     </div>
   );
 };
+
+/** O fecho: a forma da campanha ao centro, e o Event Center para quem quer entrar. */
+function GiveawaysClose({ c, caption }: { c: GiveawaysCopy; caption: string }) {
+  const live = useFilmMode() === 'live';
+  return (
+    <div className={clsx('container mx-auto flex max-w-2xl flex-col items-center px-6 text-center', live ? 'h-full justify-center pt-24 pb-16' : 'py-16 sm:py-24')}>
+      <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(66vw,calc(100svh_-_26rem))] sm:max-w-[min(20rem,calc(100svh_-_26rem))]" />
+      <SceneCaption text={caption} />
+      <div data-film-panel className="mt-8">
+        <p className="text-sm font-medium text-gray-400 mb-3">{c.participants.eyebrow}</p>
+        <h2 className="font-display font-bold text-2xl sm:text-4xl text-white mb-4">{c.participants.title}</h2>
+        <p className="text-gray-400 leading-relaxed max-w-xl mx-auto mb-8">{c.participants.body}</p>
+        <Link to="/events" className="iw-btn iw-btn-primary inline-flex w-full gap-3 px-10 h-14 font-extrabold text-lg sm:w-auto sm:h-16 sm:text-xl">
+          {c.participants.cta} <ArrowRight className="w-5 h-5" aria-hidden="true" />
+        </Link>
+      </div>
+    </div>
+  );
+}

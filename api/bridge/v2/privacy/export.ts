@@ -4,6 +4,8 @@ import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../lib/bridge-v2/session.js';
 import { checked, checkedMaybe, getDb } from '../../../../lib/bridge-v2/db.js';
 import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
+import { addressesOf, evidenceWrittenBy } from '../../../../lib/bridge-v2/orders.js';
+import { accountDataOf } from '../../../../lib/bridge-v2/accounts.js';
 
 /**
  * POST /api/bridge/v2/privacy/export
@@ -64,6 +66,16 @@ const route = handle('privacy/export', async ({ request, log }) => {
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   ) as unknown[] | null;
 
+  // SPEC-BLOCO-03 section 10 and D7: the participant's own delivery addresses, decrypted.
+  const addresses = await addressesOf(session.participantId);
+  // SPEC-BLOCO-03 P1-11: what migration 0012 holds about the participant.
+  const keptraAccounts = await accountDataOf(session.participantId);
+  // SPEC-BLOCO-03 P5-7: the evidence the participant wrote — as the recipient
+  // (its participant account) and as the store (its creator account) — decrypted.
+  // Never the other party's text.
+  const accountOf = (role: string) => keptraAccounts.accounts.find((account) => account.role === role)?.address ?? null;
+  const evidence = await evidenceWrittenBy(accountOf('PARTICIPANT') as `0x${string}` | null, accountOf('CREATOR') as `0x${string}` | null);
+
   await log.event('route.ok');
   return ok({
     participant: {
@@ -72,10 +84,14 @@ const route = handle('privacy/export', async ({ request, log }) => {
       createdAt: participant.created_at,
     },
     entries: Array.isArray(entries) ? entries : [],
+    deliveryAddresses: addresses,
+    keptraAccounts,
+    evidence,
     // Stated rather than omitted, so the export is honest about what exists.
     notIncluded: {
       phoneNumber: 'never stored; only a non-reversible keyed hash is held (C5)',
       derivationIndex: 'internal, not personal data',
+      recoveryHashes: 'the keyed hashes of a change of access (the Telegram chat, the link code) are not reversible and are not returned (C5)',
     },
   });
 });

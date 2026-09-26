@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { useKeptra } from '../components/keptra/KeptraProvider';
+import { KEPTRA_VOUCHER, keptraConfigured } from '../lib/keptra/contracts';
 import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { Check, Loader2, ExternalLink } from 'lucide-react';
@@ -8,6 +10,12 @@ import { GIVEAWAY_MANAGER_V2_ABI, ERC20_META_ABI, GiveawayV2Status, GiveawayV2Pr
 import { Button } from '../components/Button';
 import { Banner } from '../components/Banner';
 import { EventShell } from '../components/EventShell';
+import { EventStatus } from './EventCenter';
+import { DrawReveal, useFirstSight } from '../components/proof/DrawReveal';
+import { ProofMark } from '../components/proof/ProofMark';
+import { DoneOnChain } from '../components/keptra/ui';
+import { uintHex } from '../lib/proof/mark';
+import { useLang } from './landing.i18n';
 import { Step } from '../components/Step';
 import { ShareButton } from '../components/ShareButton';
 import { BrandByline, IdentityBanner, useCampaignIdentity } from '../components/CampaignIdentity';
@@ -27,6 +35,8 @@ import {
 } from '../lib/eventcenter';
 
 const ARBISCAN = 'https://arbiscan.io';
+/** Datas no idioma escolhido (Intl), para "Entries closed". */
+const DATE_LOCALE = { en: 'en-GB', pt: 'pt-BR', es: 'es-ES' } as const;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const POLL_MS = 6000;
 
@@ -243,16 +253,35 @@ function OutcomePanel({
   outcome,
   awaiting,
   selfCustody,
+  passkey,
+  giveawayId,
+  isVoucher,
+  proof,
 }: {
   outcome: EntryOutcome | null;
   awaiting: boolean;
   selfCustody: boolean;
+  /** SPEC-BLOCO-03 6.2.3: a Keptra account's prize, claimed with the passkey. */
+  passkey: boolean;
+  giveawayId: bigint;
+  /** P6-8 (B13): the prize is a Keptra voucher — the NFT of the voucher contract, not any NFT. */
+  isVoucher: boolean;
+  /** The draw's VRF seed, as the mark's proof; null until the campaign is settled. */
+  proof: string | null;
 }) {
   const c = useEventsCopy().detail.outcome;
+  const k = useEventsCopy().detail.keptra;
+  const { relay } = useKeptra();
+  const [claiming, setClaiming] = useState(false);
+  const [claimed, setClaimed] = useState(false);
+  const [claimTx, setClaimTx] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  // A win is celebrated once per device: the draw's mark engraves itself beside the news.
+  const firstWin = useFirstSight(outcome === 'WON' && proof ? `won-${proof}` : null);
 
   if (awaiting) {
     return (
-      <p className="flex items-center gap-3 rounded-xl border border-dark-border bg-dark-card p-5 text-sm text-gray-400">
+      <p className="flex items-center gap-3 iw-surface p-5 text-sm text-gray-400">
         <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden="true" />
         <span>{c.pending}</span>
       </p>
@@ -266,7 +295,7 @@ function OutcomePanel({
 
   if (outcome === 'LOST') {
     return (
-      <div className="rounded-xl border border-dark-border bg-dark-card p-6">
+      <div className="iw-surface p-6">
         <h2 className="font-display text-2xl font-bold tracking-tight text-white">{c.lostTitle}</h2>
         <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.lostBody}</p>
       </div>
@@ -278,10 +307,53 @@ function OutcomePanel({
   // the instruction they need is the email's — call claimPrize from that wallet.
   return (
     <div className="rounded-xl border border-brand/30 bg-brand/[0.06] p-6">
-      <h2 className="font-display text-3xl font-bold tracking-tight text-brand">{c.wonTitle}</h2>
-      <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-200">
-        {selfCustody ? c.wonBodySelf : c.wonBody}
-      </p>
+      <div className="flex items-start gap-5">
+        {proof && <ProofMark proof={proof} size={72} draw={firstWin} label={c.wonTitle} className="hidden shrink-0 min-[420px]:block" />}
+        <div className="min-w-0">
+          <h2 className="font-display text-3xl font-bold tracking-tight text-brand">{c.wonTitle}</h2>
+          <p className="mt-2 max-w-[58ch] text-sm leading-relaxed text-gray-200">
+            {passkey ? (claimed ? k.claimed : k.claimBody) : selfCustody ? c.wonBodySelf : c.wonBody}
+          </p>
+        </div>
+      </div>
+      {/* The claim, once the chain confirmed it: the seal and the transaction that proves it. */}
+      {passkey && claimed && claimTx && (
+        <div className="mt-4">
+          <DoneOnChain text={k.claimed} txHash={claimTx} />
+        </div>
+      )}
+      {passkey && !claimed && (
+        <div className="mt-4 space-y-2">
+          {claimError && <Banner message={claimError} />}
+          <Button
+            variant="success"
+            isLoading={claiming}
+            className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8"
+            onClick={async () => {
+              setClaiming(true);
+              setClaimError(null);
+              const result = await relay({ kind: 'claim', giveawayId: giveawayId.toString() });
+              setClaiming(false);
+              if (result.status === 'refused') setClaimError(result.error);
+              if (result.status === 'done') {
+                setClaimed(true);
+                if (result.result.status === 'CONFIRMED') setClaimTx(result.result.txHash);
+              }
+            }}
+          >
+            {k.claimCta}
+          </Button>
+        </div>
+      )}
+      {/* P6-8: the voucher's text only for a voucher prize, and only once it is claimed. */}
+      {passkey && isVoucher && claimed && (
+        <div className="mt-4 rounded-lg border border-dark-border p-4">
+          <p className="text-sm text-gray-300">{k.voucherBody}</p>
+          <Link to="/orders" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline underline-offset-4">
+            {k.voucherCta}
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -296,10 +368,14 @@ function ParticipatePanel({
   onStatus: (s: EntryStatusResult) => void;
 }) {
   const c = useEventsCopy().detail.participate;
+  const k = useEventsCopy().detail.keptra;
+  const { relay, passkeyReady } = useKeptra();
   const [status, setStatus] = useState<EntryStatusResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [telegramUrl, setTelegramUrl] = useState<string | null>(null);
+  // SPEC-BLOCO-03 6.2.1: a participant with no Keptra account and no earlier wallet sets one up first.
+  const [needsAccount, setNeedsAccount] = useState(false);
 
   const refresh = async () => {
     const res = await entryStatus(giveawayId);
@@ -335,7 +411,9 @@ function ParticipatePanel({
     const res = await entryStart(giveawayId);
     setBusy(false);
     if (!res.ok) {
-      setError(res.error);
+      // entry/start: 'Create your passkey first.' — the account page walks them through it.
+      if (res.status === 409 && /passkey/i.test(res.error)) setNeedsAccount(true);
+      else setError(res.error);
       return;
     }
     if (res.url) {
@@ -359,8 +437,37 @@ function ParticipatePanel({
 
   const confirmed = status.status === 'CONFIRMED';
 
+  // A4: a Keptra entry is signed with the passkey once its root is published (ELIGIBLE).
+  const confirmWithPasskey = async () => {
+    setError(null);
+    setBusy(true);
+    const result = await relay({ kind: 'enter', giveawayId: giveawayId.toString() });
+    setBusy(false);
+    if (result.status === 'refused') setError(result.error);
+    refresh();
+  };
+
   return (
     <div className="space-y-4">
+      {needsAccount && (
+        <div className="rounded-lg border border-brand/30 bg-brand/[0.06] p-4">
+          <p className="text-sm text-gray-200">{k.passkeyNeeded}</p>
+          <Link to="/account" className="mt-2 inline-flex min-h-[44px] items-center text-sm font-semibold text-brand underline underline-offset-4">
+            {k.setUpCta}
+          </Link>
+        </div>
+      )}
+      {status.passkey === true && status.status === 'ELIGIBLE' && (
+        <div className="space-y-3 rounded-lg border border-brand/30 bg-brand/[0.06] p-4">
+          <p className="text-sm text-gray-200">{passkeyReady ? k.confirmEntryBody : k.wrongOrigin}</p>
+          {error && <Banner message={error} />}
+          {passkeyReady && (
+            <Button variant="connect" onClick={confirmWithPasskey} isLoading={busy} className="min-h-[52px] w-full rounded-xl sm:w-auto sm:px-8">
+              {k.confirmEntryCta}
+            </Button>
+          )}
+        </div>
+      )}
       {status.status === 'NONE' ? (
         <>
           <p className="max-w-[58ch] text-sm leading-relaxed text-gray-400">{c.intro}</p>
@@ -408,7 +515,7 @@ function ParticipatePanel({
           )}
         </>
       )}
-      <p className="max-w-[62ch] text-xs leading-relaxed text-gray-400">{c.walletGapNotice}</p>
+      <p className="max-w-[62ch] text-xs leading-relaxed text-gray-400">{status.passkey === true ? k.notice : c.walletGapNotice}</p>
     </div>
   );
 }
@@ -595,9 +702,12 @@ export const EventDetail: React.FC = () => {
   });
 
   const isNft = g?.prizeKind === GiveawayV2PrizeKind.NFT;
-  const decimals = isNft ? 6 : ((meta?.[0]?.result as number | undefined) ?? 18);
+  // SPEC-BLOCO-03 P6-7: without the token's decimals read, no amount is shown —
+  // never one computed with decimals nobody read.
+  const readDecimals = meta?.[0]?.status === 'success' ? (meta[0].result as number) : null;
+  const decimals = isNft ? 6 : readDecimals;
+  const amountShown = decimals === null ? (meta?.[0]?.status === 'failure' ? 'Not read' : '…') : formatUnits(displayAmountOf(g, isNft) ?? 0n, decimals);
   const symbol = isNft ? 'USDC' : ((meta?.[1]?.result as string | undefined) ?? '?');
-  const displayAmount = isNft ? g?.declaredValue : g?.prizeAmount;
 
   const { data: winners } = useReadContract({
     address: CONTRACTS.GIVEAWAY_MANAGER_V2,
@@ -645,6 +755,12 @@ export const EventDetail: React.FC = () => {
   /** Relógio das entradas, a partir do instante que já foi lido acima. */
   const secondsLeft = useCountdown(effectiveEndTime as bigint | undefined);
 
+  // A forma do sorteio vem da semente que o Chainlink VRF entregou ao contrato
+  // (getGiveaway().seed, já lido acima); só existe numa campanha liquidada.
+  const seedProof = settled && typeof g?.seed === 'bigint' ? uintHex(g.seed) : null;
+  const firstSight = useFirstSight(seedProof);
+  const [lang] = useLang();
+
   if (giveawayId === null) return <div className="min-h-screen bg-black" />;
 
   const acceptsEntries =
@@ -660,7 +776,7 @@ export const EventDetail: React.FC = () => {
   const entryStep = entryStatusResult?.status;
 
   return (
-    <EventShell back={{ to: '/events', label: c.nav.link }}>
+    <EventShell>
       <div className="space-y-6">
         {paused === true && <Banner message={c.detail.pausedBanner} tone="notice" />}
 
@@ -676,23 +792,24 @@ export const EventDetail: React.FC = () => {
           <>
             {/* ============ O CONVITE ============ */}
 
-            <div>
+            {/* O convite é o painel principal do ecrã: a única superfície elevada. */}
+            <div className="iw-surface-raised overflow-hidden">
               {/* §17: o banner da campanha abre a página, quando existe. */}
-              {identity && <IdentityBanner identity={identity} className="mb-6 rounded-xl border border-dark-border" />}
+              {identity && <IdentityBanner identity={identity} className="border-b border-dark-border" />}
+              <div className="p-5 sm:p-7">
 
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p
-                    className={`font-mono text-[11px] uppercase tracking-[0.14em] ${
-                      g.status === GiveawayV2Status.OPEN ? 'text-success' : 'text-gray-400'
-                    }`}
-                  >
-                    {c.list.status[
-                      (['NONE', 'OPEN', 'CLOSED', 'DRAW_REQUESTED', 'SEED_RECEIVED', 'SETTLED', 'CANCELLED'] as const)[
-                        g.status
-                      ] as keyof typeof c.list.status
-                    ] ?? ''}
-                  </p>
+                  <EventStatus
+                    status={g.status}
+                    label={
+                      c.list.status[
+                        (['NONE', 'OPEN', 'CLOSED', 'DRAW_REQUESTED', 'SEED_RECEIVED', 'SETTLED', 'CANCELLED'] as const)[
+                          g.status
+                        ] as keyof typeof c.list.status
+                      ] ?? ''
+                    }
+                  />
                   {identity ? (
                     <>
                       {/* Com identidade, o nome da campanha é o assunto da página e
@@ -706,7 +823,7 @@ export const EventDetail: React.FC = () => {
                       </div>
                       <p className="mt-5 text-sm text-gray-400">{c.detail.prizeLabel}</p>
                       <p className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.25rem,9vw,3.5rem)] break-all">
-                        {formatUnits(displayAmount ?? 0n, decimals)}
+                        {amountShown}
                         <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
                       </p>
                     </>
@@ -717,7 +834,7 @@ export const EventDetail: React.FC = () => {
                           tinha por onde se orientar. */}
                       <p className="mt-3 text-sm text-gray-400">{c.detail.prizeLabel}</p>
                       <h1 className="font-mono font-bold text-brand tracking-tighter leading-[0.95] tabular-nums text-[clamp(2.75rem,11vw,4.5rem)] break-all">
-                        {formatUnits(displayAmount ?? 0n, decimals)}
+                        {amountShown}
                         <span className="block font-display text-xl tracking-wide text-gray-400">{symbol}</span>
                       </h1>
                     </>
@@ -732,7 +849,7 @@ export const EventDetail: React.FC = () => {
               {identity ? (
                 <>
                   {/* A mensagem do criador, junto do prémio. */}
-                  <figure className="mt-6 border-l-2 border-brand/40 pl-4">
+                  <figure className="mt-6 border-l border-dark-line pl-4">
                     <figcaption className="text-xs uppercase tracking-[0.14em] text-gray-400">
                       {c.detail.identity.messageFrom} {identity.brand}
                     </figcaption>
@@ -772,10 +889,11 @@ export const EventDetail: React.FC = () => {
               <p className="mt-4 max-w-[62ch] text-base leading-relaxed text-gray-300">
                 {c.detail.freeToEnter}
               </p>
+              </div>
             </div>
 
             {/* Lugares e tempo: o que decide se ainda vale a pena entrar. */}
-            <div className="grid gap-4 sm:grid-cols-3 rounded-xl border border-dark-border bg-dark-card p-5">
+            <div className="iw-surface grid gap-4 sm:grid-cols-3 p-5">
               <div className="sm:col-span-2">
                 <p className="flex items-baseline justify-between gap-3">
                   <span className="text-sm text-gray-400">{c.detail.entriesLabel}</span>
@@ -786,8 +904,8 @@ export const EventDetail: React.FC = () => {
                 </p>
                 <div aria-hidden="true" className="mt-3 h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
                   <div
-                    className={`h-full rounded-full ${acceptsEntries ? 'bg-brand/70' : 'bg-gray-700'}`}
-                    style={{ width: `${filledPct}%` }}
+                    className={`iw-meter h-full rounded-full ${acceptsEntries ? 'bg-white/80' : 'bg-gray-600'}`}
+                    style={{ transform: `scaleX(${filledPct / 100})` }}
                   />
                 </div>
               </div>
@@ -798,8 +916,17 @@ export const EventDetail: React.FC = () => {
                 <p className="text-sm text-gray-400">
                   {secondsLeft === null || secondsLeft > 0 ? c.detail.timeLeftLabel : c.detail.endedLabel}
                 </p>
+                {/* Fechadas as entradas, diz quando fecharam — o instante lido do
+                    contrato (effectiveEndTime) — em vez de um travessão sozinho. Numa
+                    campanha cancelada o que fechou foi a campanha: diz isso. */}
                 <p className="mt-1 font-mono text-lg font-bold text-white tabular-nums">
-                  {secondsLeft === null ? '…' : secondsLeft > 0 ? formatWindow(secondsLeft) : '—'}
+                  {secondsLeft === null
+                    ? '…'
+                    : secondsLeft > 0
+                      ? formatWindow(secondsLeft)
+                      : g.status === GiveawayV2Status.CANCELLED
+                        ? <span className="font-sans text-base font-semibold text-gray-300">{c.list.status.CANCELLED}</span>
+                        : new Intl.DateTimeFormat(DATE_LOCALE[lang], { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(Number(effectiveEndTime as bigint) * 1000))}
                 </p>
                 <p className="mt-3 text-sm text-gray-400">
                   {c.detail.winnersLabel}{' '}
@@ -811,45 +938,41 @@ export const EventDetail: React.FC = () => {
             {/* ============ QUEM GANHOU ============ */}
 
             {g.status === GiveawayV2Status.SETTLED && (
-              <div className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-6">
-                <h2 className="font-display text-2xl font-bold tracking-tight text-white">
-                  {c.detail.previousWinners.title}
-                </h2>
-                {Array.isArray(winners) && winners.length > 0 ? (
-                  <ol className="mt-4 divide-y divide-dark-border border-y border-dark-border">
-                    {(winners as `0x${string}`[]).map((w, i) => {
-                      // The one thing this list never did: tell you that one of
-                      // these rows is you. A winner had to recognise their own
-                      // address among strangers' to find out they had won.
-                      const mine = isMine(w);
-                      return (
-                        <li
-                          key={`${w}-${i}`}
-                          className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-3 ${
-                            mine ? '-mx-3 px-3 bg-brand/[0.07]' : ''
-                          }`}
-                        >
-                          <span className="font-mono text-xs text-gray-400 tabular-nums w-5 shrink-0">
-                            {i + 1}
-                          </span>
-                          <span
-                            className={`font-mono text-sm break-all min-w-0 ${
-                              mine ? 'text-brand' : 'text-gray-300'
-                            }`}
-                          >
-                            {w}
-                          </span>
-                          {mine && (
-                            <span className="shrink-0 rounded-full bg-brand px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black">
-                              {c.detail.previousWinners.you}
-                            </span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
+              <div className="iw-surface-raised p-5 sm:p-7">
+                {/*
+                  A revelação: só numa campanha que o contrato diz liquidada, com a
+                  forma desenhada da semente do VRF e os vencedores um a um. A
+                  linha de quem está a ver continua marcada como sua.
+                */}
+                {seedProof !== null && Array.isArray(winners) && winners.length > 0 ? (
+                  <DrawReveal
+                    proof={seedProof}
+                    animate={firstSight}
+                    markLabel={`${c.detail.proof.markCampaign} ${giveawayId.toString()}`}
+                    title={c.detail.previousWinners.title}
+                    seal={c.detail.proof.settled}
+                    proofLabel={c.detail.proof.vrfSeed}
+                    proofHref={`${ARBISCAN}/address/${CONTRACTS.GIVEAWAY_MANAGER_V2}#readContract`}
+                    rows={(winners as `0x${string}`[]).map((w, i) => ({
+                      key: `${w}-${i}`,
+                      rank: i + 1,
+                      who: w,
+                      mine: isMine(w),
+                      mineLabel: c.detail.previousWinners.you,
+                    }))}
+                  >
+                    {typeof g.vrfRequestId === 'bigint' && (
+                      <p className="mt-3 flex flex-wrap items-baseline gap-x-2 text-xs text-gray-400">
+                        {c.detail.proof.vrfRequest}
+                        <span className="break-all font-mono text-gray-300">{g.vrfRequestId.toString()}</span>
+                      </p>
+                    )}
+                  </DrawReveal>
                 ) : (
-                  <p className="mt-3 text-sm text-gray-400">{c.detail.previousWinners.empty}</p>
+                  <>
+                    <h2 className="font-display text-2xl font-bold tracking-tight text-white">{c.detail.previousWinners.title}</h2>
+                    <p className="mt-3 text-sm text-gray-400">{c.detail.previousWinners.empty}</p>
+                  </>
                 )}
               </div>
             )}
@@ -861,10 +984,14 @@ export const EventDetail: React.FC = () => {
                 outcome={outcome}
                 awaiting={awaitingOutcome}
                 selfCustody={entryStatusResult?.selfCustody === true}
+                passkey={entryStatusResult?.passkey === true}
+                giveawayId={giveawayId}
+                proof={seedProof}
+                isVoucher={isNft && typeof g?.prizeToken === 'string' && keptraConfigured() && g.prizeToken.toLowerCase() === KEPTRA_VOUCHER.toLowerCase()}
               />
             )}
 
-            <div className="rounded-xl border border-dark-border bg-dark-card p-5 sm:p-7">
+            <div className="iw-surface p-5 sm:p-7">
               <h2 className="font-display text-2xl font-bold tracking-tight text-white">
                 {c.detail.yourEntry}
               </h2>
@@ -923,7 +1050,7 @@ export const EventDetail: React.FC = () => {
 
             {/* ============ A PROVA ============ */}
 
-            <div className="rounded-xl border border-dark-border p-5 sm:p-6">
+            <div className="rounded-card border border-dark-border p-5 sm:p-6">
               <p className="max-w-[66ch] text-sm leading-relaxed text-gray-400">{c.detail.proofLine}</p>
               <a
                 href={`${ARBISCAN}/address/${CONTRACTS.GIVEAWAY_MANAGER_V2}`}
@@ -932,7 +1059,7 @@ export const EventDetail: React.FC = () => {
                 className="mt-4 flex items-center justify-between gap-3 min-h-[44px] font-mono text-[11px] text-gray-400 hover:text-success transition-colors"
               >
                 <span className="flex flex-wrap items-baseline gap-x-2 min-w-0">
-                  <span className="text-gray-400">{c.detail.contractLabel}</span>
+                  <span className="font-sans text-gray-400">{c.detail.contractLabel}</span>
                   <span className="break-all">{CONTRACTS.GIVEAWAY_MANAGER_V2}</span>
                 </span>
                 <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
@@ -944,3 +1071,8 @@ export const EventDetail: React.FC = () => {
     </EventShell>
   );
 };
+
+/** The amount a campaign's page shows: the declared value of an NFT prize, the prize amount of a token one. */
+function displayAmountOf(g: { declaredValue?: bigint; prizeAmount?: bigint } | undefined, isNft: boolean): bigint | undefined {
+  return isNft ? g?.declaredValue : g?.prizeAmount;
+}

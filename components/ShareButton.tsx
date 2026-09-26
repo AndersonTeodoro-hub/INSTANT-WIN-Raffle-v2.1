@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Share2, Check } from 'lucide-react';
 
-const SHARE_URL = 'https://instntwin.com';
+// SPEC-BLOCO-03 T9: the app is at keptra.io.
+const SHARE_URL = 'https://keptra.io';
 
 /**
  * Partilha do site. Secundário por desenho: neutro, nunca âmbar — o âmbar está

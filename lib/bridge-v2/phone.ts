@@ -16,7 +16,7 @@
  */
 
 import { DB_TIMEOUT_MS, PHONE_COOLDOWN_DAYS } from './config.js';
-import { keyedHash } from './crypto.js';
+import { decryptUnder, encryptUnder, keyedHash } from './crypto.js';
 import { checked, checkedMaybe, getDb } from './db.js';
 
 /** C5. The only function that turns a number into something storable. */
@@ -54,6 +54,60 @@ export function hashTelegramId(telegramId: string): Promise<string> {
  */
 export function hashTelegramChatId(chatId: number): Promise<string> {
   return keyedHash('BRIDGE_V2_PHONE_HMAC_KEY', 'telegram-chat-v1', String(chatId));
+}
+
+/**
+ * SPEC-BLOCO-03 A5: the chat id, kept so the bridge can send an account security
+ * notice — which the HMAC above cannot do, because it is never read back.
+ * Encrypted rather than hashed, under the same root as every other Telegram
+ * identifier and a label of its own, so the key that can read it is the key
+ * that already guards the rest of them and is held outside the database (R4).
+ */
+export async function storeTelegramChat(participantId: string, chatId: number): Promise<void> {
+  const db = getDb();
+  checked(
+    'phone.store_chat',
+    await db
+      .from('bridge_v2_participants')
+      .update({
+        telegram_chat_enc: await encryptUnder('BRIDGE_V2_PHONE_HMAC_KEY', 'telegram-chat-enc-v1', String(chatId)),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
+  );
+}
+
+/** The chat to notify, or null when none was stored or it cannot be read. */
+export async function telegramChatOf(participantId: string): Promise<string | null> {
+  const db = getDb();
+  const row = checkedMaybe(
+    'phone.read_chat',
+    await db
+      .from('bridge_v2_participants')
+      .select('telegram_chat_enc')
+      .eq('id', participantId)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as { telegram_chat_enc: string | null } | null;
+  if (row === null || row.telegram_chat_enc === null) return null;
+  return decryptUnder('BRIDGE_V2_PHONE_HMAC_KEY', 'telegram-chat-enc-v1', row.telegram_chat_enc);
+}
+
+/** The participant's live number, as its HMAC — A14 compares a recovery's number with it. */
+export async function livePhoneHash(participantId: string): Promise<string | null> {
+  const db = getDb();
+  const row = checkedMaybe(
+    'phone.live_hash',
+    await db
+      .from('bridge_v2_phones')
+      .select('phone_hmac')
+      .eq('participant_id', participantId)
+      .is('released_at', null)
+      .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS))
+      .maybeSingle(),
+  ) as { phone_hmac: string } | null;
+  return row === null ? null : row.phone_hmac;
 }
 
 /**

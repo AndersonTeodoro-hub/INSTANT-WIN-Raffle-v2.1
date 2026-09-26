@@ -22,9 +22,12 @@ import {
   giveawayIdFromLogs,
   planGas,
   rootIndexFromLogs,
+  signRedemption,
 } from '../../../lib/bridge-v2/chain.ts';
 
-export { ChainError, cleanSymbol, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs };
+// signRedemption is the real one: it signs off-chain and reaches no RPC, and the
+// signature is what the escrow checks (SPEC-BLOCO-03 H7).
+export { ChainError, cleanSymbol, encodeTokenPrizeData, giveawayIdFromLogs, planGas, rootIndexFromLogs, signRedemption };
 
 export const calls = [];
 
@@ -40,6 +43,7 @@ const DEFAULTS = () => ({
     prizeModule: '0x0000000000000000000000000000000000000000',
     prizeKind: 0,
     prizeAmount: 0n,
+    prizeDelivered: 0n,
     declaredValue: 0n,
     winnersCount: 1,
     feeToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
@@ -52,11 +56,21 @@ const DEFAULTS = () => ({
   isPaused: false,
   roleAddress: '0x0000000000000000000000000000000000000000',
   waitForReceipt: { status: 'success', logs: [] },
+  // SPEC-BLOCO-03 P5-2: a receipt read without waiting — nothing mined unless a test says so.
+  receiptOf: null,
   transactionKnown: true,
   submitAsDerived: '0x'.padEnd(66, '1'),
   publishEligibilityRoot: '0x'.padEnd(66, '2'),
   fundDerivedWallet: '0x'.padEnd(66, '3'),
   sweepRemainder: '0x'.padEnd(66, '4'),
+  // SPEC-BLOCO-03 Adenda F6: what a derived wallet holds in ETH and what sweeping it costs.
+  sweepQuote: { balance: 0n, cost: 1_000_000_000_000n },
+  // Adenda F6: the migration's last sweep, and what it cost.
+  sweepAboveCost: { hash: '0x'.padEnd(66, '6'), cost: 1_000_000_000_000n },
+  // SPEC-BLOCO-03 Adenda F5: the campaigns a creator account created since an instant.
+  campaignsCreatedBy: [],
+  // SPEC-BLOCO-03 A8: whether a cancelled campaign's creator took the refund.
+  creatorRefunded: false,
   quoteEntryCost: { plan: plan(100_000n), data: '0xdeadbeef' },
   quoteClaim: { plan: plan(100_000n), data: '0xfeedface' },
   quoteDelivery: plan(80_000n),
@@ -73,9 +87,14 @@ const DEFAULTS = () => ({
   slotPrice: 100_000n,
   erc20Allowance: 0n,
   erc20BalanceOf: 0n,
+  // SPEC-BLOCO-03 AB6: the latest block, and no transfer into anybody unless a test says so.
+  blockNumber: 1_000n,
+  transferInto: (_token, _to, _from, toBlock) => ({ found: false, searchedTo: toBlock }),
   // The settlement notice's "what you won". null is the honest default for a
   // token that implements neither, which mail.ts degrades around.
   erc20Meta: { symbol: 'USDC', decimals: 6 },
+  // SPEC-BLOCO-03 P6-18: the same read, saying why when there is nothing.
+  erc20MetaRead: () => behaviour.erc20Meta ?? 'absent',
   quoteApprove: { plan: plan(60_000n), data: '0xapprove' },
   quoteCreateGiveaway: { plan: plan(300_000n), data: '0xcreatecall' },
   // SPEC-BRIDGE-V2 §17 — campaign identity. No campaign exists and no contract
@@ -89,6 +108,9 @@ const DEFAULTS = () => ({
   readLifecyclePage: [],
   keeperAccount: { balance: 10n ** 18n, latestNonce: 0, pendingNonce: 0, maxFeePerGas: 100_000_000n },
   sendLifecycleCall: '0x'.padEnd(66, '5'),
+  // SPEC-BLOCO-03 piece 5: the keeper's exits (P11) and the bridge role's mark (13.1).
+  sendKeeperExit: '0x'.padEnd(66, '7'),
+  sendRecipientMark: '0x'.padEnd(66, '8'),
 });
 
 function plan(gasLimit) {
@@ -131,6 +153,8 @@ export const lifecycleHead = (...args) => answer('lifecycleHead', args);
 export const readLifecyclePage = (...args) => answer('readLifecyclePage', args);
 export const keeperAccount = (...args) => answer('keeperAccount', args);
 export const sendLifecycleCall = (...args) => answer('sendLifecycleCall', args);
+export const sendKeeperExit = (...args) => answer('sendKeeperExit', args);
+export const sendRecipientMark = (...args) => answer('sendRecipientMark', args);
 export const readGiveaway = (...args) => answer('readGiveaway', args);
 export const slotsRemaining = (...args) => answer('slotsRemaining', args);
 export const hasEntered = (...args) => answer('hasEntered', args);
@@ -139,8 +163,13 @@ export const vrfSubscriptionLink = (...args) => answer('vrfSubscriptionLink', ar
 export const isPaused = (...args) => answer('isPaused', args);
 export const waitForReceipt = (...args) => answer('waitForReceipt', args);
 export const transactionKnown = (...args) => answer('transactionKnown', args);
+export const receiptOf = (...args) => answer('receiptOf', args);
 export const publishEligibilityRoot = (...args) => answer('publishEligibilityRoot', args);
 export const sweepRemainder = (...args) => answer('sweepRemainder', args);
+export const sweepQuote = (...args) => answer('sweepQuote', args);
+export const sweepAboveCost = (...args) => answer('sweepAboveCost', args);
+export const campaignsCreatedBy = (...args) => answer('campaignsCreatedBy', args);
+export const creatorRefunded = (...args) => answer('creatorRefunded', args);
 export const quoteEntryCost = (...args) => answer('quoteEntryCost', args);
 export const quoteClaim = (...args) => answer('quoteClaim', args);
 export const quoteDelivery = (...args) => answer('quoteDelivery', args);
@@ -155,7 +184,10 @@ export const currentCreationFee = (...args) => answer('currentCreationFee', args
 export const slotPrice = (...args) => answer('slotPrice', args);
 export const erc20Allowance = (...args) => answer('erc20Allowance', args);
 export const erc20BalanceOf = (...args) => answer('erc20BalanceOf', args);
+export const blockNumber = (...args) => answer('blockNumber', args);
+export const transferInto = (...args) => answer('transferInto', args);
 export const erc20Meta = (...args) => answer('erc20Meta', args);
+export const erc20MetaRead = (...args) => answer('erc20MetaRead', args);
 export const quoteApprove = (...args) => answer('quoteApprove', args);
 export const quoteCreateGiveaway = (...args) => answer('quoteCreateGiveaway', args);
 // SPEC-BRIDGE-V2 §17 — campaign identity.
@@ -166,6 +198,12 @@ export const isValidContractSignature = (...args) => answer('isValidContractSign
 export function roleAddress() {
   calls.push({ name: 'roleAddress', args: [] });
   return behaviour.roleAddress;
+}
+
+/** keeperAddress too. SPEC-BLOCO-03 M39 compares it with the other roles. */
+export function keeperAddress() {
+  calls.push({ name: 'keeperAddress', args: [] });
+  return behaviour.keeperAddress ?? '0x000000000000000000000000000000000000beef';
 }
 
 /**
@@ -209,6 +247,14 @@ export function publicClient() {
       calls.push({ name: 'getBalance', args: [address] });
       const value = behaviour.balanceOf;
       const resolved = typeof value === 'function' ? await value(address) : value;
+      if (resolved instanceof Error) throw resolved;
+      return resolved;
+    },
+    // SPEC-BLOCO-03 Adenda R2: escrowChain.ts reads OrderClosed through this.
+    getContractEvents: async (params) => {
+      calls.push({ name: 'getContractEvents', args: [params] });
+      const value = behaviour.getContractEvents ?? [];
+      const resolved = typeof value === 'function' ? await value(params) : value;
       if (resolved instanceof Error) throw resolved;
       return resolved;
     },

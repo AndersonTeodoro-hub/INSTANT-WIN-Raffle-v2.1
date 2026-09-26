@@ -82,6 +82,10 @@ const route = handle('entry/status', async ({ request, log }) => {
     // destination form anyway — a field whose only effect was to make somebody
     // wait for a delivery that was never coming.
     selfCustody: entry.selfCustody,
+    // SPEC-BLOCO-03 A4: the entry is made by the participant's account and is
+    // signed with the passkey once status reaches ELIGIBLE; the page waits for
+    // that and asks (account/relay, kind "enter"). A prize is claimed the same way.
+    passkey: entry.passkey,
     custody:
       custody === null
         ? null

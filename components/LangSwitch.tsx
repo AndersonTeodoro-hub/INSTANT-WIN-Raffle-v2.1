@@ -16,7 +16,7 @@ export const LangSwitch: React.FC<{ className?: string }> = ({ className = '' })
       role="group"
       aria-label={translations[lang].header.ariaLanguage}
       className={clsx(
-        'inline-flex items-center rounded-lg border border-dark-border bg-dark-card/60 p-0.5',
+        'inline-flex items-center rounded-control border border-dark-border bg-dark-card/60 p-0.5',
         className,
       )}
     >
@@ -27,8 +27,8 @@ export const LangSwitch: React.FC<{ className?: string }> = ({ className = '' })
           onClick={() => setLang(l)}
           aria-pressed={lang === l}
           className={clsx(
-            'flex items-center justify-center min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-md transition-colors',
-            lang === l ? 'bg-dark-input text-white' : 'text-gray-400 hover:text-white',
+            'flex items-center justify-center min-w-[40px] sm:min-w-[44px] min-h-[44px] font-mono text-xs font-bold rounded-[8px] transition-colors duration-200',
+            lang === l ? 'bg-dark-line/70 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]' : 'text-gray-400 hover:text-white',
           )}
         >
           {LANG_LABEL[l]}

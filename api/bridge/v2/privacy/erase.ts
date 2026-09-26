@@ -1,11 +1,81 @@
 import { clearedCookie, resolveSession, revokeAllSessions } from '../../../../lib/bridge-v2/session.js';
-import { handle, methodGuard, ok, refuse } from '../../../../lib/bridge-v2/http.js';
+import { handle, json, methodGuard, ok, refuse } from '../../../../lib/bridge-v2/http.js';
 import { enforce, retryAfterHeaders } from '../../../../lib/bridge-v2/ratelimit.js';
 import { extractSignals } from '../../../../lib/bridge-v2/signals.js';
 import { releasePhone } from '../../../../lib/bridge-v2/phone.js';
 import { checked, getDb } from '../../../../lib/bridge-v2/db.js';
 import { randomBytes, toHex } from '../../../../lib/bridge-v2/crypto.js';
-import { DB_TIMEOUT_MS } from '../../../../lib/bridge-v2/config.js';
+import { DB_TIMEOUT_MS, ERASE_ADDRESSES_NOW_MAX, ORDER_SCAN_PAGE, USDC } from '../../../../lib/bridge-v2/config.js';
+import { eraseAddressesOf, keptraContractsConfigured, lastKnownOrderId, unclosedOrdersOf } from '../../../../lib/bridge-v2/orders.js';
+import { accountsOf, eraseAccountData, LIVE_RECOVERY_STATUSES, recoveriesOf } from '../../../../lib/bridge-v2/accounts.js';
+import { erc20BalanceOf } from '../../../../lib/bridge-v2/chain.js';
+import { ordersHead, readOrders, voucherBalanceOf } from '../../../../lib/bridge-v2/escrowChain.js';
+import { OrderState } from '../../../../lib/bridge-v2/abi.js';
+
+/**
+ * SPEC-BLOCO-03 T13: what still has to be resolved before a Keptra participant's
+ * data can be erased — USDC in either account, a voucher held by either, an order
+ * open as the recipient or as the store. Erasing the email would end the session
+ * that is the only way into those accounts through the platform, and leave the
+ * value where only a direct transaction could reach it (2.3 holds; the platform
+ * path would not). Null when nothing is left.
+ */
+/** P6-6: more orders to read than one page of the chain — the answer cannot be given now. */
+class TooManyToRead extends Error {}
+
+async function whatIsLeft(participantId: string): Promise<{ usdc: bigint; vouchers: bigint; openOrders: number } | null> {
+  const accounts = await accountsOf(participantId);
+  if (accounts.length === 0) return null;
+  const contracts = keptraContractsConfigured();
+  // One stage of the chain: the balances, and (P6-6) how many orders the escrow holds.
+  const [usdc, vouchers, head] = await Promise.all([
+    Promise.all(accounts.map((account) => erc20BalanceOf(USDC, account.safe))),
+    contracts ? Promise.all(accounts.map((account) => voucherBalanceOf(account.safe))) : Promise.resolve([0n]),
+    contracts ? ordersHead() : Promise.resolve(null),
+  ]);
+  let openOrders = 0;
+  if (contracts) {
+    const participant = accounts.find((account) => account.role === 'PARTICIPANT');
+    const creator = accounts.find((account) => account.role === 'CREATOR');
+    // P6-6: whether an order is open is the chain's answer, never the index's —
+    // which may not have read a close yet, or an order paid a moment ago. The
+    // index only says which orders to read, and every order newer than the index
+    // holds is read as well.
+    // AB2: never the ones the index holds CLOSED — final on-chain — so the answer
+    // does not depend on how many closed orders the participant has behind it.
+    const [asRecipient, asStore, lastIndexed] = await Promise.all([
+      participant ? unclosedOrdersOf('payer_address', participant.safe) : Promise.resolve([]),
+      creator ? unclosedOrdersOf('store_address', creator.safe) : Promise.resolve([]),
+      lastKnownOrderId(),
+    ]);
+    const ids = new Set([...asRecipient, ...asStore].map((row) => row.orderId.toString()));
+    for (let id = lastIndexed + 1n; id < (head?.orderCount ?? 0n); id += 1n) ids.add(id.toString());
+    // One page of the chain (F7). More than that to read: one open among the first
+    // page already refuses; none open there, and the rest cannot be read now.
+    const page = [...ids].map(BigInt).slice(0, ORDER_SCAN_PAGE);
+    const same = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
+    for (const { order, terms } of await readOrders(page)) {
+      if (order.state === OrderState.CLOSED || order.state === OrderState.NONE) continue;
+      if (same(order.payer, participant?.safe) || same(terms.store, creator?.safe)) openOrders += 1;
+    }
+    if (openOrders === 0 && ids.size > page.length) throw new TooManyToRead();
+  }
+  const left = { usdc: usdc.reduce((a, b) => a + b, 0n), vouchers: vouchers.reduce((a, b) => a + b, 0n), openOrders };
+  return left.usdc === 0n && left.vouchers === 0n && left.openOrders === 0 ? null : left;
+}
+
+/** The refusal's sentence: each thing still to resolve, named. */
+function leftSentence(left: { usdc: bigint; vouchers: bigint; openOrders: number }): string {
+  const parts: string[] = [];
+  if (left.usdc > 0n) {
+    const whole = left.usdc / 1_000_000n;
+    const cents = ((left.usdc % 1_000_000n) / 10_000n).toString().padStart(2, '0');
+    parts.push(`${whole}.${cents} USDC in your Keptra account`);
+  }
+  if (left.vouchers > 0n) parts.push(`${left.vouchers} voucher${left.vouchers === 1n ? '' : 's'}`);
+  if (left.openOrders > 0) parts.push(`${left.openOrders} open order${left.openOrders === 1 ? '' : 's'}`);
+  return `Your data cannot be erased yet: there is still ${parts.join(', ')}. Move the funds out, redeem or let the vouchers lapse, and let the orders finish first.`;
+}
 
 /**
  * POST /api/bridge/v2/privacy/erase
@@ -47,6 +117,42 @@ const route = handle('privacy/erase', async ({ request, log }) => {
     return refuse(429, 'Too many requests. Please wait and try again.', retryAfterHeaders(verdict));
   }
 
+  // SPEC-BLOCO-03 T13: refused while the Keptra accounts still hold something, and the answer says what.
+  let left: Awaited<ReturnType<typeof whatIsLeft>>;
+  try {
+    left = await whatIsLeft(session.participantId);
+  } catch (error) {
+    if (!(error instanceof TooManyToRead)) throw error;
+    return refuse(503, 'Your orders cannot be checked right now. Try again in a few minutes.');
+  }
+  if (left !== null) {
+    await log.event('privacy.erase_refused', { usdc: left.usdc > 0n, vouchers: Number(left.vouchers), open_orders: left.openOrders });
+    return json(
+      {
+        ok: false,
+        error: leftSentence(left),
+        left: { usdc: left.usdc.toString(), vouchers: left.vouchers.toString(), openOrders: left.openOrders },
+      },
+      409,
+    );
+  }
+
+  // SPEC-BLOCO-03 P1-11: a change of access still alive needs the passkeys and
+  // the request the erasure removes — the pass that confirms, notifies and
+  // finishes it reads them. Refused until it has finished or been cancelled.
+  const recoveries = await recoveriesOf(session.participantId);
+  if (recoveries.some((request) => LIVE_RECOVERY_STATUSES.includes(request.status))) {
+    await log.event('privacy.erase_refused', { recovery: true });
+    return json(
+      {
+        ok: false,
+        error: 'Your data cannot be erased yet: a change of access to your account is in progress. It can be erased once that change has finished or been cancelled.',
+        left: { recovery: true },
+      },
+      409,
+    );
+  }
+
   // Released first. C6 puts the number into its cooling period, so erasure does
   // not become a way to recycle a number between accounts on demand.
   const released = await releasePhone(session.participantId);
@@ -56,25 +162,51 @@ const route = handle('privacy/erase', async ({ request, log }) => {
   // no constraint has to be relaxed to make erasure possible.
   const tombstone = `erased-${toHex(randomBytes(16))}@invalid`;
 
+  // SPEC-BLOCO-03 Adenda C5: the Telegram chat kept for security notices (A5) is
+  // encrypted but reversible, so it goes too, in the same statement.
   const db = getDb();
   checked(
     'privacy.erase',
     await db
       .from('bridge_v2_participants')
-      .update({ email_canonical: tombstone, updated_at: new Date().toISOString() })
+      .update({ email_canonical: tombstone, telegram_chat_enc: null, updated_at: new Date().toISOString() })
       .eq('id', session.participantId)
       .abortSignal(AbortSignal.timeout(DB_TIMEOUT_MS)),
   );
 
+  // SPEC-BLOCO-03 P1-11, as the owner answered on 23/09/2026: the passkeys and
+  // the history of the changes of access, with their notices. The accounts and
+  // what the relay counted stay, as the participation record does.
+  const accountData = await eraseAccountData(session.participantId, recoveries.map((request) => request.id));
+
+  // SPEC-BLOCO-03 10.3 and Adenda P18: the delivery addresses, with the tracking
+  // numbers and evidence that travel with them. Those of orders still open are
+  // erased after the order's final state, and the participant is told so.
+  const addresses = await eraseAddressesOf(session.participantId, ERASE_ADDRESSES_NOW_MAX);
+
   const revoked = await revokeAllSessions(session.participantId);
 
-  await log.event('route.ok', { released, revoked });
+  await log.event('route.ok', {
+    released,
+    revoked,
+    addresses_erased: addresses.erased,
+    addresses_deferred: addresses.deferred,
+    passkeys_erased: accountData.passkeys,
+    recoveries_erased: accountData.recoveries,
+  });
   return ok(
     {
       erased: true,
       phoneReleased: released > 0,
       sessionsRevoked: revoked,
       retained: 'participation record, no longer linked to an identity',
+      addressesErased: addresses.erased,
+      addressesDeferred: addresses.deferred,
+      passkeysErased: accountData.passkeys,
+      recoveriesErased: accountData.recoveries,
+      ...(addresses.deferred === 0
+        ? {}
+        : { deferredNote: 'The delivery address of an order still open is erased within 30 days of that order ending.' }),
     },
     { 'Set-Cookie': clearedCookie() },
   );

@@ -102,6 +102,55 @@ export async function keyedHash(
 }
 
 /**
+ * An AES-256-GCM key under one of the roots, for a value that must be read back
+ * (SPEC-BLOCO-03 A5). Derived exactly like keyedHash's sub-key — HMAC(root,
+ * label) — with a label no hash uses, so the encryption key is never an HMAC key
+ * and the configured secret is never the key itself.
+ */
+async function aesKeyUnder(root: RequiredEnvName, label: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const rootKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(requireEnv(root)),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const derived = await crypto.subtle.sign('HMAC', rootKey, encoder.encode(label));
+  return crypto.subtle.importKey('raw', derived, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+/** Encrypts a short value at rest. A fresh 96-bit nonce each time; the output is text. */
+export async function encryptUnder(root: RequiredEnvName, label: string, plaintext: string): Promise<string> {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const sealed = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    await aesKeyUnder(root, label),
+    new TextEncoder().encode(plaintext),
+  );
+  return `v1.${toBase64Url(iv)}.${toBase64Url(new Uint8Array(sealed))}`;
+}
+
+/** The inverse of encryptUnder, or null for anything it did not produce under this key. */
+export async function decryptUnder(root: RequiredEnvName, label: string, stored: string): Promise<string | null> {
+  const [version, iv, body] = stored.split('.');
+  if (version !== 'v1' || iv === undefined || body === undefined) return null;
+  const fromBase64Url = (text: string) =>
+    Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  try {
+    const plain = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: fromBase64Url(iv) },
+      await aesKeyUnder(root, label),
+      fromBase64Url(body),
+    );
+    return new TextDecoder().decode(plain);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Constant-time comparison of two hex strings (J5).
  *
  * A plain === returns at the first differing byte, and that timing difference is

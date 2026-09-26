@@ -43,6 +43,11 @@ export function on(key, handler) {
   handlers.set(key, typeof handler === 'function' ? handler : () => handler);
 }
 
+/** The handler programmed for `key`, so a test can wrap it (a failure injected in front of memdb). */
+export function handlerOf(key) {
+  return handlers.get(key);
+}
+
 /** What an unprogrammed operation returns. */
 export function setFallback(result) {
   fallback = result;
@@ -69,8 +74,10 @@ function makeBuilder(op) {
   };
 
   const builder = {
-    select: chain((columns) => {
+    select: chain((columns, options) => {
       op.columns = columns;
+      // SPEC-BLOCO-03 Adenda F4: { count: 'exact', head: true }, as PostgREST takes it.
+      if (options !== undefined) op.selectOptions = options;
       op.verb ??= 'select';
     }),
     insert: chain((payload) => {

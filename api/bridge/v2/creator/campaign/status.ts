@@ -4,6 +4,8 @@ import { extractSignals } from '../../../../../lib/bridge-v2/signals.js';
 import { resolveSession } from '../../../../../lib/bridge-v2/session.js';
 import { findCreatorByParticipant } from '../../../../../lib/bridge-v2/creators.js';
 import { findLatestCampaign } from '../../../../../lib/bridge-v2/creatorCampaigns.js';
+import { findAccount } from '../../../../../lib/bridge-v2/accounts.js';
+import { readAccount } from '../../../../../lib/bridge-v2/relay.js';
 
 /**
  * POST /api/bridge/v2/creator/campaign/status
@@ -40,9 +42,19 @@ const route = handle('creator/campaign/status', async ({ request, log }) => {
   await log.event('route.ok');
   if (campaign === null) return ok({ status: 'NONE' });
 
+  // SPEC-BLOCO-03 Adenda C4 as D1 reads it: a creator account is shown as the
+  // deposit address only while it exists on-chain with its configuration. A
+  // configured account whose guardian its user revoked (R-3) stays usable.
+  // Adenda E1: a sealed derived creator is an account creator here (creators.ts).
+  let depositShown = creator.walletIndex !== null;
+  if (!depositShown) {
+    const account = await findAccount(session.participantId, 'CREATOR');
+    depositShown = account !== null && (await readAccount(account)).usable;
+  }
+
   return ok({
     status: campaign.status,
-    depositAddress: creator.walletAddress,
+    depositAddress: depositShown ? creator.walletAddress : null,
     giveawayId: campaign.giveawayId?.toString() ?? null,
     txHash: campaign.txHash,
   });
