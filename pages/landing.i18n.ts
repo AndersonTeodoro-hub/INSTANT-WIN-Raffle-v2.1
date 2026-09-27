@@ -11,74 +11,89 @@ const STORAGE_KEY = 'iw-lang';
 
 // Technical terms kept in English across all languages (industry convention):
 // Chainlink VRF, USDC, Arbitrum One, on-chain, wallet, smart contract, open-source.
-export type SceneCaptionKey = 'mark' | 'ticket' | 'draw' | 'seal' | 'reveal' | 'payout' | 'escrow' | 'modules' | 'again' | 'entry' | 'prize' | 'pick';
+export type SceneCaptionKey = 'mark' | 'brand' | 'pool' | 'payout' | 'escrow' | 'modules' | 'again' | 'entry' | 'prize' | 'pick';
 
+/**
+ * A página inicial conta a Keptra primeiro (pedido do owner de 27/09/2026): 01 a
+ * Keptra, 02 para marcas, 03 para clientes, 04 o pool de garantia, 05 os
+ * módulos, 06 o convite a provedores. Os textos do owner estão aqui tal como
+ * foram dados, nas três línguas; o que se escreveu à volta deles (rótulos do
+ * diagrama, do capítulo 04, legendas) está marcado como tal.
+ */
 export interface LandingCopy {
   /** O título do separador da página inicial: o produto e a página. */
   metaTitle: string;
   header: { enterApp: string; ariaLanguage: string };
-  hero: { badge: string; headlineTop: string; headlineBottom: string; sub: string; cta: string };
+  /** 01 — a primeira tela. Texto do owner. */
+  hero: {
+    title: string;
+    sub: string;
+    /** "<a quem> — <a acção>": duas linhas no botão, lido como uma frase. */
+    ctaBrands: string;
+    ctaCustomers: string;
+    /** A faixa: {capital} é o capital do pool lido na cadeia, nunca um literal. */
+    band: string;
+    seePool: string;
+  };
+  /** Os rótulos do diagrama da primeira tela (components/proof/EscrowFlow.tsx). */
+  flow: {
+    customer: string;
+    store: string;
+    escrow: string;
+    oracle: string;
+    proven: string;
+    /** Por cima das três camadas: quem paga se a entrega não for provada. */
+    refund: string;
+    layers: [string, string, string];
+  };
+  /** 02 e 03 — o texto do owner; a primeira frase é o título, o resto o corpo. */
+  brands: { title: string; body: string };
+  customers: { title: string; body: string };
+  /** 04 — o pool, discreto, com prova: cada número é uma leitura on-chain. */
+  pool: {
+    label: string;
+    title: string;
+    body: string;
+    capital: string;
+    active: string;
+    free: string;
+    /** Um número cuja leitura falhou: nunca um número inventado. */
+    notRead: string;
+    contract: string;
+  };
   /**
-   * Os três módulos da Keptra. A ordem casa com `MODULES` em Landing.tsx,
-   * que é onde vivem o nome do módulo, a rota e o estado — mesma convenção dos
-   * STEP_ICONS. Aqui fica só o que se traduz.
+   * 05 — os três módulos da Keptra. A ordem dos `items` casa com `MODULES` em
+   * Landing.tsx, que é onde vivem o nome do módulo, a rota e o estado. Aqui fica
+   * só o que se traduz. `obligation` é a frase do owner.
    */
   modules: {
     eyebrow: string;
     title: string;
-    sub: string;
+    obligation: string;
     items: { badge: string; body: string; cta: string }[];
   };
-  /** Cabeçalho do bloco que reúne a prova da lottery (how/why/transparency/FAQ). */
-  lottery: { eyebrow: string; title: string; intro: string };
-  how: {
-    eyebrow: string;
+  /** 06 — o fecho: o convite a provedores. Título, texto e botão do owner. */
+  providers: {
+    label: string;
     title: string;
-    steps: { title: string; body: string }[]; // order matches STEP_ICONS in Landing.tsx
+    body: string;
+    cta: string;
+    /** Debaixo do botão: é um pedido, nunca um depósito. */
+    note: string;
   };
-  why: {
-    eyebrow: string;
-    title: string;
-    colInstant: string;
-    colTraditional: string;
-    rows: { label: string; instant: string; traditional: string }[];
-  };
-  transparency: { eyebrow: string; title: string; vrfPre: string; vrfPost: string };
-  faq: { eyebrow: string; title: string; items: { q: string; a: string }[] };
-  finalCta: { title: string; share: string };
-  /**
-   * O filme da página inicial (segunda passagem visual). Só as frases que a
-   * narrativa exige; tudo o resto reutiliza o texto que já existia acima.
-   */
+  /** O filme (components/film/Film.tsx): os controlos e as legendas das formas. */
   film: {
-    /** Botão que pára o movimento contínuo da cena (WCAG 2.2.2). */
+    /** Botão que pára o movimento contínuo da cena e dos diagramas (WCAG 2.2.2). */
     pause: string;
     play: string;
-    /** Legenda da forma: "<markOfRound> 42" / "<markOfCampaign> 2". */
+    /** Legenda da forma: "<markOfRound> 42" / "<markOfCampaign> 2" (a /giveaways e a /roadmap). */
     markOfRound: string;
     markOfCampaign: string;
     markPending: string;
-    /** O conceito, numa linha, no capítulo da revelação. */
-    markLine: string;
-    revealTitle: string;
-    campaignLabel: string;
-    seeCampaign: string;
-    keptra: {
-      title: string;
-      body: string;
-      failure: string;
-      /** Os nós do percurso: quem paga, o escrow, a loja. */
-      path: [string, string, string];
-      /** A ordem de absorção de uma falha: caução, reserva, capital. */
-      layers: [string, string, string];
-      /** O estado on-chain: os contratos do Keptra na Arbitrum One (lib/keptra/contracts.ts). */
-      status: string;
-      cta: string;
-    };
     /**
      * A legenda junto da forma: o que ela representa naquele capítulo, em
-     * linguagem simples (components/film/Chapter.tsx SceneCaption). As últimas
-     * três são só da /giveaways.
+     * linguagem simples (components/film/Chapter.tsx SceneCaption). `entry`,
+     * `prize`, `pick` e `payout` são só da /giveaways.
      */
     captions: Record<SceneCaptionKey, string>;
   };
@@ -92,19 +107,47 @@ export interface LandingCopy {
 }
 
 const en: LandingCopy = {
-  metaTitle: 'Keptra — Provably fair events',
+  metaTitle: 'Keptra — Verified delivery',
   header: { enterApp: 'Enter App', ariaLanguage: 'Language' },
   hero: {
-    badge: 'Powered by Chainlink VRF',
-    headlineTop: 'Provably fair events.',
-    headlineBottom: 'Proof, not promise.',
-    sub: 'Keptra runs provably fair draws on Arbitrum One: the Instant Win lottery, Giveaways and the Event Center. Every winner is drawn by Chainlink VRF and every prize is claimed straight from the contract.',
-    cta: 'PLAY NOW',
+    title: 'A brand that can prove it, cares.',
+    sub: 'Keptra lets any store give its customers something no one else does: a delivery guarantee that is verified, not promised. Payment waits in escrow, an independent oracle confirms the delivery, and only then the store gets paid. No wallets, no crypto knowledge — for the store or the customer.',
+    ctaBrands: 'For brands — Offer verified delivery',
+    ctaCustomers: 'For customers — Buy with a guarantee you can check',
+    band: 'Backed by a public guarantee pool: {capital} USDC, verified on Arbitrum One.',
+    seePool: 'See the pool',
+  },
+  flow: {
+    customer: 'Customer',
+    store: 'Store',
+    escrow: 'escrow',
+    oracle: 'Independent oracle',
+    proven: 'Delivery proven',
+    refund: 'If not proven, the refund comes from',
+    layers: ['Bond', 'Reserve', 'Pool'],
+  },
+  brands: {
+    title: 'The stores that can show proof stand apart.',
+    body: 'Transparency your customers can verify is care they can feel — and Keptra makes it a checkbox at checkout, not a project.',
+  },
+  customers: {
+    title: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the pool.",
+    body: "You never need to understand how; you can always check that it's true.",
+  },
+  pool: {
+    label: 'Guarantee pool',
+    title: 'The guarantee, in public.',
+    body: 'The escrow and pool contracts are on Arbitrum One, verified on Sourcify and Arbiscan.',
+    capital: 'Capital',
+    active: 'Active guarantees',
+    free: 'Free capacity',
+    notRead: 'Not read',
+    contract: 'Pool contract',
   },
   modules: {
     eyebrow: 'Inside Keptra',
     title: 'Three modules, one standard of proof.',
-    sub: 'Each module ships in order. None is announced as done before it is verifiable on-chain.',
+    obligation: 'Every order is a tokenized obligation — bond, coverage and settlement on-chain. Commerce as a real-world asset.',
     items: [
       {
         badge: 'LIVE',
@@ -123,80 +166,23 @@ const en: LandingCopy = {
       },
     ],
   },
-  lottery: {
-    eyebrow: 'Instant Win · Live now',
-    title: 'The lottery, running on Arbitrum One.',
-    intro:
-      "Keptra's first module — and the proof the rest is built on. Everything below is deployed code you can read today.",
+  providers: {
+    label: 'Pool providers',
+    title: 'Be part of the guarantee.',
+    body: "The pool's capital comes from providers who back every order. Providers earn a share of every protection fee.",
+    cta: 'Become a provider',
+    note: 'Opens an email request. Keptra approves every provider — nothing is deposited from this page.',
   },
-  how: {
-    eyebrow: 'How it works',
-    title: "Three steps. That's it.",
-    steps: [
-      { title: 'Connect & grab tickets', body: 'Connect your wallet and buy tickets. 1 ticket = 1 USDC.' },
-      { title: 'VRF draws 3 winners', body: 'Chainlink VRF draws 3 winners in every 30-minute round — pure verifiable randomness, no human hands.' },
-      { title: 'Claim your prize', body: 'The contract credits your prize the moment the round settles. Claim it from your wallet whenever you want — it never expires.' },
-    ],
-  },
-  why: {
-    eyebrow: "Why it's different",
-    title: 'On-chain, not on trust.',
-    colInstant: 'Instant Win',
-    colTraditional: 'Traditional lottery',
-    rows: [
-      { label: 'Draws', instant: 'Every 30-minute round', traditional: 'Weekly' },
-      { label: 'Randomness', instant: 'Chainlink VRF, on-chain proof', traditional: 'Trust the operator' },
-      { label: 'Payout', instant: 'Credited on-chain, you claim it', traditional: 'Claim in person, with a deadline' },
-      { label: 'To players', instant: '85.7% of ticket money over time', traditional: 'Rarely disclosed' },
-      { label: 'Rules', instant: 'Open-source contracts anyone can read', traditional: 'Closed systems' },
-    ],
-  },
-  transparency: {
-    eyebrow: 'Transparency',
-    title: "Don't trust. Verify.",
-    vrfPre: 'Every draw is settled by ',
-    vrfPost: ', which provides cryptographically verifiable randomness that no one — not even us — can predict or tamper with. This website is only an interface: the game itself lives on-chain.',
-  },
-  faq: {
-    eyebrow: 'FAQ',
-    title: 'Good questions.',
-    items: [
-      { q: 'What do I need to play?', a: 'An Arbitrum One wallet (such as MetaMask) with some USDC for tickets and a little ETH for gas.' },
-      { q: 'What is USDC and where do I get it?', a: 'USDC is a US-dollar stablecoin. You can buy it on most exchanges and move it to the Arbitrum One network.' },
-      { q: 'How are winners picked?', a: 'Chainlink VRF produces verifiable on-chain randomness. Each draw selects 3 winners and the proof is public — anyone can check it.' },
-      { q: 'When do I get paid?', a: 'The contract credits your prize the moment the round settles, and you withdraw it with one transaction from the app. It is held on-chain in your name until you do — there is no deadline and it cannot be taken back.' },
-      { q: 'How much of the money goes to players?', a: 'About 85.7% over time. Each round pays 75% of its pool to the three winners and 12.5% to development; the other 12.5% rolls into the next round, so it comes back to players — minus the same development share each time it recycles.' },
-      { q: 'What are the odds?', a: 'Your chance in a round depends only on how many tickets you hold versus the total tickets in that round. It is luck, not strategy.' },
-      { q: 'Is this available in my country?', a: 'Access depends on the rules of your own jurisdiction. It is your responsibility to check whether you are allowed to participate where you live.' },
-      { q: 'Who runs this?', a: 'The game runs entirely on-chain through open-source smart contracts. This website is only an open interface to them.' },
-    ],
-  },
-  finalCta: { title: 'The next draw is already running.', share: 'Share' },
   film: {
     pause: 'Pause motion',
     play: 'Play motion',
     markOfRound: 'Drawn from the VRF transaction of round',
     markOfCampaign: 'Drawn from the VRF seed of campaign',
     markPending: 'Waiting for the first settled draw.',
-    markLine: 'Every settled draw leaves a shape drawn from its own proof. Same proof, same shape.',
-    revealTitle: 'Winners, with their proof.',
-    campaignLabel: 'Campaign',
-    seeCampaign: 'See the campaign',
-    keptra: {
-      title: 'The same proof, for what you buy.',
-      body: 'Your payment waits in an on-chain escrow. A proven delivery opens the way to the store.',
-      failure: "If a brand fails a winner, the pool pays: the brand's bond first, then the risk reserve, then the capital.",
-      path: ['You', 'Escrow', 'Store'],
-      layers: ['Bond', 'Risk reserve', 'Capital'],
-      status: 'The escrow and pool contracts are on Arbitrum One, verified on Sourcify and Arbiscan.',
-      cta: 'See the guarantee pool',
-    },
     captions: {
       mark: 'This shape is drawn from the proof of the latest draw. Every draw has its own, and no one can fake it.',
-      ticket: 'A ticket. Each one is one chance in the round.',
-      draw: 'The tangle is chance before the draw; the shape is the result, once it is picked.',
-      seal: 'The result, closed inside a block of the public record. From then on, no one can change it.',
-      reveal: 'The same shape, seen face on. The green lines are the winners.',
+      brand: 'A proven delivery, sealed in a block of the public record. From then on, no one can change it.',
+      pool: "The pool's capital, ring on ring: it stands behind every order, after the brand's bond.",
       payout: 'The prize, in amber, goes from the contract to the winner\'s wallet.',
       escrow: 'Your payment waits in the middle. The green path to the store opens only once delivery is proven; the three layers below cover a failure.',
       modules: 'The three modules, each drawn from its latest draw. Giveaways and the Event Center run on one contract, so they share a shape. Green is live.',
@@ -215,19 +201,47 @@ const en: LandingCopy = {
 };
 
 const pt: LandingCopy = {
-  metaTitle: 'Keptra — Eventos comprovadamente justos',
+  metaTitle: 'Keptra — Entrega verificada',
   header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
-    badge: 'Com tecnologia Chainlink VRF',
-    headlineTop: 'Eventos comprovadamente justos.',
-    headlineBottom: 'Prova, não promessa.',
-    sub: 'A Keptra roda sorteios comprovadamente justos na Arbitrum One: a loteria Instant Win, os Giveaways e o Event Center. Cada ganhador é sorteado pelo Chainlink VRF e cada prêmio é resgatado direto do contrato.',
-    cta: 'JOGAR AGORA',
+    title: 'Uma marca que consegue provar, cuida.',
+    sub: 'A Keptra permite a qualquer loja dar aos seus clientes algo que mais ninguém dá: uma garantia de entrega verificada, não prometida. O pagamento espera num escrow, um oráculo independente confirma a entrega, e só então a loja recebe. Sem carteiras, sem saber de cripto — nem a loja, nem o cliente.',
+    ctaBrands: 'Para marcas — Ofereça entrega verificada',
+    ctaCustomers: 'Para clientes — Compre com uma garantia que pode conferir',
+    band: 'Apoiado por um pool de garantia público: {capital} USDC, verificado na Arbitrum One.',
+    seePool: 'Ver o pool',
+  },
+  flow: {
+    customer: 'Cliente',
+    store: 'Loja',
+    escrow: 'escrow',
+    oracle: 'Oráculo independente',
+    proven: 'Entrega provada',
+    refund: 'Se não for provada, o reembolso vem de',
+    layers: ['Caução', 'Reserva', 'Pool'],
+  },
+  brands: {
+    title: 'As lojas que conseguem mostrar prova destacam-se.',
+    body: 'Transparência que os seus clientes podem verificar é cuidado que eles sentem — e a Keptra torna isso numa opção no checkout, não num projecto.',
+  },
+  customers: {
+    title: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pelo pool.',
+    body: 'Nunca precisa de perceber como; pode sempre conferir que é verdade.',
+  },
+  pool: {
+    label: 'Pool de garantia',
+    title: 'A garantia, em público.',
+    body: 'Os contratos do escrow e do pool estão na Arbitrum One, verificados no Sourcify e no Arbiscan.',
+    capital: 'Capital',
+    active: 'Garantias activas',
+    free: 'Capacidade livre',
+    notRead: 'Não lido',
+    contract: 'Contrato do pool',
   },
   modules: {
     eyebrow: 'Dentro da Keptra',
     title: 'Três módulos, um só padrão de prova.',
-    sub: 'Cada módulo entra em ordem. Nenhum é anunciado como pronto antes de ser verificável on-chain.',
+    obligation: 'Cada encomenda é uma obrigação tokenizada — caução, cobertura e liquidação on-chain. O comércio como activo do mundo real.',
     items: [
       {
         badge: 'AO VIVO',
@@ -246,80 +260,23 @@ const pt: LandingCopy = {
       },
     ],
   },
-  lottery: {
-    eyebrow: 'Instant Win · Ao vivo',
-    title: 'A loteria, rodando na Arbitrum One.',
-    intro:
-      'O primeiro módulo da Keptra — e a prova sobre a qual o resto é construído. Tudo abaixo é código deployado que você pode ler hoje.',
+  providers: {
+    label: 'Provedores do pool',
+    title: 'Faça parte da garantia.',
+    body: 'O capital do pool vem de provedores que sustentam cada encomenda. Os provedores recebem uma parte de cada taxa de protecção.',
+    cta: 'Tornar-me provedor',
+    note: 'Abre um pedido por email. A Keptra aprova cada provedor — nada é depositado a partir desta página.',
   },
-  how: {
-    eyebrow: 'Como funciona',
-    title: 'Três passos. Só isso.',
-    steps: [
-      { title: 'Conecte e pegue bilhetes', body: 'Conecte sua wallet e compre bilhetes. 1 bilhete = 1 USDC.' },
-      { title: 'O VRF sorteia 3 ganhadores', body: 'O Chainlink VRF sorteia 3 ganhadores em cada rodada de 30 minutos — aleatoriedade verificável, sem mãos humanas.' },
-      { title: 'Resgate seu prêmio', body: 'O contrato credita seu prêmio no instante em que a rodada é liquidada. Resgate pela sua wallet quando quiser — não expira.' },
-    ],
-  },
-  why: {
-    eyebrow: 'Por que é diferente',
-    title: 'On-chain, não na confiança.',
-    colInstant: 'Instant Win',
-    colTraditional: 'Loteria tradicional',
-    rows: [
-      { label: 'Sorteios', instant: 'A cada rodada de 30 minutos', traditional: 'Semanal' },
-      { label: 'Aleatoriedade', instant: 'Chainlink VRF, prova on-chain', traditional: 'Confie no operador' },
-      { label: 'Pagamento', instant: 'Creditado on-chain, você resgata', traditional: 'Resgate presencial, com prazo' },
-      { label: 'Para os jogadores', instant: '85,7% do dinheiro dos bilhetes ao longo do tempo', traditional: 'Raramente divulgado' },
-      { label: 'Regras', instant: 'Contratos open-source que qualquer um pode ler', traditional: 'Sistemas fechados' },
-    ],
-  },
-  transparency: {
-    eyebrow: 'Transparência',
-    title: 'Não confie. Verifique.',
-    vrfPre: 'Cada sorteio é definido pelo ',
-    vrfPost: ', que fornece aleatoriedade verificável por criptografia que ninguém — nem mesmo nós — pode prever ou manipular. Este site é apenas uma interface: o jogo em si vive on-chain.',
-  },
-  faq: {
-    eyebrow: 'FAQ',
-    title: 'Boas perguntas.',
-    items: [
-      { q: 'O que eu preciso para jogar?', a: 'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.' },
-      { q: 'O que é USDC e onde consigo?', a: 'USDC é uma stablecoin atrelada ao dólar americano. Você pode comprá-la na maioria das exchanges e transferi-la para a rede Arbitrum One.' },
-      { q: 'Como os ganhadores são escolhidos?', a: 'O Chainlink VRF gera aleatoriedade verificável on-chain. Cada sorteio escolhe 3 ganhadores e a prova é pública — qualquer um pode conferir.' },
-      { q: 'Quando eu recebo?', a: 'O contrato credita seu prêmio no instante em que a rodada é liquidada, e você saca com uma transação pelo app. Fica guardado on-chain no seu nome até você sacar — sem prazo e sem ninguém poder tirar de volta.' },
-      { q: 'Quanto do dinheiro vai para os jogadores?', a: 'Cerca de 85,7% ao longo do tempo. Cada rodada paga 75% do seu pool aos três ganhadores e 12,5% ao desenvolvimento; os outros 12,5% entram na rodada seguinte, ou seja, voltam para os jogadores — menos a mesma fatia de desenvolvimento a cada reciclagem.' },
-      { q: 'Quais são as chances?', a: 'Sua chance em uma rodada depende apenas de quantos bilhetes você tem em relação ao total de bilhetes daquela rodada. É sorte, não estratégia.' },
-      { q: 'Está disponível no meu país?', a: 'O acesso depende das regras da sua própria jurisdição. É sua responsabilidade verificar se você tem permissão para participar no lugar onde vive.' },
-      { q: 'Quem administra isto?', a: 'O jogo roda inteiramente on-chain por meio de smart contracts open-source. Este site é apenas uma interface aberta para eles.' },
-    ],
-  },
-  finalCta: { title: 'O próximo sorteio já está rolando.', share: 'Compartilhar' },
   film: {
     pause: 'Pausar movimento',
     play: 'Retomar movimento',
     markOfRound: 'Desenhada a partir da transação do VRF da rodada',
     markOfCampaign: 'Desenhada a partir da semente do VRF da campanha',
     markPending: 'Aguardando o primeiro sorteio liquidado.',
-    markLine: 'Cada sorteio liquidado deixa uma forma desenhada a partir da própria prova. Mesma prova, mesma forma.',
-    revealTitle: 'Ganhadores, com a prova.',
-    campaignLabel: 'Campanha',
-    seeCampaign: 'Ver a campanha',
-    keptra: {
-      title: 'A mesma prova, para o que você compra.',
-      body: 'Seu pagamento espera num escrow on-chain. Uma entrega provada abre o caminho até a loja.',
-      failure: 'Se uma marca falha com um ganhador, o pool paga: primeiro a caução da marca, depois a reserva de risco, depois o capital.',
-      path: ['Você', 'Escrow', 'Loja'],
-      layers: ['Caução', 'Reserva de risco', 'Capital'],
-      status: 'Os contratos do escrow e do pool estão na Arbitrum One, verificados no Sourcify e no Arbiscan.',
-      cta: 'Ver o pool de garantia',
-    },
     captions: {
       mark: 'Esta forma é desenhada a partir da prova do último sorteio. Cada sorteio tem a sua, e ninguém consegue falsificá-la.',
-      ticket: 'Um bilhete. Cada um é uma chance na rodada.',
-      draw: 'O emaranhado é o acaso antes do sorteio; a forma é o resultado, depois de escolhido.',
-      seal: 'O resultado, fechado dentro de um bloco do registro público. A partir daí, ninguém pode mudá-lo.',
-      reveal: 'A mesma forma, vista de frente. As linhas verdes são os ganhadores.',
+      brand: 'Uma entrega provada, selada num bloco do registo público. A partir daí, ninguém a pode alterar.',
+      pool: 'O capital do pool, anel sobre anel: sustenta cada encomenda, depois da caução da marca.',
       payout: 'O prêmio, em âmbar, sai do contrato para a wallet de quem ganhou.',
       escrow: 'O seu pagamento espera no meio. O caminho verde até a loja só abre quando a entrega é provada; as três camadas de baixo cobrem uma falha.',
       modules: 'Os três módulos, cada um desenhado a partir do seu último sorteio. Os Giveaways e o Event Center rodam no mesmo contrato, por isso têm a mesma forma. Verde é o que está no ar.',
@@ -338,19 +295,47 @@ const pt: LandingCopy = {
 };
 
 const es: LandingCopy = {
-  metaTitle: 'Keptra — Eventos demostrablemente justos',
+  metaTitle: 'Keptra — Entrega verificada',
   header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
   hero: {
-    badge: 'Con tecnología Chainlink VRF',
-    headlineTop: 'Eventos demostrablemente justos.',
-    headlineBottom: 'Prueba, no promesa.',
-    sub: 'Keptra ejecuta sorteos demostrablemente justos en Arbitrum One: la lotería Instant Win, los Giveaways y el Event Center. Cada ganador se sortea con Chainlink VRF y cada premio se reclama directamente del contrato.',
-    cta: 'JUGAR AHORA',
+    title: 'Una marca que puede probarlo, cuida.',
+    sub: 'Keptra permite a cualquier tienda dar a sus clientes algo que nadie más da: una garantía de entrega verificada, no prometida. El pago espera en un escrow, un oráculo independiente confirma la entrega, y solo entonces la tienda cobra. Sin wallets, sin saber de cripto — ni la tienda, ni el cliente.',
+    ctaBrands: 'Para marcas — Ofrece entrega verificada',
+    ctaCustomers: 'Para clientes — Compra con una garantía que puedes comprobar',
+    band: 'Respaldado por un pool de garantía público: {capital} USDC, verificado en Arbitrum One.',
+    seePool: 'Ver el pool',
+  },
+  flow: {
+    customer: 'Cliente',
+    store: 'Tienda',
+    escrow: 'escrow',
+    oracle: 'Oráculo independiente',
+    proven: 'Entrega probada',
+    refund: 'Si no se prueba, el reembolso sale de',
+    layers: ['Fianza', 'Reserva', 'Pool'],
+  },
+  brands: {
+    title: 'Las tiendas que pueden mostrar prueba se distinguen.',
+    body: 'La transparencia que tus clientes pueden verificar es cuidado que sienten — y Keptra la convierte en una opción en el checkout, no en un proyecto.',
+  },
+  customers: {
+    title: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por el pool.',
+    body: 'Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
+  },
+  pool: {
+    label: 'Pool de garantía',
+    title: 'La garantía, en público.',
+    body: 'Los contratos del escrow y del pool están en Arbitrum One, verificados en Sourcify y Arbiscan.',
+    capital: 'Capital',
+    active: 'Garantías activas',
+    free: 'Capacidad libre',
+    notRead: 'No leído',
+    contract: 'Contrato del pool',
   },
   modules: {
     eyebrow: 'Dentro de Keptra',
     title: 'Tres módulos, un mismo estándar de prueba.',
-    sub: 'Cada módulo llega en orden. Ninguno se anuncia como listo antes de ser verificable on-chain.',
+    obligation: 'Cada pedido es una obligación tokenizada — fianza, cobertura y liquidación on-chain. El comercio como activo del mundo real.',
     items: [
       {
         badge: 'EN VIVO',
@@ -369,80 +354,23 @@ const es: LandingCopy = {
       },
     ],
   },
-  lottery: {
-    eyebrow: 'Instant Win · En vivo',
-    title: 'La lotería, funcionando en Arbitrum One.',
-    intro:
-      'El primer módulo de Keptra — y la prueba sobre la que se construye el resto. Todo lo de abajo es código desplegado que puedes leer hoy.',
+  providers: {
+    label: 'Proveedores del pool',
+    title: 'Forma parte de la garantía.',
+    body: 'El capital del pool viene de proveedores que respaldan cada pedido. Los proveedores reciben una parte de cada tarifa de protección.',
+    cta: 'Quiero ser proveedor',
+    note: 'Abre una solicitud por correo. Keptra aprueba a cada proveedor — desde esta página no se deposita nada.',
   },
-  how: {
-    eyebrow: 'Cómo funciona',
-    title: 'Tres pasos. Nada más.',
-    steps: [
-      { title: 'Conecta y toma boletos', body: 'Conecta tu wallet y compra boletos. 1 boleto = 1 USDC.' },
-      { title: 'El VRF sortea 3 ganadores', body: 'Chainlink VRF sortea 3 ganadores en cada ronda de 30 minutos — aleatoriedad verificable, sin manos humanas.' },
-      { title: 'Reclama tu premio', body: 'El contrato acredita tu premio en el instante en que la ronda se liquida. Recláma­lo desde tu wallet cuando quieras — no caduca.' },
-    ],
-  },
-  why: {
-    eyebrow: 'Por qué es diferente',
-    title: 'On-chain, no en la confianza.',
-    colInstant: 'Instant Win',
-    colTraditional: 'Lotería tradicional',
-    rows: [
-      { label: 'Sorteos', instant: 'Cada ronda de 30 minutos', traditional: 'Semanal' },
-      { label: 'Aleatoriedad', instant: 'Chainlink VRF, prueba on-chain', traditional: 'Confía en el operador' },
-      { label: 'Pago', instant: 'Acreditado on-chain, tú lo reclamas', traditional: 'Reclamo presencial, con plazo' },
-      { label: 'Para los jugadores', instant: '85,7% del dinero de los boletos con el tiempo', traditional: 'Rara vez se divulga' },
-      { label: 'Reglas', instant: 'Contratos open-source que cualquiera puede leer', traditional: 'Sistemas cerrados' },
-    ],
-  },
-  transparency: {
-    eyebrow: 'Transparencia',
-    title: 'No confíes. Verifica.',
-    vrfPre: 'Cada sorteo se define con ',
-    vrfPost: ', que aporta aleatoriedad verificable por criptografía que nadie — ni siquiera nosotros — puede predecir ni manipular. Este sitio es solo una interfaz: el juego en sí vive on-chain.',
-  },
-  faq: {
-    eyebrow: 'FAQ',
-    title: 'Buenas preguntas.',
-    items: [
-      { q: '¿Qué necesito para jugar?', a: 'Una wallet en Arbitrum One (como MetaMask) con algo de USDC para los boletos y un poco de ETH para el gas.' },
-      { q: '¿Qué es USDC y dónde lo consigo?', a: 'USDC es una stablecoin ligada al dólar estadounidense. Puedes comprarla en la mayoría de los exchanges y moverla a la red Arbitrum One.' },
-      { q: '¿Cómo se eligen los ganadores?', a: 'Chainlink VRF genera aleatoriedad verificable on-chain. Cada sorteo elige 3 ganadores y la prueba es pública — cualquiera puede verificarla.' },
-      { q: '¿Cuándo me pagan?', a: 'El contrato acredita tu premio en el instante en que la ronda se liquida, y lo retiras con una transacción desde la app. Queda guardado on-chain a tu nombre hasta que lo hagas — sin plazo y sin que nadie pueda quitártelo.' },
-      { q: '¿Cuánto dinero va a los jugadores?', a: 'Alrededor del 85,7% con el tiempo. Cada ronda paga el 75% de su pool a los tres ganadores y el 12,5% al desarrollo; el otro 12,5% pasa a la ronda siguiente, o sea vuelve a los jugadores — menos la misma parte de desarrollo cada vez que se recicla.' },
-      { q: '¿Cuáles son las probabilidades?', a: 'Tu probabilidad en una ronda depende solo de cuántos boletos tienes frente al total de boletos de esa ronda. Es suerte, no estrategia.' },
-      { q: '¿Está disponible en mi país?', a: 'El acceso depende de las normas de tu propia jurisdicción. Es tu responsabilidad verificar si tienes permiso para participar en el lugar donde vives.' },
-      { q: '¿Quién administra esto?', a: 'El juego funciona por completo on-chain mediante smart contracts open-source. Este sitio es solo una interfaz abierta hacia ellos.' },
-    ],
-  },
-  finalCta: { title: 'El próximo sorteo ya está en marcha.', share: 'Compartir' },
   film: {
     pause: 'Pausar movimiento',
     play: 'Reanudar movimiento',
     markOfRound: 'Dibujada a partir de la transacción del VRF de la ronda',
     markOfCampaign: 'Dibujada a partir de la semilla del VRF de la campaña',
     markPending: 'Esperando el primer sorteo liquidado.',
-    markLine: 'Cada sorteo liquidado deja una forma dibujada a partir de su propia prueba. Misma prueba, misma forma.',
-    revealTitle: 'Ganadores, con su prueba.',
-    campaignLabel: 'Campaña',
-    seeCampaign: 'Ver la campaña',
-    keptra: {
-      title: 'La misma prueba, para lo que compras.',
-      body: 'Tu pago espera en un escrow on-chain. Una entrega probada abre el camino hasta la tienda.',
-      failure: 'Si una marca le falla a un ganador, el pool paga: primero la fianza de la marca, luego la reserva de riesgo, luego el capital.',
-      path: ['Tú', 'Escrow', 'Tienda'],
-      layers: ['Fianza', 'Reserva de riesgo', 'Capital'],
-      status: 'Los contratos del escrow y del pool están en Arbitrum One, verificados en Sourcify y Arbiscan.',
-      cta: 'Ver el pool de garantía',
-    },
     captions: {
       mark: 'Esta forma se dibuja a partir de la prueba del último sorteo. Cada sorteo tiene la suya, y nadie puede falsificarla.',
-      ticket: 'Un boleto. Cada uno es una oportunidad en la ronda.',
-      draw: 'La maraña es el azar antes del sorteo; la forma es el resultado, una vez elegido.',
-      seal: 'El resultado, cerrado dentro de un bloque del registro público. Desde entonces, nadie puede cambiarlo.',
-      reveal: 'La misma forma, vista de frente. Las líneas verdes son los ganadores.',
+      brand: 'Una entrega probada, sellada en un bloque del registro público. Desde entonces, nadie puede cambiarla.',
+      pool: 'El capital del pool, anillo sobre anillo: respalda cada pedido, después de la fianza de la marca.',
       payout: 'El premio, en ámbar, sale del contrato hacia la wallet de quien ganó.',
       escrow: 'Tu pago espera en el medio. El camino verde hacia la tienda solo se abre cuando la entrega está probada; las tres capas de abajo cubren un fallo.',
       modules: 'Los tres módulos, cada uno dibujado a partir de su último sorteo. Los Giveaways y el Event Center funcionan en el mismo contrato, por eso comparten la forma. El verde es lo que está en marcha.',

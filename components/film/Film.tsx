@@ -55,9 +55,11 @@ interface FilmContextValue {
   readonly mode: Mode | null;
   readonly shapes: Record<ShapeId, Float32Array> | null;
   readonly register: (registration: Registration) => () => void;
+  /** The pause button's state (WCAG 2.2.2): it stops the diagrams' loops as well as the scene. */
+  readonly paused: boolean;
 }
 
-const FilmContext = createContext<FilmContextValue>({ mode: null, shapes: null, register: () => () => {} });
+const FilmContext = createContext<FilmContextValue>({ mode: null, shapes: null, register: () => () => {}, paused: false });
 export const useFilmMode = () => useContext(FilmContext).mode;
 
 type SceneModule = typeof import('../../lib/proof/scene');
@@ -159,7 +161,7 @@ export function Film({
     };
   }, []);
 
-  const value = useMemo(() => ({ mode, shapes, register }), [mode, shapes, register]);
+  const value = useMemo(() => ({ mode, shapes, register, paused }), [mode, shapes, register, paused]);
 
   return (
     <FilmContext.Provider value={value}>
@@ -522,6 +524,81 @@ export function FilmAnchor({
       {children}
     </div>
   );
+}
+
+/**
+ * A diagram's clock (components/proof/EscrowFlow.tsx). Its phase is the scroll
+ * through its chapter — one cycle across the chapter's pinned range, or across
+ * most of an unpinned one — plus, while it is on screen and the film is not
+ * paused, a slow loop of `period` seconds. `draw(phase)` writes the frame into
+ * the DOM; nothing re-renders. Only the live film moves it: the still version
+ * (reduced motion, a weak device) is drawn once at `start`, the whole picture,
+ * and the loop starts from there too.
+ */
+export function useFilmTimeline(ref: React.RefObject<Element>, period: number, start: number, draw: (phase: number) => void) {
+  const { mode, paused } = useContext(FilmContext);
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const wake = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    if (mode !== 'live') {
+      drawRef.current(start);
+      return;
+    }
+    const section = element.closest<HTMLElement>('[data-film-section]');
+    const progress = () => {
+      if (!section) return 0;
+      const rect = section.getBoundingClientRect();
+      return clamp(-rect.top / Math.max(rect.height - window.innerHeight, rect.height * 0.75));
+    };
+    let raf = 0;
+    let running = false;
+    let visible = false;
+    let last = 0;
+    let clock = 0;
+    const tick = (now: number) => {
+      // The frame's timestamp can precede the performance.now() the run started at: never backwards.
+      if (!pausedRef.current) clock += Math.min(64, Math.max(0, now - last)) / 1000;
+      last = now;
+      drawRef.current(start + clock / period + progress());
+      // Paused, it still follows the scroll: one frame per scroll event, then it sleeps.
+      if (!visible || document.hidden || pausedRef.current) {
+        running = false;
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    const run = () => {
+      if (running || !visible || document.hidden) return;
+      running = true;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    wake.current = run;
+    const observer = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      run();
+    });
+    observer.observe(element);
+    window.addEventListener('scroll', run, { passive: true });
+    document.addEventListener('visibilitychange', run);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      window.removeEventListener('scroll', run);
+      document.removeEventListener('visibilitychange', run);
+      wake.current = () => {};
+    };
+  }, [mode, period, start, ref]);
+
+  useEffect(() => {
+    wake.current();
+  }, [paused]);
 }
 
 function StillShape({ shapes, spec }: { shapes: Record<ShapeId, Float32Array>; spec: KeySpec }) {

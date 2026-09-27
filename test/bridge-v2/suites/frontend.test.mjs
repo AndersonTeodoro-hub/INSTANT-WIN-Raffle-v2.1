@@ -1806,3 +1806,145 @@ await test(['AT8', 'AV6', 'P6-10'], 'V6, AA4 and AB: the matrix of piece 6 is in
   declared.add('P6-13');
   for (const tag of declared) assert.match(matrix, new RegExp(`^\\| ${tag} \\|`, 'm'), `${tag} has no row in the matrix`);
 });
+
+// ---------------------------------------------------------------------------
+// The home page, Keptra first — the owner's request of 27/09/2026, commit A.
+// ---------------------------------------------------------------------------
+
+/** The owner's texts of 27/09/2026, as they were given. */
+const OWNER_TEXTS = {
+  en: {
+    title: 'A brand that can prove it, cares.',
+    sub: 'Keptra lets any store give its customers something no one else does: a delivery guarantee that is verified, not promised. Payment waits in escrow, an independent oracle confirms the delivery, and only then the store gets paid. No wallets, no crypto knowledge — for the store or the customer.',
+    brandsCta: 'For brands — Offer verified delivery',
+    customersCta: 'For customers — Buy with a guarantee you can check',
+    band: 'Backed by a public guarantee pool: {capital} USDC, verified on Arbitrum One.',
+    seePool: 'See the pool',
+    brands: 'The stores that can show proof stand apart. Transparency your customers can verify is care they can feel — and Keptra makes it a checkbox at checkout, not a project.',
+    customers: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the pool. You never need to understand how; you can always check that it's true.",
+    obligation: 'Every order is a tokenized obligation — bond, coverage and settlement on-chain. Commerce as a real-world asset.',
+    providersTitle: 'Be part of the guarantee.',
+    providersBody: "The pool's capital comes from providers who back every order. Providers earn a share of every protection fee.",
+    providersCta: 'Become a provider',
+  },
+  pt: {
+    title: 'Uma marca que consegue provar, cuida.',
+    sub: 'A Keptra permite a qualquer loja dar aos seus clientes algo que mais ninguém dá: uma garantia de entrega verificada, não prometida. O pagamento espera num escrow, um oráculo independente confirma a entrega, e só então a loja recebe. Sem carteiras, sem saber de cripto — nem a loja, nem o cliente.',
+    brandsCta: 'Para marcas — Ofereça entrega verificada',
+    customersCta: 'Para clientes — Compre com uma garantia que pode conferir',
+    band: 'Apoiado por um pool de garantia público: {capital} USDC, verificado na Arbitrum One.',
+    seePool: 'Ver o pool',
+    brands: 'As lojas que conseguem mostrar prova destacam-se. Transparência que os seus clientes podem verificar é cuidado que eles sentem — e a Keptra torna isso numa opção no checkout, não num projecto.',
+    customers: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pelo pool. Nunca precisa de perceber como; pode sempre conferir que é verdade.',
+    obligation: 'Cada encomenda é uma obrigação tokenizada — caução, cobertura e liquidação on-chain. O comércio como activo do mundo real.',
+    providersTitle: 'Faça parte da garantia.',
+    providersBody: 'O capital do pool vem de provedores que sustentam cada encomenda. Os provedores recebem uma parte de cada taxa de protecção.',
+    providersCta: 'Tornar-me provedor',
+  },
+  es: {
+    title: 'Una marca que puede probarlo, cuida.',
+    sub: 'Keptra permite a cualquier tienda dar a sus clientes algo que nadie más da: una garantía de entrega verificada, no prometida. El pago espera en un escrow, un oráculo independiente confirma la entrega, y solo entonces la tienda cobra. Sin wallets, sin saber de cripto — ni la tienda, ni el cliente.',
+    brandsCta: 'Para marcas — Ofrece entrega verificada',
+    customersCta: 'Para clientes — Compra con una garantía que puedes comprobar',
+    band: 'Respaldado por un pool de garantía público: {capital} USDC, verificado en Arbitrum One.',
+    seePool: 'Ver el pool',
+    brands: 'Las tiendas que pueden mostrar prueba se distinguen. La transparencia que tus clientes pueden verificar es cuidado que sienten — y Keptra la convierte en una opción en el checkout, no en un proyecto.',
+    customers: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por el pool. Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
+    obligation: 'Cada pedido es una obligación tokenizada — fianza, cobertura y liquidación on-chain. El comercio como activo del mundo real.',
+    providersTitle: 'Forma parte de la garantía.',
+    providersBody: 'El capital del pool viene de proveedores que respaldan cada pedido. Los proveedores reciben una parte de cada tarifa de protección.',
+    providersCta: 'Quiero ser proveedor',
+  },
+};
+
+await test(['LK1'], 'Keptra first (27/09): the home page tells 01 Keptra, 02 for brands, 03 for customers, 04 the guarantee pool, 05 the modules, 06 the invitation to providers, with no lottery chapter left; the first screen calls brands to /business and customers to chapter 03; every route of the app is the one of 1acef6c (checked in the source)', () => {
+  const page = codeOf('pages/Landing.tsx');
+  const ids = [...page.matchAll(/<(?:FilmSection|Chapter) id="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids, ['film-hero', 'for-brands', 'for-customers', 'film-pool', 'film-modules', 'film-close']);
+  assert.deepEqual([...page.matchAll(/<ChapterHead index=\{(\d)\}/g)].map((m) => Number(m[1])), [2, 3, 4, 5, 6]);
+  assert.ok(!/film-ticket|film-draw|film-seal|film-reveal|film-payout|film-keptra|film-reading/.test(page), 'a lottery chapter is still on the home page');
+  assert.match(page, /<AudienceCta text=\{t\.hero\.ctaBrands\} to="\/business" primary \/>/);
+  assert.match(page, /<AudienceCta text=\{t\.hero\.ctaCustomers\} href="#for-customers" \/>/);
+  assert.match(page, /<EscrowFlow copy=\{t\.flow\}/);
+  const routes = (text) => [...text.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]);
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  assert.deepEqual(routes(read('App.tsx')), routes(git('show', '1acef6c:App.tsx')));
+  assert.ok(routes(read('App.tsx')).includes('/play'), '/play is gone');
+});
+
+await test(['LK2'], 'the owner’s texts of 27/09 are on the home page word for word, in English, Portuguese and Spanish — title, subtitle, the two calls, the band, chapters 02, 03 and 05, and chapter 06’s title, text and call', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  for (const [lang, owner] of Object.entries(OWNER_TEXTS)) {
+    const t = translations[lang];
+    assert.equal(t.hero.title, owner.title, `${lang} title`);
+    assert.equal(t.hero.sub, owner.sub, `${lang} subtitle`);
+    assert.equal(t.hero.ctaBrands, owner.brandsCta, `${lang} call for brands`);
+    assert.equal(t.hero.ctaCustomers, owner.customersCta, `${lang} call for customers`);
+    assert.equal(t.hero.band, owner.band, `${lang} band`);
+    assert.equal(t.hero.seePool, owner.seePool, `${lang} link to the pool`);
+    // Chapters 02 and 03: the first sentence is the title, the rest the text.
+    assert.equal(`${t.brands.title} ${t.brands.body}`, owner.brands, `${lang} chapter 02`);
+    assert.equal(`${t.customers.title} ${t.customers.body}`, owner.customers, `${lang} chapter 03`);
+    assert.equal(t.modules.obligation, owner.obligation, `${lang} chapter 05`);
+    assert.equal(t.providers.title, owner.providersTitle, `${lang} chapter 06 title`);
+    assert.equal(t.providers.body, owner.providersBody, `${lang} chapter 06 text`);
+    assert.equal(t.providers.cta, owner.providersCta, `${lang} chapter 06 call`);
+    // The calls split into "to whom" and "what" at the one dash they carry.
+    for (const cta of [t.hero.ctaBrands, t.hero.ctaCustomers]) assert.equal(cta.split(' — ').length, 2, cta);
+  }
+});
+
+await test(['LK3'], '{capital} in the band and every figure of chapter 04 are chain reads — the pool the guarantee names (defaultSource), its totalAssets, reservedTotal and freeCapacity, which /pool reads too — never a literal; a read that failed shows no number (checked in the source)', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  for (const lang of ['en', 'pt', 'es']) {
+    const { band } = translations[lang].hero;
+    assert.equal(band.split('{capital}').length, 2, `${lang}: the band has one {capital}`);
+    assert.ok(!/\d/.test(band), `${lang}: a digit in the band`);
+  }
+  const page = codeOf('pages/Landing.tsx');
+  assert.match(page, /useReadContract\(\{ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource'/);
+  assert.match(page, /const POOL_FIGURES = \['totalAssets', 'reservedTotal', 'freeCapacity'\] as const;/);
+  assert.match(page, /contracts: POOL_FIGURES\.map\(\(functionName\) => \(\{ address: pool \?\? KEPTRA_GUARANTEE, abi: POOL_READ_ABI, functionName \}\)\)/);
+  const poolPage = codeOf('pages/keptra/PoolPage.tsx');
+  for (const name of ['totalAssets', 'reservedTotal', 'freeCapacity']) assert.ok(poolPage.includes(`'${name}'`), `/pool does not read ${name}`);
+  // Only a successful read becomes a number; a failed one hides the sentence (the band) or says so (chapter 04).
+  assert.match(page, /if \(read\?\.status === 'success'\) return read\.result as bigint;/);
+  assert.match(page, /\{capital !== 'failed' && \(/);
+  assert.match(page, /capital === 'loading' \? '…' : usdc\(capital, lang\)/);
+  assert.match(page, /value === 'failed' \? <span[^>]*>\{t\.pool\.notRead\}<\/span>/);
+  assert.ok(!/\d[\d,.]*\s*USDC/.test(page), 'a figure written by hand on the home page');
+});
+
+await test(['LK4'], 'the home page’s EN/PT/ES switch is on every Keptra screen: KeptraShell renders LangSwitch — the component SiteHeader gives the home page — after the navigation, as on the home page, and every page under pages/keptra is framed by KeptraShell; the screens themselves stay in English (T17) (checked in the source)', () => {
+  const shell = codeOf('components/keptra/KeptraShell.tsx');
+  assert.match(shell, /import \{ LangSwitch \} from '\.\.\/LangSwitch';/);
+  assert.equal((shell.match(/<LangSwitch \/>/g) ?? []).length, 1);
+  assert.ok(shell.indexOf('<LangSwitch />') > shell.indexOf('</nav>'), 'the switch comes before the navigation');
+  assert.match(codeOf('components/SiteHeader.tsx'), /\{lang && <LangSwitch \/>\}/);
+  for (const name of readdirSync(`${root}pages/keptra`)) assert.match(codeOf(`pages/keptra/${name}`), /<KeptraShell[\s>]/, `${name} is not framed by KeptraShell`);
+});
+
+await test(['LK5'], 'the first screen’s diagram tells an order in its order at every phase of the loop — the payment reaches Keptra and is held before the oracle’s seal lights, the line goes on to the store only once the seal is lit — and the still film and reduced motion draw the whole picture, still (checked in the source)', async () => {
+  const { escrowFrame, ESCROW_FINAL } = await import('../../../lib/proof/flow.ts');
+  for (let i = 0; i <= 3000; i += 1) {
+    const phase = (i / 3000) * 3 - 1; // three cycles, from -1: the scroll can take the phase anywhere
+    const f = escrowFrame(phase);
+    if (f.held > 0) assert.equal(f.pay, 1, `held before paid at ${phase}`);
+    if (f.proven > 0) assert.equal(f.held, 1, `proven before held at ${phase}`);
+    if (f.release > 0) assert.equal(f.proven, 1, `released before proven at ${phase}`);
+  }
+  assert.deepEqual(escrowFrame(ESCROW_FINAL), { pay: 1, held: 1, proven: 1, release: 1, shown: 1 });
+  const film = codeOf('components/film/Film.tsx');
+  assert.match(film, /if \(window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\) return 'still';/);
+  assert.match(film, /if \(mode !== 'live'\) \{\s*drawRef\.current\(start\);\s*return;\s*\}/);
+  // The film's pause button stops the loop too (WCAG 2.2.2).
+  assert.match(film, /if \(!pausedRef\.current\) clock \+= Math\.min\(64, Math\.max\(0, now - last\)\) \/ 1000;/);
+  assert.match(codeOf('components/proof/EscrowFlow.tsx'), /useFilmTimeline\(root, ESCROW_PERIOD, ESCROW_FINAL, draw\);/);
+});
+
+await test(['LK6'], 'becoming a provider is a request, never a deposit: the call opens an email to the public contact, and the home page signs and sends nothing (checked in the source)', () => {
+  const page = codeOf('pages/Landing.tsx');
+  assert.match(page, /const PROVIDER_REQUEST = `mailto:\$\{INVESTOR_EMAIL\}\?subject=/);
+  assert.match(page, /<a href=\{PROVIDER_REQUEST\} className="iw-btn iw-btn-primary/);
+  assert.ok(!/useWriteContract|writeContract|sendTransaction|signHash|runAction|deposit\(/.test(page), 'the home page can move funds');
+});

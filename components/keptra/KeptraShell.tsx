@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { SiteHeader, KeptraBrand } from '../SiteHeader';
+import { LangSwitch } from '../LangSwitch';
 
 /*
  * The frame of every Keptra screen. T0: one identity (the app's system, named
@@ -49,7 +50,10 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
         Skip to content
       </a>
       {/* The platform's one header (SiteHeader): the Keptra mark, the area's
-          navigation, and the other area as the one secondary action. */}
+          navigation, the language — the home page's switch, in the same place,
+          after the navigation — and the other area as the one secondary action.
+          The Keptra screens stay in English (T17); the switch sets the language
+          of the rest of the site. */}
       <SiteHeader
         lang={false}
         brand={<KeptraBrand tag={area === 'business' ? 'Business' : undefined} />}
@@ -62,6 +66,7 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
                 </NavLink>
               ))}
             </nav>
+            <LangSwitch />
             <Link to={other.to} className="iw-btn iw-btn-secondary ml-2 hidden px-4 text-sm lg:inline-flex">
               {other.label}
             </Link>

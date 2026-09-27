@@ -10,6 +10,7 @@ export function Chapter({
   id,
   keys,
   wide = false,
+  dense = false,
   label,
   caption,
   children,
@@ -17,6 +18,8 @@ export function Chapter({
   id: string;
   keys: readonly KeySpec[];
   wide?: boolean;
+  /** Muito texto ao lado: no telemóvel a forma encolhe, para o capítulo fixado caber no ecrã. */
+  dense?: boolean;
   label: string;
   /** O que a forma representa neste capítulo, em linguagem simples. */
   caption: string;
@@ -38,7 +41,9 @@ export function Chapter({
               'mx-auto w-full',
               wide
                 ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_27rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
-                : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
+                : dense
+                  ? 'aspect-square max-w-[min(64vw,max(11rem,calc(100svh_-_33rem)))] lg:max-w-[min(32rem,70svh)]'
+                  : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
             )}
           />
           <SceneCaption text={caption} />
@@ -51,16 +56,27 @@ export function Chapter({
   );
 }
 
-/** O cabeçalho de um capítulo: a posição na sequência, o rótulo, o título. */
-export function ChapterHead({ index, label, title }: { index: number; label: string; title: string }) {
+/**
+ * O cabeçalho de um capítulo: a posição na sequência, o rótulo, o título.
+ * `sentence`: o título é uma frase inteira (os capítulos da página inicial), num
+ * corpo menor para não passar de quatro ou cinco linhas; `center` para o fecho.
+ */
+export function ChapterHead({ index, label, title, sentence = false, center = false }: { index: number; label: string; title: string; sentence?: boolean; center?: boolean }) {
   return (
     <>
-      <p className="flex items-center gap-3 text-sm text-gray-400">
+      <p className={clsx('flex items-center gap-3 text-sm text-gray-400', center && 'justify-center')}>
         <span className="font-mono text-gray-300 tabular-nums">{`0${index}`}</span>
         <span aria-hidden="true" className="h-px w-8 bg-dark-line" />
         {label}
       </p>
-      <h2 className="mt-4 font-display text-[clamp(2.25rem,8vw,3.75rem)] font-bold leading-[1.02] tracking-tight text-white">{title}</h2>
+      <h2
+        className={clsx(
+          'mt-4 font-display font-bold tracking-tight text-white',
+          sentence ? 'text-[clamp(1.85rem,6vw,2.6rem)] leading-[1.08]' : 'text-[clamp(2.25rem,8vw,3.75rem)] leading-[1.02]',
+        )}
+      >
+        {title}
+      </h2>
     </>
   );
 }

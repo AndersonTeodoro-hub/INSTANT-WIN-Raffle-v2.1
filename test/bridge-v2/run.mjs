@@ -115,6 +115,11 @@ const REQUIREMENTS = [
   // SPEC-BLOCO-03 Adenda AB: the decisions of the audit of the lot, by their own
   // names. AB1 closes the oracle, AB8 is process and AB9 the general rehearsal.
   'AB2', 'AB3', 'AB4', 'AB5', 'AB6', 'AB7',
+  // The home page, Keptra first (the owner's request of 27/09/2026, commit A):
+  // the order of the chapters, the owner's texts, the pool read on-chain, the
+  // language switch on every Keptra screen, the first screen's diagram, the
+  // providers' request. Tests in suites/frontend.test.mjs.
+  ...Array.from({ length: 6 }, (_unused, index) => `LK${index + 1}`),
 ];
 
 for (const path of SUITES) {
