@@ -75,15 +75,19 @@ const KEYS = {
 } satisfies Record<string, KeySpec[]>;
 
 /*
- * A largura de cada diagrama no telemóvel, pela altura do ecrã: a mesma altura que
- * a forma que ele substitui tinha (Chapter.tsx — 100svh menos 27rem, ou menos 33rem
- * no capítulo denso), na proporção de cada desenho. O 02 tem mais texto (as duas
- * frases do owner por baixo): o que sobra dele, 41rem, e nunca menos de 11rem.
+ * A largura de cada diagrama no telemóvel com o filme fixado, pela altura do ecrã:
+ * o que sobra dela depois do texto do capítulo, do cabeçalho e das margens
+ * (Chapter.tsx), na proporção de cada desenho — para o capítulo fixado caber num 375×667 com o
+ * último link à vista (decisão do owner de 27/09/2026, commit B). Abaixo da largura
+ * em que os rótulos de um desenho ainda se lêem (o 02 perto de 270px, o 04 perto
+ * de 290px), o desenho sai no filme fixado e fica o texto: no 02 abaixo de 840px de
+ * altura, no 04 abaixo de 720px. Na versão parada nada está fixado: o desenho tem a
+ * largura toda.
  */
 const FIGURE_WIDTH = {
-  brands: 'max-w-[min(34rem,calc(max(11rem,100svh_-_41rem)*1.6))] lg:max-w-[34rem]',
-  customers: 'max-w-[min(34rem,calc((100svh_-_27rem)*1.76))] lg:max-w-[34rem]',
-  pool: 'max-w-[min(34rem,calc(max(11rem,100svh_-_33rem)*1.65))] lg:max-w-[34rem]',
+  brands: 'max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc((100svh_-_42rem)*1.6))] [.film-live_&]:max-lg:[@media(max-height:840px)]:hidden',
+  customers: 'max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc((100svh_-_29rem)*1.76))]',
+  pool: 'max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc((100svh_-_33.5rem)*1.65))] [.film-live_&]:max-lg:[@media(max-height:720px)]:hidden',
 } as const;
 
 type Copy = (typeof translations)['en'];

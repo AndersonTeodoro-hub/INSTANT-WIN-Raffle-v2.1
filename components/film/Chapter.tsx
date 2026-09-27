@@ -59,7 +59,7 @@ export function Chapter({
                 className={clsx(
                   'mx-auto w-full',
                   wide
-                    ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_27rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
+                    ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_32rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
                     : dense
                       ? 'aspect-square max-w-[min(64vw,max(11rem,calc(100svh_-_33rem)))] lg:max-w-[min(32rem,70svh)]'
                       : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
@@ -93,7 +93,8 @@ export function ChapterHead({ index, label, title, sentence = false, center = fa
       <h2
         className={clsx(
           'mt-4 font-display font-bold tracking-tight text-white',
-          sentence ? 'text-[clamp(1.85rem,6vw,2.6rem)] leading-[1.08]' : 'text-[clamp(2.25rem,8vw,3.75rem)] leading-[1.02]',
+          // On a short phone the sentence steps down, so the pinned chapter keeps its drawing and its last link.
+          sentence ? 'text-[clamp(1.85rem,6vw,2.6rem)] leading-[1.08] max-lg:[@media(max-height:700px)]:text-[1.6rem]' : 'text-[clamp(2.25rem,8vw,3.75rem)] leading-[1.02]',
         )}
       >
         {title}

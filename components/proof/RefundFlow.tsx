@@ -18,7 +18,8 @@ import { H, INK, NODE, RAIL, W, at, ease } from './EscrowFlow';
 
 const C = { x: 420, y: 136, r: 22 };
 const X = { y: 40, r: 14 };
-const BAR = { x: 20, w: 190, h: 34 };
+// Wide enough for "Reserva de riesgo" on a 320px drawing (a 360px phone).
+const BAR = { x: 20, w: 210, h: 34 };
 const LAYERS_Y = [70, 136, 202] as const;
 
 /** The curve from a layer's end to the customer, and the point at t along it (a cubic Bézier). */

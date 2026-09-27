@@ -2442,3 +2442,18 @@ await test(['LK19'], 'a voucher’s failure is paid in the contracts’ order �
   // /pool's own diagram of the order, unchanged: bond, risk reserve, capital.
   assert.match(codeOf('pages/keptra/PoolPage.tsx'), /\{ name: t\.pool\.bond,[^}]*\},\s*\{ name: t\.pool\.reserve,[^}]*\},\s*\{ name: t\.pool\.capital,/);
 });
+
+await test(['LK20'], 'a small phone (375×667) holds each pinned chapter of the home page under the two-row header with its last link on screen — chapter 03’s “See the pool” first, with its drawing — in the three languages: the chapter starts below the header and overflows, if ever, at its foot; the sentence title steps down on a short phone; each drawing is sized by what the chapter’s text leaves, and gives way where its labels would no longer read (chapter 02 below 840px of height, chapter 04 below 720px), in the pinned film only (checked in the source; measured in the browser for the report)', () => {
+  const chapter = codeOf('components/film/Chapter.tsx');
+  // Below the 117px header, never under it; safe: an overflow falls at the foot.
+  assert.match(chapter, /live \? 'h-full \[align-content:safe_center\] pb-6 pt-\[7\.75rem\] lg:py-0'/);
+  assert.match(chapter, /sentence \? 'text-\[clamp\(1\.85rem,6vw,2\.6rem\)\] leading-\[1\.08\] max-lg:\[@media\(max-height:700px\)\]:text-\[1\.6rem\]'/);
+  assert.match(chapter, /aspect-\[4\/3\] max-w-\[min\(92vw,calc\(\(100svh_-_32rem\)_\*_1\.33\)\)\]/);
+  const page = codeOf('pages/Landing.tsx');
+  const live = (formula) => `max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc(${formula}))]`;
+  assert.ok(page.includes(`brands: '${live('(100svh_-_42rem)*1.6')} [.film-live_&]:max-lg:[@media(max-height:840px)]:hidden',`), 'chapter 02');
+  assert.ok(page.includes(`customers: '${live('(100svh_-_29rem)*1.76')}',`), 'chapter 03 keeps its drawing');
+  assert.ok(page.includes(`pool: '${live('(100svh_-_33.5rem)*1.65')} [.film-live_&]:max-lg:[@media(max-height:720px)]:hidden',`), 'chapter 04');
+  // Chapter 03 ends with its link to /pool.
+  assert.match(page, /\{t\.customers\.body\}<\/p>\s*<Link to="\/pool" className=\{clsx\(QUIET_LINK, 'mt-4'\)\}>\s*\{t\.hero\.seePool\}/);
+});
