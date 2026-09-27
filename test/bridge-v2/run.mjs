@@ -120,7 +120,10 @@ const REQUIREMENTS = [
   // language switch on every Keptra screen, the first screen's diagram, the
   // providers' request. Tests in suites/frontend.test.mjs.
   // Commit A2 (the owner's decisions after approving A): LK7 to LK9.
-  ...Array.from({ length: 9 }, (_unused, index) => `LK${index + 1}`),
+  // Commit A3 (the owner's decisions after the audit of A and A2): LK10 — the
+  // play rules on /play's Overview — and LK11 — no translation key unused; the
+  // Keptra screens in three languages are T17 as the owner revised it (AT17).
+  ...Array.from({ length: 11 }, (_unused, index) => `LK${index + 1}`),
 ];
 
 for (const path of SUITES) {

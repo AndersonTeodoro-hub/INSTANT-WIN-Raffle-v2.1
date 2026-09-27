@@ -20,6 +20,7 @@ import {
 } from '../../lib/keptra/api';
 import { formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
 import { CHAIN_FAILED } from '../../lib/keptra/reads';
+import { around, fill, useKeptraCopy } from '../keptra.i18n';
 
 /*
  * /account — the recovery notices land here (mail.ts: /account), and so does
@@ -33,19 +34,22 @@ import { CHAIN_FAILED } from '../../lib/keptra/reads';
  */
 
 export function AccountPage() {
+  const { t } = useKeptraCopy();
   useEffect(() => {
-    document.title = 'Account · Keptra';
-  }, []);
+    document.title = t.account.metaTitle;
+  }, [t]);
   return (
     <KeptraShell>
-      <PageTitle eyebrow="Keptra account" title="Your account" />
-      <RequireAccount intro="Sign in to manage your Keptra account.">{(status) => <AccountBody status={status} />}</RequireAccount>
+      <PageTitle eyebrow={t.account.eyebrow} title={t.account.title} />
+      <RequireAccount intro={t.account.intro}>{(status) => <AccountBody status={status} />}</RequireAccount>
     </KeptraShell>
   );
 }
 
 function AccountBody({ status }: { status: AccountStatus }) {
   const { refresh } = useKeptra();
+  const { t } = useKeptraCopy();
+  const [signedInBefore, signedInAfter] = around(t.account.signedInAs, 'email');
   const pending = status.accounts.filter((account) => account.recoveryPendingUntil !== null);
   return (
     <div className="space-y-8">
@@ -54,8 +58,10 @@ function AccountBody({ status }: { status: AccountStatus }) {
       ))}
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-400">
         <p>
-          Signed in as <span className="font-mono text-white">{status.email ?? '—'}</span> · {status.passkeys.length} passkey{status.passkeys.length === 1 ? '' : 's'}
-          {status.phoneVerified ? ' · phone verified' : ''}
+          {signedInBefore}
+          <span className="font-mono text-white">{status.email ?? '—'}</span>
+          {signedInAfter} · {fill(status.passkeys.length === 1 ? t.account.passkeysOne : t.account.passkeysMany, { n: status.passkeys.length })}
+          {status.phoneVerified ? ` · ${t.account.phoneVerified}` : ''}
         </p>
         <Button
           tone="quiet"
@@ -64,7 +70,7 @@ function AccountBody({ status }: { status: AccountStatus }) {
             await refresh();
           }}
         >
-          Sign out
+          {t.account.signOut}
         </Button>
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
@@ -81,13 +87,12 @@ function AccountBody({ status }: { status: AccountStatus }) {
 
 function AccountCard({ account, status }: { account: AccountView; status: AccountStatus }) {
   const { balance, failed, refetch } = useUsdcBalance(account.address);
-  const title = account.role === 'PARTICIPANT' ? 'Personal account' : 'Business account';
+  const { t, lang } = useKeptraCopy();
+  const title = account.role === 'PARTICIPANT' ? t.account.personal : t.account.business;
   return (
     <Card>
-      <SectionTitle aside={account.configured ? <Badge tone="success">Active</Badge> : <Badge>Not set up</Badge>}>{title}</SectionTitle>
-      <p className="text-sm text-gray-400">
-        {account.role === 'PARTICIPANT' ? 'Buying, entering draws, claiming and redeeming prizes.' : 'Selling, prize obligations and campaigns, as a store or a brand.'}
-      </p>
+      <SectionTitle aside={account.configured ? <Badge tone="success">{t.account.active}</Badge> : <Badge>{t.account.notSetUp}</Badge>}>{title}</SectionTitle>
+      <p className="text-sm text-gray-400">{account.role === 'PARTICIPANT' ? t.account.personalBody : t.account.businessBody}</p>
       {!account.configured ? (
         <div className="mt-4">
           <AccountSetup role={account.role} status={status} />
@@ -95,17 +100,17 @@ function AccountCard({ account, status }: { account: AccountView; status: Accoun
       ) : (
         <>
           <dl className="mt-5 grid grid-cols-2 gap-5">
-            <Stat label="USDC" value={balance !== null ? formatUsdc(balance) : failed ? 'Not read' : '…'} />
+            <Stat label="USDC" value={balance !== null ? formatUsdc(balance, lang) : failed ? t.ui.notRead : '…'} />
             <div>
-              <dt className="text-xs text-gray-400">Recovery</dt>
+              <dt className="text-xs text-gray-400">{t.account.recovery}</dt>
               <dd className="mt-1 flex items-center gap-2 text-sm">
                 {account.recoveryEnabled ? (
                   <>
-                    <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" /> On
+                    <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" /> {t.account.on}
                   </>
                 ) : (
                   <>
-                    <ShieldAlert className="h-4 w-4 text-gray-300" aria-hidden="true" /> Off
+                    <ShieldAlert className="h-4 w-4 text-gray-300" aria-hidden="true" /> {t.account.off}
                   </>
                 )}
               </dd>
@@ -113,14 +118,14 @@ function AccountCard({ account, status }: { account: AccountView; status: Accoun
           </dl>
           {failed && (
             <div className="mt-4">
-              <ReadError what="The balance" error={CHAIN_FAILED} onRetry={() => void refetch()} />
+              <ReadError what={t.what.balance} error={CHAIN_FAILED} onRetry={() => void refetch()} />
             </div>
           )}
           <div className="mt-5">
-            <p className="text-xs text-gray-400">Address on Arbitrum One</p>
+            <p className="text-xs text-gray-400">{t.account.addressLabel}</p>
             <p className="mt-1 break-all font-mono text-sm text-white">{account.address}</p>
-            {account.address && <AddressLink address={account.address} label="View on Arbiscan" />}
-            <p className="mt-2 text-xs text-gray-400">To add money, send USDC on Arbitrum One to this address.</p>
+            {account.address && <AddressLink address={account.address} label={t.account.viewOnArbiscan} />}
+            <p className="mt-2 text-xs text-gray-400">{t.account.addMoney}</p>
           </div>
           {!account.recoveryEnabled && (
             <div className="mt-4">
@@ -140,6 +145,7 @@ function AccountCard({ account, status }: { account: AccountView; status: Accoun
 /** 6.5 and C7 (U17): a prize the account won, sent on — the token's exact amount, or the one item of an NFT prize. */
 function SendPrize() {
   const { relay } = useKeptra();
+  const { t, lang, say } = useKeptraCopy();
   const [open, setOpen] = useState(false);
   const [campaign, setCampaign] = useState('');
   const [to, setTo] = useState('');
@@ -166,29 +172,30 @@ function SendPrize() {
   if (!open) {
     return (
       <Button tone="secondary" onClick={() => setOpen(true)}>
-        <ArrowUpRight className="h-4 w-4" aria-hidden="true" /> Send a prize
+        <ArrowUpRight className="h-4 w-4" aria-hidden="true" /> {t.account.sendPrize}
       </Button>
     );
   }
   const send = async () => {
     setMessage(null);
-    if (giveawayId === null || prize === undefined) return setMessage({ tone: 'error', text: 'Enter the number of the campaign you won.' });
-    if (!/^0x[0-9a-fA-F]{40}$/.test(to.trim())) return setMessage({ tone: 'error', text: 'Enter an Arbitrum One address (0x…).' });
+    if (giveawayId === null || prize === undefined) return setMessage({ tone: 'error', text: t.account.campaignNeeded });
+    if (!/^0x[0-9a-fA-F]{40}$/.test(to.trim())) return setMessage({ tone: 'error', text: t.account.addressNeeded });
     let value = 1n;
     if (!isNft) {
       // P6-7: without the token's decimals read, no amount is computed — never with decimals nobody read.
-      if (decimals.data === undefined) return setMessage({ tone: 'error', text: decimals.isError ? 'The prize token could not be read. Try again.' : 'The prize token is still being read.' });
+      if (decimals.data === undefined) return setMessage({ tone: 'error', text: decimals.isError ? t.account.tokenUnread : t.account.tokenReading });
       const places = Number(decimals.data);
-      const clean = amount.trim();
-      if (!new RegExp(`^\\d{1,24}(\\.\\d{1,${places}})?$`).test(clean)) return setMessage({ tone: 'error', text: 'Enter the amount to send.' });
+      // In Portuguese and Spanish the decimal point is written as a comma (lib/keptra/format.ts parseUsdc).
+      const clean = lang === 'en' ? amount.trim() : amount.trim().replace(',', '.');
+      if (!new RegExp(`^\\d{1,24}(\\.\\d{1,${places}})?$`).test(clean)) return setMessage({ tone: 'error', text: t.account.amountNeeded });
       const [whole, fraction = ''] = clean.split('.');
       value = BigInt(whole) * 10n ** BigInt(places) + BigInt(fraction.padEnd(places, '0') || '0');
     }
     setBusy(true);
     const outcome = await relay({ kind: 'transfer', giveawayId: giveawayId.toString(), to: to.trim(), amount: value.toString() });
     setBusy(false);
-    if (outcome.status === 'refused') setMessage({ tone: 'error', text: outcome.error });
-    if (outcome.status === 'done') setMessage({ tone: 'success', text: 'Sent.' });
+    if (outcome.status === 'refused') setMessage({ tone: 'error', text: say(outcome.error) });
+    if (outcome.status === 'done') setMessage({ tone: 'success', text: t.account.sent });
   };
   return (
     <form
@@ -198,31 +205,31 @@ function SendPrize() {
         void send();
       }}
     >
-      <Field id="prize-campaign" label="Campaign number" hint="The Event Center campaign whose prize you claimed.">
+      <Field id="prize-campaign" label={t.account.campaignNumber} hint={t.account.campaignHint}>
         <input id="prize-campaign" inputMode="numeric" className={`${inputClass} font-mono`} value={campaign} onChange={(event) => setCampaign(event.target.value)} />
       </Field>
       {(read.isError || decimals.isError) && (
         <ReadError
-          what="The campaign's prize"
+          what={t.what.campaignPrize}
           error={CHAIN_FAILED}
           onRetry={() => void (read.isError ? read.refetch() : decimals.refetch())}
         />
       )}
-      <Field id="prize-to" label="Send to (Arbitrum One address)">
+      <Field id="prize-to" label={t.account.sendTo}>
         <input id="prize-to" className={`${inputClass} font-mono text-sm`} value={to} onChange={(event) => setTo(event.target.value)} placeholder="0x…" />
       </Field>
       {!isNft && decimals.data !== undefined && (
-        <Field id="prize-amount" label="Amount" hint="Exactly this amount of the prize token is sent.">
+        <Field id="prize-amount" label={t.account.amount} hint={t.account.amountHint}>
           <input id="prize-amount" inputMode="decimal" className={`${inputClass} font-mono`} value={amount} onChange={(event) => setAmount(event.target.value)} />
         </Field>
       )}
       {message && <Notice tone={message.tone}>{message.text}</Notice>}
       <div className="flex flex-wrap gap-3">
         <Button type="submit" busy={busy}>
-          Review and send
+          {t.account.review}
         </Button>
         <Button tone="secondary" onClick={() => setOpen(false)}>
-          Close
+          {t.account.close}
         </Button>
       </div>
     </form>
@@ -232,11 +239,12 @@ function SendPrize() {
 /** A6, C6, D1 (U9): without the current guardian the account has no recovery, and the page says so and offers to add it. */
 function RecoveryOff({ role }: { role: Role }) {
   const { relay } = useKeptra();
+  const { t, say } = useKeptraCopy();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <Notice tone="warning" title="This account has no recovery">
-      <p>If this device is lost, the account cannot be recovered. Add Keptra's current recovery key back with your passkey.</p>
+    <Notice tone="warning" title={t.account.recoveryOffTitle}>
+      <p>{t.account.recoveryOffBody}</p>
       {error && <p className="mt-2 text-red-200">{error}</p>}
       <Button
         className="mt-3"
@@ -247,10 +255,10 @@ function RecoveryOff({ role }: { role: Role }) {
           setError(null);
           const outcome = await relay(role === 'CREATOR' ? { kind: 'configure', role: 'CREATOR' } : { kind: 'configure' });
           setBusy(false);
-          if (outcome.status === 'refused') setError(outcome.error);
+          if (outcome.status === 'refused') setError(say(outcome.error));
         }}
       >
-        Turn recovery back on
+        {t.account.recoveryOn}
       </Button>
     </Notice>
   );
@@ -259,15 +267,17 @@ function RecoveryOff({ role }: { role: Role }) {
 /** 6.3.3, R-2, T19 (U12): a change of access pending on-chain, cancelled with the passkey this device holds. */
 function CancelRecovery({ account }: { account: AccountView }) {
   const { relay } = useKeptra();
+  const { t, lang, say } = useKeptraCopy();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  if (done) return <Notice tone="success">The change of access was cancelled. Your passkey keeps control of the account.</Notice>;
+  if (done) return <Notice tone="success">{t.account.cancelled}</Notice>;
   return (
-    <Notice tone="error" title="A change of access to your account is pending">
+    <Notice tone="error" title={t.account.pendingTitle}>
       <p>
-        Someone asked to replace the passkey of your {account.role === 'CREATOR' ? 'business' : 'personal'} account. If nothing is done, the new passkey takes over on{' '}
-        {formatUtc(Math.floor(Date.parse(account.recoveryPendingUntil ?? '') / 1000))}. If it was not you, cancel it now.
+        {fill(account.role === 'CREATOR' ? t.account.pendingBusiness : t.account.pendingPersonal, {
+          date: formatUtc(Math.floor(Date.parse(account.recoveryPendingUntil ?? '') / 1000), lang),
+        })}
       </p>
       {error && <p className="mt-2">{error}</p>}
       <Button
@@ -278,11 +288,11 @@ function CancelRecovery({ account }: { account: AccountView }) {
           setError(null);
           const outcome = await relay(account.role === 'CREATOR' ? { kind: 'cancelRecovery', role: 'CREATOR' } : { kind: 'cancelRecovery' });
           setBusy(false);
-          if (outcome.status === 'refused') setError(outcome.error);
+          if (outcome.status === 'refused') setError(say(outcome.error));
           if (outcome.status === 'done') setDone(true);
         }}
       >
-        <KeyRound className="h-4 w-4" aria-hidden="true" /> Cancel it with my passkey
+        <KeyRound className="h-4 w-4" aria-hidden="true" /> {t.account.cancelIt}
       </Button>
     </Notice>
   );
@@ -291,6 +301,7 @@ function CancelRecovery({ account }: { account: AccountView }) {
 /** C7 and T12 (U17): USDC out of either account, exactly the amount typed, to an address the person gives. */
 function SendUsdc({ role, onSent }: { role: Role; onSent: () => void }) {
   const { relay } = useKeptra();
+  const { t, lang, say } = useKeptraCopy();
   const [open, setOpen] = useState(false);
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
@@ -301,21 +312,21 @@ function SendUsdc({ role, onSent }: { role: Role; onSent: () => void }) {
   if (!open) {
     return (
       <Button tone="secondary" onClick={() => setOpen(true)}>
-        <ArrowUpRight className="h-4 w-4" aria-hidden="true" /> Send USDC
+        <ArrowUpRight className="h-4 w-4" aria-hidden="true" /> {t.account.sendUsdc}
       </Button>
     );
   }
   const send = async () => {
     setMessage(null);
-    const value = parseUsdc(amount);
-    if (!/^0x[0-9a-fA-F]{40}$/.test(to.trim())) return setMessage({ tone: 'error', text: 'Enter an Arbitrum One address (0x…).' });
-    if (value === null || value === 0n) return setMessage({ tone: 'error', text: 'Enter an amount in USDC, up to six decimals.' });
+    const value = parseUsdc(amount, lang);
+    if (!/^0x[0-9a-fA-F]{40}$/.test(to.trim())) return setMessage({ tone: 'error', text: t.account.addressNeeded });
+    if (value === null || value === 0n) return setMessage({ tone: 'error', text: t.account.usdcAmountNeeded });
     setBusy(true);
     const outcome = await relay({ kind: 'transferUsdc', to: to.trim(), amount: value.toString(), ...(role === 'CREATOR' ? { role: 'CREATOR' } : {}) });
     setBusy(false);
-    if (outcome.status === 'refused') setMessage({ tone: 'error', text: outcome.error });
+    if (outcome.status === 'refused') setMessage({ tone: 'error', text: say(outcome.error) });
     if (outcome.status === 'done') {
-      setMessage({ tone: 'success', text: 'Sent.' });
+      setMessage({ tone: 'success', text: t.account.sent });
       setAmount('');
       onSent();
     }
@@ -328,19 +339,26 @@ function SendUsdc({ role, onSent }: { role: Role; onSent: () => void }) {
         void send();
       }}
     >
-      <Field id={`to-${id}`} label="Send to (Arbitrum One address)">
+      <Field id={`to-${id}`} label={t.account.sendTo}>
         <input id={`to-${id}`} className={`${inputClass} font-mono text-sm`} value={to} onChange={(event) => setTo(event.target.value)} placeholder="0x…" />
       </Field>
-      <Field id={`amount-${id}`} label="Amount in USDC" hint="Exactly this amount is sent.">
-        <input id={`amount-${id}`} inputMode="decimal" className={`${inputClass} font-mono`} value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" />
+      <Field id={`amount-${id}`} label={t.account.amountUsdc} hint={t.account.exactAmount}>
+        <input
+          id={`amount-${id}`}
+          inputMode="decimal"
+          className={`${inputClass} font-mono`}
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          placeholder={t.account.amountPlaceholder}
+        />
       </Field>
       {message && <Notice tone={message.tone}>{message.text}</Notice>}
       <div className="flex flex-wrap gap-3">
         <Button type="submit" busy={busy}>
-          Review and send
+          {t.account.review}
         </Button>
         <Button tone="secondary" onClick={() => setOpen(false)}>
-          Close
+          {t.account.close}
         </Button>
       </div>
     </form>
@@ -350,9 +368,10 @@ function SendUsdc({ role, onSent }: { role: Role; onSent: () => void }) {
 /** 6.6.2 and 6.6.3 (U14): the passkey authorises moving the earlier wallet's balances into the account. */
 function MigrationCard({ status }: { status: AccountStatus }) {
   const { signChallenge, refresh } = useKeptra();
+  const { t, say } = useKeptraCopy();
   const [busy, setBusy] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const words = { PENDING: 'Waiting for your authorisation', AUTHORIZED: 'Authorised — the move runs within the hour', DONE: 'Done', NONE: '' };
+  const words = { ...t.account.migration, NONE: '' };
 
   const authorise = async (kind: Role) => {
     setBusy(kind);
@@ -360,14 +379,14 @@ function MigrationCard({ status }: { status: AccountStatus }) {
     const challenge = await migrationChallenge(kind);
     if (!challenge.ok) {
       setBusy(null);
-      return setError(challenge.error);
+      return setError(say(challenge.error));
     }
     try {
       const assertion = await signChallenge(challenge.challenge);
       const result = await authorizeMigration(kind, assertion);
-      if (!result.ok) setError(result.error);
+      if (!result.ok) setError(say(result.error));
     } catch {
-      setError('The passkey did not sign. You can try again.');
+      setError(t.account.passkeyFailed);
     }
     setBusy(null);
     await refresh();
@@ -375,11 +394,8 @@ function MigrationCard({ status }: { status: AccountStatus }) {
 
   return (
     <Card>
-      <SectionTitle>Move your earlier wallet</SectionTitle>
-      <p className="text-sm text-gray-400">
-        Before Keptra accounts, the platform kept a wallet for you. Authorise with your passkey and its balances move into your account; after that, that wallet is never
-        used again. Balances tied to an open entry, prize or campaign wait until it ends.
-      </p>
+      <SectionTitle>{t.account.migrationTitle}</SectionTitle>
+      <p className="text-sm text-gray-400">{t.account.migrationBody}</p>
       {error && (
         <div className="mt-4">
           <Notice tone="error">{error}</Notice>
@@ -390,11 +406,11 @@ function MigrationCard({ status }: { status: AccountStatus }) {
           .filter((kind) => status.migration[kind] !== 'NONE')
           .map((kind) => (
             <li key={kind} className="rounded-xl border border-dark-border p-4">
-              <p className="font-semibold text-white">{kind === 'PARTICIPANT' ? 'Personal wallet' : 'Creator wallet'}</p>
+              <p className="font-semibold text-white">{kind === 'PARTICIPANT' ? t.account.personalWallet : t.account.creatorWallet}</p>
               <p className="mt-1 text-sm text-gray-400">{words[status.migration[kind]]}</p>
               {status.migration[kind] === 'PENDING' && (
                 <Button className="mt-3" busy={busy === kind} onClick={() => void authorise(kind)}>
-                  Authorise with passkey
+                  {t.account.authorise}
                 </Button>
               )}
             </li>
@@ -407,13 +423,14 @@ function MigrationCard({ status }: { status: AccountStatus }) {
 /** D7 and T13: export everything; erase only when nothing is left in the accounts, and say what is left. */
 function PrivacyCard() {
   const { refresh } = useKeptra();
+  const { t, say } = useKeptraCopy();
   const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'warning'; text: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
     <Card>
-      <SectionTitle>Your data</SectionTitle>
-      <p className="text-sm text-gray-400">Download what Keptra holds about you, or erase it. Erasure is refused while your accounts still hold money, vouchers or open orders.</p>
+      <SectionTitle>{t.account.dataTitle}</SectionTitle>
+      <p className="text-sm text-gray-400">{t.account.dataBody}</p>
       {message && (
         <div className="mt-4">
           <Notice tone={message.tone}>{message.text}</Notice>
@@ -424,17 +441,17 @@ function PrivacyCard() {
           tone="secondary"
           onClick={async () => {
             const result = await privacyExport();
-            if (!result.ok) return setMessage({ tone: 'error', text: result.error });
+            if (!result.ok) return setMessage({ tone: 'error', text: say(result.error) });
             const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
             const link = document.createElement('a');
             link.href = url;
             link.download = 'keptra-data.json';
             link.click();
             URL.revokeObjectURL(url);
-            setMessage({ tone: 'success', text: 'Downloaded.' });
+            setMessage({ tone: 'success', text: t.account.downloaded });
           }}
         >
-          Download my data
+          {t.account.download}
         </Button>
         {confirming ? (
           <>
@@ -446,20 +463,20 @@ function PrivacyCard() {
                 const result = await privacyErase();
                 setBusy(false);
                 setConfirming(false);
-                if (!result.ok) return setMessage({ tone: 'warning', text: result.error });
-                setMessage({ tone: 'success', text: result.deferredNote ?? 'Your data was erased.' });
+                if (!result.ok) return setMessage({ tone: 'warning', text: say(result.error) });
+                setMessage({ tone: 'success', text: result.deferredNote ?? t.account.erased });
                 await refresh();
               }}
             >
-              Yes, erase my data
+              {t.account.confirmErase}
             </Button>
             <Button tone="secondary" onClick={() => setConfirming(false)}>
-              Keep it
+              {t.account.keep}
             </Button>
           </>
         ) : (
           <Button tone="danger" onClick={() => setConfirming(true)}>
-            Erase my data
+            {t.account.erase}
           </Button>
         )}
       </div>

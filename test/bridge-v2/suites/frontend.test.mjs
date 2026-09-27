@@ -75,6 +75,12 @@ suite('frontend');
 const root = fileURLToPath(new URL('../../../', import.meta.url)).replaceAll('\\', '/');
 const read = (path) => readFileSync(`${root}${path}`, 'utf8');
 const codeOf = (path) => read(path).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+/** The pages of KeptraShell and the Keptra components that write words (T17, revised by the owner on 27/09/2026). */
+const KEPTRA_PAGES = readdirSync(`${root}pages/keptra`).map((name) => `pages/keptra/${name}`);
+const KEPTRA_PARTS = ['KeptraShell.tsx', 'ui.tsx', 'SignIn.tsx', 'AddressForm.tsx', 'KeptraProvider.tsx'].map((name) => `components/keptra/${name}`);
+/** Every word of a dictionary as [path, word], arrays included. */
+const wordsOf = (value, path = '') => (typeof value === 'string' ? [[path, value]] : Object.entries(value).flatMap(([key, inner]) => wordsOf(inner, `${path}.${key}`)));
+
 const SESSION_COOKIE = 'iw_bridge_session=a-token-value';
 const ESCROW = getAddress('0x00000000000000000000000000000000e5c0e5c0');
 const GUARANTEE = getAddress('0x00000000000000000000000000000000ea4a0001');
@@ -829,7 +835,7 @@ await test(['U24', 'U25', 'U27'], 'the lists and the evidence through the page: 
 // what the page shows — U19, U29, U35, AT18, AT15, AT14, U32, U33
 // ===========================================================================
 
-await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with their cents, the countries from the escrow’s bytes, the destination named when it is a Keptra contract (the page’s part checked in the source)', () => {
+await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with their cents, the countries from the escrow’s bytes, the destination named when it is a Keptra contract (the page’s part checked in the source)', async () => {
   assert.equal(format.formatUsdc('31000000'), '31.00 USDC');
   assert.equal(format.formatUsdc(1_234_567_891n), '1,234.567891 USDC');
   assert.equal(format.parseUsdc('12.5'), 12_500_000n);
@@ -838,10 +844,13 @@ await test(['U19', 'U5'], 'section 7 and C12 in words: amounts in USDC with thei
   assert.equal(format.countryName('PT'), 'Portugal');
   const words = format.summaryWords({ action: 'redeem', amounts: [{ kind: 'NFT', token: contracts.KEPTRA_VOUCHER, tokenIds: ['5'] }], destination: { address: '0x1111111111111111111111111111111111111111', role: 'GUARANTEE' } });
   assert.deepEqual([words.action, words.amounts[0], words.destination.words], ['Redeem your voucher', 'voucher #5', 'held by the Keptra guarantee contract']);
-  // Every condition of section 7 is a row of the offer page.
+  // Every condition of section 7 is a row of the offer page — its words from the dictionary (T17 revised, 27/09/2026).
   const page = codeOf('pages/keptra/OfferPage.tsx');
-  for (const label of ['Price per unit', 'Shipping, per order', 'Return cost, if refused', 'Refusal fee', 'Delivered by', 'Ships within', 'Arrives within', 'Delivers to', 'Store payout address']) {
-    assert.ok(page.includes(`'${label}'`), `the offer page does not show ${label}`);
+  const { keptraTranslations } = await import('../../../pages/keptra.i18n.ts');
+  const rows = { pricePerUnit: 'Price per unit', shipping: 'Shipping, per order', returnCost: 'Return cost, if refused', refusalFee: 'Refusal fee', deliveredBy: 'Delivered by', shipsWithin: 'Ships within', arrivesWithin: 'Arrives within', deliversTo: 'Delivers to', payoutAddress: 'Store payout address' };
+  for (const [key, label] of Object.entries(rows)) {
+    assert.equal(keptraTranslations.en.offer[key], label);
+    assert.ok(page.includes(`[t.offer.${key},`), `the offer page does not show ${label}`);
   }
 });
 
@@ -972,11 +981,79 @@ await test(['U4', 'AT0'], 'section 0: nothing the pages say calls Keptra insuran
   }
 });
 
-await test(['AT17', 'AU3'], 'T17 and U3: the new screens are in English; what changed in the Event Center is in all three languages, key for key', async () => {
-  for (const name of readdirSync(`${root}pages/keptra`)) assert.ok(!/useLang|i18n/.test(codeOf(`pages/keptra/${name}`)), `${name} is translated`);
+await test(['AT17', 'AU3'], 'T17 as the owner revised it on 27/09/2026, and U3: every Keptra screen is in the language the switch chose — each page of KeptraShell and each Keptra component reads its words from pages/keptra.i18n.ts, where English, Portuguese and Spanish hold the same keys, none empty, and writes no English of its own; the pure modules’ words (dates, numbers, order states, the summary sheet) and the privacy notice follow the language too; the document declares the chosen language, on load and at every choice; what changed in the Event Center is in all three languages, key for key (the pages’ part checked in the source)', async () => {
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  const en = wordsOf(k.en);
+  for (const [path, word] of en) assert.ok(word.trim().length > 0, `en${path} is empty`);
+  for (const lang of ['pt', 'es']) {
+    const other = wordsOf(k[lang]);
+    assert.deepEqual(other.map(([path]) => path), en.map(([path]) => path), `${lang} does not hold the English keys`);
+    for (const [path, word] of other) assert.ok(word.trim().length > 0, `${lang}${path} is empty`);
+    // Translated, not copied: what stays equal to the English is only a word both languages share — listed here, so a new one is a decision.
+    const same = other.filter(([, word], index) => word === en[index][1]).map(([path]) => path);
+    const SHARED = {
+      pt: ['.shell.menu', '.signIn.email', '.orders.voucher', '.voucher.metaTitle', '.voucher.metaTitleBare', '.pool.capital', '.pool.splitPool', '.account.passkeysOne', '.account.passkeysMany'],
+      es: ['.signIn.email', '.pool.capital', '.pool.splitPool', '.account.passkeysOne', '.account.passkeysMany'],
+    };
+    assert.deepEqual(same, SHARED[lang], `${lang}: words left as the English ones`);
+  }
+  // Every page and component reads the dictionary, and writes none of its sentences itself.
+  const sentences = en.filter(([path, word]) => !path.startsWith('.errors.') && /\s/.test(word) && word.length > 16 && !word.includes('{')).map(([, word]) => word);
+  const NAMES = /^(?:Keptra|USDC|Event Center|Instant Win)$/;
+  for (const path of [...KEPTRA_PAGES, ...KEPTRA_PARTS]) {
+    const code = codeOf(path);
+    assert.match(code, /useKeptraCopy\(\)/, `${path} does not read the dictionary`);
+    for (const sentence of sentences) assert.ok(!code.includes(sentence), `${path} writes "${sentence}" itself`);
+    for (const m of code.matchAll(/(?<![=\-])>\s*([A-Za-zÀ-ÿ’',.…—\s-]*[A-Za-z]{2,}[A-Za-zÀ-ÿ’',.…—\s-]*?)\s*</g)) assert.ok(NAMES.test(m[1].trim()), `${path} writes "${m[1].trim()}" between tags`);
+    for (const m of code.matchAll(/\b(?:label|title|hint|intro|eyebrow|placeholder|aria-label|alt)="([^"]*)"/g)) assert.ok(!/[A-Za-z]{2,}/.test(m[1]) || NAMES.test(m[1]), `${path}: ${m[0]}`);
+    assert.ok(!/<ReadError[^>]*what="/.test(code), `${path} names a failed read in English`);
+    assert.ok(!/documentElement\.lang|\slang="/.test(code), `${path} declares a language of its own`);
+  }
+  // The pure modules' words, in the three languages, and the numbers in the language's own form.
+  for (const table of [format.SUMMARY_WORDS, clientOrders.STATUS_WORDS]) {
+    for (const lang of ['pt', 'es']) assert.deepEqual(wordsOf(table[lang]).map(([path]) => path), wordsOf(table.en).map(([path]) => path));
+  }
+  assert.equal(format.formatUsdc(1_234_567_891n), '1,234.567891 USDC');
+  assert.equal(format.formatUsdc(1_234_567_891n, 'pt'), '1234,567891 USDC');
+  assert.match(format.formatUsdc(12_345_000_000n, 'pt'), /^12\s345,00 USDC$/u);
+  assert.equal(format.formatUsdc(12_345_000_000n, 'es'), '12.345,00 USDC');
+  assert.equal(format.formatPercent(1250), '12.50%');
+  assert.match(format.formatPercent(1250, 'es'), /^12,50\s?%$/u);
+  // A decimal comma is read as the decimal point in Portuguese and Spanish; a grouping is refused, never guessed.
+  assert.equal(format.parseUsdc('12,5', 'pt'), 12_500_000n);
+  assert.equal(format.parseUsdc('12.5', 'es'), 12_500_000n);
+  assert.equal(format.parseUsdc('1.234,56', 'es'), null);
+  assert.equal(format.parseUsdc('1 234,56', 'pt'), null);
+  assert.equal(format.timeLeft(3 * 86_400 + 10, 0, 'pt'), 'dentro de 3 dias');
+  assert.equal(format.countryName('ES', 'pt'), 'Espanha');
+  assert.equal(format.summaryWords({ action: 'pay', amounts: [], destination: null }, 'es').action, 'Pagar este pedido');
+  const shipped = { state: contracts.OrderState.SHIPPED, flags: 0, mode: 'CARRIER', prize: false, shipBy: '0', deliverBy: '864000', windowEndsAt: null, outcome: null };
+  assert.equal(clientOrders.orderStatusText(shipped, 'es'), 'Enviado — en camino');
+  assert.equal(clientOrders.nextDeadlineText(shipped, 0, 'pt'), 'Próximo prazo dentro de 10 dias');
+  // The privacy notice: the owner's English is the reference, and the translations keep its structure (blocks, headings, items).
+  const { PRIVACY_TEXTS } = await import('../../../lib/keptra/privacy.ts');
+  assert.equal(PRIVACY_TEXTS.en, PRIVACY_TEXT);
+  const layout = (text) => text.trim().split(/\n\s*\n/).map((block) => block.split('\n').map((line) => (line.startsWith('- ') ? '-' : 'p')).join(''));
+  for (const lang of ['pt', 'es']) assert.deepEqual(layout(PRIVACY_TEXTS[lang]), layout(PRIVACY_TEXT), `the ${lang} privacy notice does not keep the owner's structure`);
+  assert.match(codeOf('pages/keptra/PrivacyPage.tsx'), /parse\(PRIVACY_TEXTS\[lang\]\)/);
+  // The document declares the chosen language: the stored one on load, and each new choice (a fresh copy of the store, over a stand-in document).
+  globalThis.document = { documentElement: { lang: 'en' } };
+  globalThis.localStorage = { getItem: () => 'es', setItem: () => {} };
+  try {
+    const store = await import(`../../../pages/landing.i18n.ts?document-${Date.now()}`);
+    assert.equal(globalThis.document.documentElement.lang, 'es', 'the stored language is not declared on load');
+    store.setLang('pt');
+    assert.equal(globalThis.document.documentElement.lang, 'pt');
+    store.setLang('en');
+    assert.equal(globalThis.document.documentElement.lang, 'en');
+  } finally {
+    delete globalThis.document;
+    delete globalThis.localStorage;
+  }
+  // U3: what changed in the Event Center, in all three languages, key for key.
   const source = read('pages/events.i18n.ts');
   // The three languages' blocks (string values); the interface's block holds types, not text.
-  const blocks = [...source.matchAll(/ {4}keptra: \{([\s\S]*?) {4}\},?/g)].filter((m) => m[1].includes("'")).map((m) => [...m[1].matchAll(/^\s+(\w+): '/gm)].map((k) => k[1]));
+  const blocks = [...source.matchAll(/ {4}keptra: \{([\s\S]*?) {4}\},?/g)].filter((m) => m[1].includes("'")).map((m) => [...m[1].matchAll(/^\s+(\w+): '/gm)].map((key) => key[1]));
   assert.equal(blocks.length, 3, 'not three languages');
   assert.deepEqual(blocks[1], blocks[0]);
   assert.deepEqual(blocks[2], blocks[0]);
@@ -1274,7 +1351,7 @@ await test(['AV5'], 'V5 (B1): the signing sheet holds the focus — Tab past the
   const provider = codeOf('components/keptra/KeptraProvider.tsx');
   assert.match(provider, /trapTarget\(controls,/);
   assert.match(provider, /opener\?\.focus\(\)/);
-  assert.match(provider, /tabIndex=\{-1\} aria-label="Cancel"/, 'the backdrop is in the tab order');
+  assert.match(provider, /tabIndex=\{-1\} aria-label=\{t\.sheet\.cancel\}/, 'the backdrop is in the tab order');
   const ui = codeOf('components/keptra/ui.tsx');
   assert.ok(!/disabled=\{rest\.disabled \|\| busy\}/.test(ui), 'a busy button is disabled and loses the focus');
   assert.match(ui, /aria-disabled=\{busy \|\| undefined\}/);
@@ -1490,9 +1567,13 @@ await test(['P6-1'], 'P6-1: the summary of "confirm" shows what the store receiv
   assert.deepEqual([prize.summary.amounts, prize.summary.destination], [[], null]);
 });
 
-await test(['P6-2'], 'P6-2: the address form says the post code goes to the tracking provider and to the oracle’s nodes (checked in the source)', () => {
+await test(['P6-2'], 'P6-2: the address form says the post code goes to the tracking provider and to the oracle’s nodes — in the three languages (checked in the source)', async () => {
   const form = read('components/keptra/AddressForm.tsx');
-  assert.match(form, /label="Post code"[\s\S]{0,40}hint="[^"]*tracking provider[^"]*nodes of the oracle[^"]*"/);
+  assert.match(form, /label=\{t\.address\.postCode\} hint=\{t\.address\.postCodeHint\}/);
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  assert.match(k.en.address.postCodeHint, /tracking provider[^"]*nodes of the oracle/);
+  assert.match(k.pt.address.postCodeHint, /fornecedor de seguimento[^"]*nós do oráculo/);
+  assert.match(k.es.address.postCodeHint, /proveedor de seguimiento[^"]*nodos del oráculo/);
 });
 
 await test(['P6-3', 'P6-4'], 'P6-3 and P6-4: the pool panel writes no figure by hand, and shows the fees as amounts read from ObligationCreated and FeeReceived — events the 5d85a46 contracts emit with those fields (the page’s part checked in the source)', () => {
@@ -1583,20 +1664,26 @@ await test(['P6-11'], 'P6-11: the bridge says when the voucher list is cut short
   fresh();
   await person('participant-1', '0x2222222222222222222222222222222222222222');
   assert.equal(typeof (await api.accountVouchers()).complete, 'boolean');
-  assert.match(read('components/keptra/ui.tsx'), /export const VOUCHERS_INCOMPLETE = /);
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  assert.match(k.en.ui.vouchersIncomplete, /^Not every voucher could be listed/);
   for (const page of ['OrdersPage', 'VoucherPage', 'BusinessPage']) {
-    assert.match(codeOf(`pages/keptra/${page}.tsx`), /!held\.read\.value\.complete\)? (?:&& <Notice|return <Notice) tone="warning">\{VOUCHERS_INCOMPLETE\}/, page);
+    assert.match(codeOf(`pages/keptra/${page}.tsx`), /!held\.read\.value\.complete\)? (?:&& <Notice|return <Notice) tone="warning">\{t\.ui\.vouchersIncomplete\}/, page);
   }
 });
 
-await test(['P6-12'], 'P6-12: the obligation list shows bond, coverage and state from getObligation — fields the guarantee’s Obligation has — and "Not read" when the read failed (the page’s part checked in the source)', () => {
+await test(['P6-12'], 'P6-12: the obligation list shows bond, coverage and state from getObligation — fields the guarantee’s Obligation has — and "Not read" when the read failed (the page’s part checked in the source)', async () => {
   const obligation = bridgeAbi.KEPTRA_GUARANTEE_ABI.find((item) => item.name === 'getObligation');
   const fields = obligation.outputs[0].components.map((c) => c.name);
   for (const name of ['units', 'openUnits', 'bond', 'coverage']) assert.ok(fields.includes(name), `Obligation has no ${name}`);
   const page = codeOf('pages/keptra/BusinessPage.tsx');
   assert.match(page, /functionName: 'getObligation'/);
-  for (const label of ['Bond per unit', 'Pool coverage per unit', 'State']) assert.ok(page.includes(`label="${label}"`), label);
-  assert.match(page, /item\?\.status === 'failure' \|\| read\.isError \? NOT_READ : '…'/);
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  for (const [key, label] of [['bondPerUnit', 'Bond per unit'], ['coveragePerUnit', 'Pool coverage per unit'], ['state', 'State']]) {
+    assert.equal(k.en.business[key], label);
+    assert.ok(page.includes(`label={t.business.${key}}`), label);
+  }
+  assert.equal(k.en.ui.notRead, 'Not read');
+  assert.match(page, /item\?\.status === 'failure' \|\| read\.isError \? t\.ui\.notRead : '…'/);
 });
 
 await test(['P6-14'], 'P6-14: an offer or an obligation whose description failed is still listed after a reload — the relay records the terms it created, store/offers names them without a title — and the page then offers only to write that description, never another publication (the page’s part checked in the source)', async () => {
@@ -1616,8 +1703,8 @@ await test(['P6-14'], 'P6-14: an offer or an obligation whose description failed
   assert.equal(listed.filter((o) => o.termsId === '7').length, 1, 'a described offer is listed twice');
   assert.match(codeOf('lib/bridge-v2/relay.ts'), /await recordStoreTerms\(\{ termsId: created\.termsId, store: account\.safe, obligationId: created\.obligationId \}\)/);
   const page = codeOf('pages/keptra/BusinessPage.tsx');
-  assert.match(page, /const pending = unwritten \?\? undescribedOf\(listed\.read, 'offer', draft\);/);
-  assert.match(page, /const pending = unwritten \?\? undescribedOf\(listed\.read, 'obligation', draft\);/);
+  assert.match(page, /const pending = unwritten \?\? undescribedOf\(listed\.read, 'offer', draft, t\.business\.writeAgain\);/);
+  assert.match(page, /const pending = unwritten \?\? undescribedOf\(listed\.read, 'obligation', draft, t\.business\.writeAgain\);/);
   assert.match(page, /\{pending \? \(\s*<div className="mt-5">\s*<DescriptionRetry what="Offer"/);
   assert.match(page, /\{pending \? \(\s*<div className="mt-5">\s*<DescriptionRetry\s+what="Obligation"/);
 });
@@ -1785,13 +1872,15 @@ await test(['AB4'], 'AB4 (B2): an offer and an obligation the relay created are 
   assert.equal(cut.status, 503);
 });
 
-await test(['AB4'], 'AB4 (B2): the console offers to publish an offer or create an obligation only once its list is read — never while it loads or after it failed (checked in the source)', () => {
+await test(['AB4'], 'AB4 (B2): the console offers to publish an offer or create an obligation only once its list is read — never while it loads or after it failed (checked in the source)', async () => {
   const page = codeOf('pages/keptra/BusinessPage.tsx');
   assert.match(page, /\) : listed\.read\.status === 'ready' \? \(\s*<Button className="mt-5" busy=\{busy\} onClick=\{\(\) => void publish\(\)\}>/);
   assert.match(page, /\) : listed\.read\.status === 'ready' \? \(\s*<Button className="mt-5" busy=\{busy\} onClick=\{\(\) => void create\(\)\}>/);
   // The only other create of the console is a voucher campaign's, which creates no offer and no obligation.
   assert.equal((page.match(/onClick=\{\(\) => void publish\(\)\}/g) ?? []).length, 1, 'another way to publish an offer');
-  assert.deepEqual([...page.matchAll(/onClick=\{\(\) => void create\(\)\}>\s*([^<]*?)\s*</g)].map((m) => m[1]), ['Review and create', 'Review and create campaign']);
+  assert.deepEqual([...page.matchAll(/onClick=\{\(\) => void create\(\)\}>\s*([^<]*?)\s*</g)].map((m) => m[1]), ['{t.business.create}', '{t.business.createCampaign}']);
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  assert.deepEqual([k.en.business.create, k.en.business.createCampaign], ['Review and create', 'Review and create campaign']);
 });
 
 // The matrix is in the repository, names the spec version, and has a row for every tag the suite declares.
@@ -1811,7 +1900,7 @@ await test(['AT8', 'AV6', 'P6-10'], 'V6, AA4 and AB: the matrix of piece 6 is in
 // The home page, Keptra first — the owner's request of 27/09/2026, commit A.
 // ---------------------------------------------------------------------------
 
-/** The owner's texts of 27/09/2026, as they were given. */
+/** The owner's texts of 27/09/2026, as they were given; chapter 03 as the owner rewrote it for commit A3 (bond, risk reserve, pool). */
 const OWNER_TEXTS = {
   en: {
     title: 'A brand that can prove it, cares.',
@@ -1821,7 +1910,7 @@ const OWNER_TEXTS = {
     band: 'Backed by a public guarantee pool: {capital} USDC, verified on Arbitrum One.',
     seePool: 'See the pool',
     brands: 'The stores that can show proof stand apart. Transparency your customers can verify is care they can feel — and Keptra makes it a checkbox at checkout, not a project.',
-    customers: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the pool. You never need to understand how; you can always check that it's true.",
+    customers: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the risk reserve, then by the pool. You never need to understand how; you can always check that it's true.",
     obligation: 'Every order is a tokenized obligation — bond, coverage and settlement on-chain. Commerce as a real-world asset.',
     providersTitle: 'Be part of the guarantee.',
     providersBody: "The pool's capital comes from providers who back every order. Providers earn a share of every protection fee.",
@@ -1835,7 +1924,7 @@ const OWNER_TEXTS = {
     band: 'Apoiado por um pool de garantia público: {capital} USDC, verificado na Arbitrum One.',
     seePool: 'Ver o pool',
     brands: 'As lojas que conseguem mostrar prova destacam-se. Transparência que os seus clientes podem verificar é cuidado que eles sentem — e a Keptra torna isso numa opção no checkout, não num projecto.',
-    customers: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pelo pool. Nunca precisa de perceber como; pode sempre conferir que é verdade.',
+    customers: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool. Nunca precisa de perceber como; pode sempre conferir que é verdade.',
     obligation: 'Cada encomenda é uma obrigação tokenizada — caução, cobertura e liquidação on-chain. O comércio como activo do mundo real.',
     providersTitle: 'Faça parte da garantia.',
     providersBody: 'O capital do pool vem de provedores que sustentam cada encomenda. Os provedores recebem uma parte de cada taxa de protecção.',
@@ -1849,7 +1938,7 @@ const OWNER_TEXTS = {
     band: 'Respaldado por un pool de garantía público: {capital} USDC, verificado en Arbitrum One.',
     seePool: 'Ver el pool',
     brands: 'Las tiendas que pueden mostrar prueba se distinguen. La transparencia que tus clientes pueden verificar es cuidado que sienten — y Keptra la convierte en una opción en el checkout, no en un proyecto.',
-    customers: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por el pool. Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
+    customers: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por la reserva de riesgo, luego por el pool. Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
     obligation: 'Cada pedido es una obligación tokenizada — fianza, cobertura y liquidación on-chain. El comercio como activo del mundo real.',
     providersTitle: 'Forma parte de la garantía.',
     providersBody: 'El capital del pool viene de proveedores que respaldan cada pedido. Los proveedores reciben una parte de cada tarifa de protección.',
@@ -1915,7 +2004,7 @@ await test(['LK3'], '{capital} in the band and every figure of chapter 04 are ch
   assert.ok(!/\d[\d,.]*\s*USDC/.test(page), 'a figure written by hand on the home page');
 });
 
-await test(['LK4'], 'the home page’s EN/PT/ES switch is on every Keptra screen: KeptraShell renders LangSwitch — the component SiteHeader gives the home page — after the navigation, as on the home page, and every page under pages/keptra is framed by KeptraShell; the screens themselves stay in English (T17) (checked in the source)', () => {
+await test(['LK4'], 'the home page’s EN/PT/ES switch is on every Keptra screen: KeptraShell renders LangSwitch — the component SiteHeader gives the home page — after the navigation, as on the home page, and every page under pages/keptra is framed by KeptraShell; the screens follow it (T17 as revised on 27/09/2026, test AT17) (checked in the source)', () => {
   const shell = codeOf('components/keptra/KeptraShell.tsx');
   assert.match(shell, /import \{ LangSwitch \} from '\.\.\/LangSwitch';/);
   assert.equal((shell.match(/<LangSwitch \/>/g) ?? []).length, 1);
@@ -1988,4 +2077,85 @@ await test(['LK9'], 'the contact address is written next to both mailto buttons 
   // The two contact points: the mailto: button stays, the address follows it in the same row.
   assert.match(codeOf('pages/Landing.tsx'), /<a href=\{PROVIDER_REQUEST\}[^>]*>[\s\S]{0,200}?<\/a>\s*<ContactEmail \/>/);
   assert.match(codeOf('pages/Roadmap.tsx'), /<a href=\{`mailto:\$\{INVESTOR_EMAIL\}`\}[^>]*>[\s\S]{0,120}?<\/a>\s*<ContactEmail \/>/);
+});
+
+// ---------------------------------------------------------------------------
+// Commit A3 — the owner's decisions of 27/09/2026 after the audit of A and A2.
+// ---------------------------------------------------------------------------
+
+/** What the home page said at 1acef6c (pages/landing.i18n.ts :150, :164, :168, :170): the "to players" row and three answers. */
+const PLAY_RULES = {
+  en: [
+    'To players',
+    '85.7% of ticket money over time',
+    'What do I need to play?',
+    'An Arbitrum One wallet (such as MetaMask) with some USDC for tickets and a little ETH for gas.',
+    'How much of the money goes to players?',
+    'About 85.7% over time. Each round pays 75% of its pool to the three winners and 12.5% to development; the other 12.5% rolls into the next round, so it comes back to players — minus the same development share each time it recycles.',
+    'Is this available in my country?',
+    'Access depends on the rules of your own jurisdiction. It is your responsibility to check whether you are allowed to participate where you live.',
+  ],
+  pt: [
+    'Para os jogadores',
+    '85,7% do dinheiro dos bilhetes ao longo do tempo',
+    'O que eu preciso para jogar?',
+    'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.',
+    'Quanto do dinheiro vai para os jogadores?',
+    'Cerca de 85,7% ao longo do tempo. Cada rodada paga 75% do seu pool aos três ganhadores e 12,5% ao desenvolvimento; os outros 12,5% entram na rodada seguinte, ou seja, voltam para os jogadores — menos a mesma fatia de desenvolvimento a cada reciclagem.',
+    'Está disponível no meu país?',
+    'O acesso depende das regras da sua própria jurisdição. É sua responsabilidade verificar se você tem permissão para participar no lugar onde vive.',
+  ],
+  es: [
+    'Para los jugadores',
+    '85,7% del dinero de los boletos con el tiempo',
+    '¿Qué necesito para jugar?',
+    'Una wallet en Arbitrum One (como MetaMask) con algo de USDC para los boletos y un poco de ETH para el gas.',
+    '¿Cuánto dinero va a los jugadores?',
+    'Alrededor del 85,7% con el tiempo. Cada ronda paga el 75% de su pool a los tres ganadores y el 12,5% al desarrollo; el otro 12,5% pasa a la ronda siguiente, o sea vuelve a los jugadores — menos la misma parte de desarrollo cada vez que se recicla.',
+    '¿Está disponible en mi país?',
+    'El acceso depende de las normas de tu propia jurisdicción. Es tu responsabilidad verificar si tienes permiso para participar en el lugar donde vives.',
+  ],
+};
+
+await test(['LK10'], 'what is needed to play, where the ticket money goes and the jurisdiction notice are on /play’s Overview in English, Portuguese and Spanish, word for word as the home page had them at 1acef6c, shown, not folded — and the home page does not get them back (checked in the source)', () => {
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  const before = git('show', '1acef6c:pages/landing.i18n.ts');
+  const source = read('pages/app.i18n.ts');
+  const starts = ['en', 'pt', 'es'].map((lang) => source.indexOf(`const ${lang}: AppCopy = {`));
+  const block = (index) => source.slice(starts[index], starts[index + 1] ?? undefined);
+  ['en', 'pt', 'es'].forEach((lang, index) => {
+    for (const text of PLAY_RULES[lang]) {
+      assert.ok(before.includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not the text of 1acef6c`);
+      assert.ok(block(index).includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not on /play`);
+      assert.ok(!read('pages/landing.i18n.ts').includes(text) && !read('pages/Landing.tsx').includes(text), `the home page has "${text.slice(0, 40)}…"`);
+    }
+  });
+  const dashboard = codeOf('pages/Dashboard.tsx');
+  assert.match(read('App.tsx'), /<Route path="\/play" element=\{<GameLayout \/>\}>\s*<Route index element=\{<Dashboard \/>\} \/>/);
+  for (const key of ['title', 'toPlayersLabel', 'toPlayers']) assert.match(dashboard, new RegExp(`\\{c\\.rules\\.${key}\\}`), key);
+  assert.match(dashboard, /\{c\.rules\.items\.map\(\(item\) => \(/);
+  assert.ok(!/<details/.test(dashboard), 'the Overview folds them away');
+});
+
+await test(['LK11'], 'no translation key is left unused: every word of the Keptra dictionary is read by a Keptra page or component, and its `errors` are sentences this app writes, word for word; every order state and summary word by its module; every word of /play’s new block by the Overview (checked in the source)', async () => {
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  const sources = [...KEPTRA_PAGES, ...KEPTRA_PARTS].map(codeOf).join('\n');
+  for (const [section, value] of Object.entries(k.en)) {
+    if (section === 'errors') continue;
+    if (Array.isArray(value)) {
+      assert.match(sources, new RegExp(`\\bt\\.${section}\\[`), `${section} is not used`);
+      continue;
+    }
+    for (const key of Object.keys(value)) assert.match(sources, new RegExp(`\\bt\\.${section}\\.${key}\\b`), `${section}.${key} is not used`);
+  }
+  const client = ['lib/keptra/api.ts', 'lib/keptra/reads.ts', 'lib/keptra/relay.ts', 'lib/keptra/webauthn.ts', 'components/keptra/KeptraProvider.tsx'].map(read).join('\n');
+  for (const [key, sentence] of Object.entries(k.en.errors)) assert.ok(client.includes(sentence), `errors.${key} is not a sentence this app writes`);
+  const orders = codeOf('lib/keptra/orders.ts');
+  for (const key of Object.keys(clientOrders.STATUS_WORDS.en)) assert.match(orders, new RegExp(`words\\.${key}\\b|\\.${key}\\.replace\\(`), `STATUS_WORDS.${key} is not used`);
+  const formatCode = codeOf('lib/keptra/format.ts');
+  for (const key of Object.keys(format.SUMMARY_WORDS.en)) assert.match(formatCode, new RegExp(`(?:words|SUMMARY_WORDS\\[lang\\])\\.${key}\\b`), `SUMMARY_WORDS.${key} is not used`);
+  const dashboard = codeOf('pages/Dashboard.tsx');
+  const rulesKeys = [...read('pages/app.i18n.ts').match(/ {2}rules: \{\n([\s\S]*?)\n {2}\};/)[1].matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]);
+  assert.deepEqual(rulesKeys, ['title', 'toPlayersLabel', 'toPlayers', 'items']);
+  for (const key of rulesKeys) assert.match(dashboard, new RegExp(`c\\.rules\\.${key}\\b`), `rules.${key} is not used`);
 });

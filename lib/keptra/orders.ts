@@ -6,6 +6,7 @@
  * is never offered what the contract would refuse. Sections 8 and 9, H6, H15.
  */
 
+import type { Lang } from '../../pages/landing.i18n';
 import { OrderFlag, OrderState } from './contracts.js';
 import { timeLeft } from './format.js';
 
@@ -23,38 +24,97 @@ export interface OrderFacts {
 
 const refusalWindow = (order: OrderFacts) => order.state === OrderState.WINDOW && (order.flags & OrderFlag.REFUSAL) !== 0;
 
+/** An order's state in words, in the page's language (the Keptra screens follow the language switch). */
+export const STATUS_WORDS: Record<Lang, Record<string, string>> = {
+  en: {
+    paid: 'Paid — waiting for the store to ship',
+    redeemed: 'Redeemed — waiting for the brand to ship',
+    shipped: 'Shipped — on its way',
+    refusalWindow: 'The store declared a refusal — window to contest open',
+    window: 'Delivered — window to confirm or contest open',
+    contested: 'Contested — the arbiter decides',
+    notFound: 'Not found',
+    completedPrize: 'Completed — delivered',
+    completed: 'Completed — the store was paid',
+    compensated: 'Closed — compensation paid to the winner',
+    refunded: 'Closed — refunded to the buyer in full',
+    refusalTerms: 'Closed — refusal terms applied',
+    refundedByStore: 'Closed — refunded by the store',
+    cancelled: 'Cancelled',
+    closed: 'Closed',
+    nextDeadline: 'Next deadline {when}',
+  },
+  pt: {
+    paid: 'Paga — à espera de que a loja a envie',
+    redeemed: 'Resgatada — à espera de que a marca a envie',
+    shipped: 'Enviada — a caminho',
+    refusalWindow: 'A loja declarou uma recusa — janela para contestar aberta',
+    window: 'Entregue — janela para confirmar ou contestar aberta',
+    contested: 'Contestada — o árbitro decide',
+    notFound: 'Não encontrada',
+    completedPrize: 'Concluída — entregue',
+    completed: 'Concluída — a loja recebeu',
+    compensated: 'Fechada — compensação paga ao vencedor',
+    refunded: 'Fechada — reembolsada ao comprador na totalidade',
+    refusalTerms: 'Fechada — aplicadas as condições de recusa',
+    refundedByStore: 'Fechada — reembolsada pela loja',
+    cancelled: 'Cancelada',
+    closed: 'Fechada',
+    nextDeadline: 'Próximo prazo {when}',
+  },
+  es: {
+    paid: 'Pagado — esperando a que la tienda lo envíe',
+    redeemed: 'Canjeado — esperando a que la marca lo envíe',
+    shipped: 'Enviado — en camino',
+    refusalWindow: 'La tienda declaró un rechazo — plazo para impugnar abierto',
+    window: 'Entregado — plazo para confirmar o impugnar abierto',
+    contested: 'Impugnado — decide el árbitro',
+    notFound: 'No encontrado',
+    completedPrize: 'Completado — entregado',
+    completed: 'Completado — la tienda cobró',
+    compensated: 'Cerrado — compensación pagada al ganador',
+    refunded: 'Cerrado — reembolsado al comprador en su totalidad',
+    refusalTerms: 'Cerrado — aplicadas las condiciones de rechazo',
+    refundedByStore: 'Cerrado — reembolsado por la tienda',
+    cancelled: 'Cancelado',
+    closed: 'Cerrado',
+    nextDeadline: 'Próximo plazo {when}',
+  },
+};
+
 /** One line on where the order stands, for the recipient and the store alike. */
-export function orderStatusText(order: OrderFacts): string {
+export function orderStatusText(order: OrderFacts, lang: Lang = 'en'): string {
+  const words = STATUS_WORDS[lang];
   switch (order.state) {
     case OrderState.PAID:
-      return order.prize ? 'Redeemed — waiting for the brand to ship' : 'Paid — waiting for the store to ship';
+      return order.prize ? words.redeemed : words.paid;
     case OrderState.SHIPPED:
-      return 'Shipped — on its way';
+      return words.shipped;
     case OrderState.WINDOW:
-      return refusalWindow(order) ? 'The store declared a refusal — window to contest open' : 'Delivered — window to confirm or contest open';
+      return refusalWindow(order) ? words.refusalWindow : words.window;
     case OrderState.CONTESTED:
-      return 'Contested — the arbiter decides';
+      return words.contested;
     case OrderState.CLOSED:
-      return closedText(order.outcome, order.prize);
+      return closedText(order.outcome, order.prize, words);
     default:
-      return 'Not found';
+      return words.notFound;
   }
 }
 
-function closedText(outcome: number | null, prize: boolean): string {
+function closedText(outcome: number | null, prize: boolean, words: Record<string, string>): string {
   switch (outcome) {
     case 0:
-      return prize ? 'Completed — delivered' : 'Completed — the store was paid';
+      return prize ? words.completedPrize : words.completed;
     case 1:
-      return prize ? 'Closed — compensation paid to the winner' : 'Closed — refunded to the buyer in full';
+      return prize ? words.compensated : words.refunded;
     case 2:
-      return 'Closed — refusal terms applied';
+      return words.refusalTerms;
     case 3:
-      return 'Closed — refunded by the store';
+      return words.refundedByStore;
     case 4:
-      return 'Cancelled';
+      return words.cancelled;
     default:
-      return 'Closed';
+      return words.closed;
   }
 }
 
@@ -63,10 +123,10 @@ function closedText(outcome: number | null, prize: boolean): string {
  * ship-by while paid, the window's end while it runs, the arrive-by after that.
  * null for a closed order, or one whose deadline is not set yet.
  */
-export function nextDeadlineText(order: Pick<OrderFacts, 'state' | 'shipBy' | 'deliverBy' | 'windowEndsAt'>, nowSeconds: number): string | null {
+export function nextDeadlineText(order: Pick<OrderFacts, 'state' | 'shipBy' | 'deliverBy' | 'windowEndsAt'>, nowSeconds: number, lang: Lang = 'en'): string | null {
   if (order.state === OrderState.CLOSED || order.state === OrderState.NONE) return null;
   const at = order.state === OrderState.WINDOW ? order.windowEndsAt : order.state === OrderState.PAID ? order.shipBy : order.deliverBy;
-  return at === null ? null : `Next deadline ${timeLeft(at, nowSeconds)}`;
+  return at === null ? null : STATUS_WORDS[lang].nextDeadline.replace('{when}', timeLeft(at, nowSeconds, lang));
 }
 
 export type RecipientAction = 'cancelOrder' | 'confirm' | 'contest' | 'evidence';

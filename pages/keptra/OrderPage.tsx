@@ -15,6 +15,7 @@ import { KEPTRA_ESCROW, keptraConfigured, OrderState } from '../../lib/keptra/co
 import { codeFor, groupCode } from '../../lib/keptra/deliveryCode';
 import { formatUsdc, formatUtc, timeLeft } from '../../lib/keptra/format';
 import { orderStatusText, recipientActions, type RecipientAction } from '../../lib/keptra/orders';
+import { fill, useKeptraCopy } from '../keptra.i18n';
 
 /** The 5 days the page and the offer state for confirming or contesting; only draws how much of the window has run. */
 const WINDOW_SECONDS = 5 * 86_400;
@@ -33,30 +34,26 @@ const WINDOW_SECONDS = 5 * 86_400;
 export function OrderPage() {
   const { id } = useParams();
   const orderId = id && /^\d{1,30}$/.test(id) ? id : null;
+  const { t } = useKeptraCopy();
   useEffect(() => {
-    document.title = orderId ? `Order #${orderId} · Keptra` : 'Order · Keptra';
-  }, [orderId]);
+    document.title = orderId ? fill(t.order.metaTitle, { id: orderId }) : t.order.metaTitleBare;
+  }, [orderId, t]);
   return (
     <KeptraShell>
       {!keptraConfigured() ? (
         <NotAvailable />
       ) : orderId === null ? (
-        <Empty title="This link does not name an order." />
+        <Empty title={t.order.badLink} />
       ) : (
-        <RequireAccount intro="Sign in to see this order.">{() => <OrderBody orderId={orderId} />}</RequireAccount>
+        <RequireAccount intro={t.order.intro}>{() => <OrderBody orderId={orderId} />}</RequireAccount>
       )}
     </KeptraShell>
   );
 }
 
-const ACTION_LABEL: Record<Exclude<RecipientAction, 'evidence'>, string> = {
-  cancelOrder: 'Cancel the order',
-  confirm: 'I received it as described',
-  contest: 'Contest',
-};
-
 function OrderBody({ orderId }: { orderId: string }) {
   const { relay } = useKeptra();
+  const { t, lang, say } = useKeptraCopy();
   const listed = useBridgeRead(myOrders, []);
   const row = listed.read.status === 'ready' ? (listed.read.value.orders.find((order) => order.orderId === orderId) ?? null) : undefined;
   const [busy, setBusy] = useState<string | null>(null);
@@ -69,13 +66,17 @@ function OrderBody({ orderId }: { orderId: string }) {
   const code = useMemo(() => (chain.order ? codeFor(window.localStorage, chain.order.codeCommit) : null), [chain.order]);
 
   // V3: an order list that failed is an error, not "no order of yours".
-  if (listed.read.status === 'failed') return <ReadError what="Your orders" error={listed.read.error} onRetry={listed.retry} />;
-  if (row === undefined) return <Loading label="Loading the order…" />;
+  if (listed.read.status === 'failed') return <ReadError what={t.what.yourOrders} error={listed.read.error} onRetry={listed.retry} />;
+  if (row === undefined) return <Loading label={t.order.loading} />;
   if (row === null) {
     return (
-      <Empty title="No order of yours with this number.">
+      <Empty title={t.order.notYours}>
         <p>
-          Orders appear a minute after they are paid. <Link to="/orders" className="underline underline-offset-4">See all your orders</Link>.
+          {t.order.appearsLater}{' '}
+          <Link to="/orders" className="underline underline-offset-4">
+            {t.order.seeAll}
+          </Link>
+          .
         </p>
       </Empty>
     );
@@ -91,29 +92,29 @@ function OrderBody({ orderId }: { orderId: string }) {
     setMessage(null);
     const outcome = await relay({ kind, orderId });
     setBusy(null);
-    if (outcome.status === 'refused') setMessage({ tone: 'error', text: outcome.error });
+    if (outcome.status === 'refused') setMessage({ tone: 'error', text: say(outcome.error) });
     if (outcome.status === 'done') {
       setMessage(
         outcome.result.status === 'CONFIRMED'
-          ? { tone: 'success', text: 'Done. The order is updated on-chain.', txHash: outcome.result.txHash }
-          : { tone: 'success', text: 'Sent. It is being confirmed on-chain.' },
+          ? { tone: 'success', text: t.order.done, txHash: outcome.result.txHash }
+          : { tone: 'success', text: t.order.sent },
       );
       void chain.refetch();
       listed.reload();
     }
   };
   // What only the chain holds (the amount held, the quantity): read, still reading, or not read (V3).
-  const onChain = (value: (order: OrderRead) => ReactNode) => (chain.order ? value(chain.order) : chain.failed ? 'Not read' : '…');
+  const onChain = (value: (order: OrderRead) => ReactNode) => (chain.order ? value(chain.order) : chain.failed ? t.ui.notRead : '…');
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="min-w-0 space-y-6">
         <div>
-          <Eyebrow>Order #{orderId}{row.prize ? ' · physical prize' : ''}</Eyebrow>
-          <h1 className="mt-3 break-words font-display text-4xl font-bold tracking-tight sm:text-5xl">{description?.title ?? 'Your order'}</h1>
+          <Eyebrow>{fill(row.prize ? t.order.eyebrowPrize : t.order.eyebrow, { id: orderId })}</Eyebrow>
+          <h1 className="mt-3 break-words font-display text-4xl font-bold tracking-tight sm:text-5xl">{description?.title ?? t.order.untitled}</h1>
           <p className="mt-3 inline-flex items-center gap-2.5 text-lg text-gray-200">
             <OrderStateMark state={facts.state} />
-            {orderStatusText(facts)}
+            {orderStatusText(facts, lang)}
           </p>
         </div>
 
@@ -122,9 +123,11 @@ function OrderBody({ orderId }: { orderId: string }) {
 
         {/* The window is the normal course of an order, not an alarm: it only asks for attention in its last day. */}
         {facts.state === OrderState.WINDOW && row.windowEndsAt && (
-          <Notice tone={Number(row.windowEndsAt) - now < 86_400 ? 'warning' : 'info'} title={`The window closes ${timeLeft(row.windowEndsAt, now)} — ${formatUtc(row.windowEndsAt)}`}>
-            If it arrived as described, confirm it. If it did not arrive, or is not as described, contest before then. Without a contest the store is paid
-            {(facts.flags & 2) !== 0 ? ' under the refusal terms' : ''}.
+          <Notice
+            tone={Number(row.windowEndsAt) - now < 86_400 ? 'warning' : 'info'}
+            title={fill(t.order.windowTitle, { when: timeLeft(row.windowEndsAt, now, lang), date: formatUtc(row.windowEndsAt, lang) })}
+          >
+            {(facts.flags & 2) !== 0 ? t.order.windowBodyRefusal : t.order.windowBody}
             {/* The window opening: how much of it has run, filled in when the page opens. */}
             <span aria-hidden="true" className="mt-4 block h-1 w-full overflow-hidden rounded-full bg-white/10">
               <span
@@ -136,23 +139,23 @@ function OrderBody({ orderId }: { orderId: string }) {
         )}
 
         <Card>
-          <h2 className="font-display text-2xl font-bold tracking-tight">The order</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight">{t.order.theOrder}</h2>
           <div className="mt-4">
             <Facts
               rows={[
-                ['Held in escrow', onChain((order) => (row.prize ? 'Bond and coverage of the prize' : <span className="font-mono">{formatUsdc(order.paid)}</span>))],
-                ['Quantity', onChain((order) => String(order.quantity))],
-                ['Delivery', row.mode === 'CARRIER' ? 'By carrier, tracked by the Keptra oracle' : 'By the store, with your delivery code'],
-                ['Ships by', formatUtc(row.shipBy)],
-                ['Arrives by', row.deliverBy ? formatUtc(row.deliverBy) : 'Counted from shipping'],
-                ['Store payout address', terms.terms ? terms.terms.payout : terms.failed ? 'Not read' : '…'],
+                [t.order.heldInEscrow, onChain((order) => (row.prize ? t.order.prizeHeld : <span className="font-mono">{formatUsdc(order.paid, lang)}</span>))],
+                [t.order.quantity, onChain((order) => String(order.quantity))],
+                [t.order.delivery, row.mode === 'CARRIER' ? t.order.byCarrier : t.order.byStore],
+                [t.order.shipsBy, formatUtc(row.shipBy, lang)],
+                [t.order.arrivesBy, row.deliverBy ? formatUtc(row.deliverBy, lang) : t.order.fromShipping],
+                [t.order.payoutAddress, terms.terms ? terms.terms.payout : terms.failed ? t.ui.notRead : '…'],
               ]}
             />
           </div>
           {(chain.failed || terms.failed) && (
             <div className="mt-4">
               <ReadError
-                what="Part of this order"
+                what={t.what.partOfOrder}
                 error={CHAIN_FAILED}
                 onRetry={() => {
                   if (chain.failed) void chain.refetch();
@@ -161,19 +164,17 @@ function OrderBody({ orderId }: { orderId: string }) {
               />
             </div>
           )}
-          <p className="mt-4 text-xs text-gray-400">
-            If a deadline passes without the store acting, Keptra's keeper triggers the refund within the hour; anyone can trigger it on-chain.
-          </p>
+          <p className="mt-4 text-xs text-gray-400">{t.order.keeperNote}</p>
         </Card>
 
         {(description || describing.failed) && (
           <Card>
-            <h2 className="font-display text-2xl font-bold tracking-tight">What you ordered</h2>
+            <h2 className="font-display text-2xl font-bold tracking-tight">{t.order.whatYouOrdered}</h2>
             {description ? (
               <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-300">{description.text}</p>
             ) : (
               <div className="mt-3">
-                <ReadError what="The product description" error={describing.failed ?? ''} onRetry={describing.retry} />
+                <ReadError what={t.what.productDescription} error={describing.failed ?? ''} onRetry={describing.retry} />
               </div>
             )}
           </Card>
@@ -185,34 +186,31 @@ function OrderBody({ orderId }: { orderId: string }) {
       <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
         {row.mode === 'OWN_MEANS' && facts.state !== OrderState.CLOSED && (
           <Card>
-            <h2 className="font-display text-2xl font-bold tracking-tight">Delivery code</h2>
+            <h2 className="font-display text-2xl font-bold tracking-tight">{t.order.deliveryCode}</h2>
             {code ? (
               <div className="iw-reveal mt-4 flex flex-col items-center gap-4 text-center">
                 <div className="rounded-lg shadow-[0_16px_40px_-20px_rgba(255,255,255,0.3)]">
-                  <QrCode text={code} label={`Delivery code ${groupCode(code)}`} />
+                  <QrCode text={code} label={fill(t.order.qrLabel, { code: groupCode(code) })} />
                 </div>
                 <p className="w-full break-all rounded-control border border-dark-line bg-black/40 px-3 py-3 font-mono text-xl font-bold tracking-wider text-white">{groupCode(code)}</p>
-                <p className="text-xs text-gray-400">Show it to the person who delivers, and only when the order is in your hands. It works once.</p>
+                <p className="text-xs text-gray-400">{t.order.showIt}</p>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-gray-400">
-                The code is kept on the device you paid from, and is not on this one. If it is lost, the store can still declare the delivery, and you keep your 5 days to
-                contest it.
-              </p>
+              <p className="mt-3 text-sm text-gray-400">{t.order.notOnDevice}</p>
             )}
           </Card>
         )}
         <Card>
-          <h2 className="font-display text-2xl font-bold tracking-tight">Your actions</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight">{t.order.yourActions}</h2>
           {actions.filter((a) => a !== 'evidence').length === 0 ? (
-            <p className="mt-3 text-sm text-gray-400">Nothing to do right now. You get an email when the order needs you.</p>
+            <p className="mt-3 text-sm text-gray-400">{t.order.nothingToDo}</p>
           ) : (
             <div className="mt-4 flex flex-col gap-3">
               {actions
                 .filter((a): a is Exclude<RecipientAction, 'evidence'> => a !== 'evidence')
                 .map((kind) => (
                   <Button key={kind} tone={kind === 'confirm' ? 'primary' : kind === 'contest' ? 'danger' : 'secondary'} busy={busy === kind} onClick={() => void act(kind)}>
-                    {ACTION_LABEL[kind]}
+                    {t.order.actions[kind]}
                   </Button>
                 ))}
             </div>
@@ -235,16 +233,17 @@ function OrderBody({ orderId }: { orderId: string }) {
  */
 function PaidPath({ orderId, outcome, payout }: { orderId: string; outcome: number | null; payout: `0x${string}` | null }) {
   const first = useFirstSight(`order-closed-${orderId}`);
+  const { t } = useKeptraCopy();
   const toStore = outcome === 0;
   const toYou = outcome === 1 || outcome === 3 || outcome === 4;
   if (!toStore && !toYou) return null;
-  const escrow = { label: 'Keptra escrow', detail: <AddressLink address={KEPTRA_ESCROW} /> };
-  const nodes = toStore ? [{ label: 'You' }, escrow, { label: 'Store', detail: payout ? <AddressLink address={payout} /> : undefined }] : [escrow, { label: 'You' }];
+  const escrow = { label: t.order.escrow, detail: <AddressLink address={KEPTRA_ESCROW} /> };
+  const nodes = toStore ? [{ label: t.order.you }, escrow, { label: t.order.store, detail: payout ? <AddressLink address={payout} /> : undefined }] : [escrow, { label: t.order.you }];
   return (
     <Card>
       <h2 className="flex items-center gap-2.5 font-display text-2xl font-bold tracking-tight">
         <ProofSeal className="h-5 w-5 text-success" />
-        {toStore ? 'Released on proof' : 'Returned by rule'}
+        {toStore ? t.order.released : t.order.returned}
       </h2>
       <MoneyPath tone="proof" animate={first} nodes={nodes} className="mt-6" />
     </Card>
@@ -265,6 +264,7 @@ function OrderStateMark({ state }: { state: number }) {
 /** P17 and AQ3: one text from each party, up to 2 000 characters, written once while the order is contested. */
 export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: string; party?: 'RECIPIENT' | 'STORE' }) {
   const read = useBridgeRead(() => orderEvidence(orderId), [orderId]);
+  const { t, say } = useKeptraCopy();
   const [written, setWritten] = useState<Evidence | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -274,15 +274,15 @@ export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: strin
   const theirs = party === 'RECIPIENT' ? evidence?.store : evidence?.recipient;
   return (
     <Card>
-      <h2 className="font-display text-2xl font-bold tracking-tight">Evidence for the arbiter</h2>
-      <p className="mt-2 text-sm text-gray-400">Each side writes one statement. It is encrypted, read only by the two sides and the arbiter, and erased with the order's data.</p>
+      <h2 className="font-display text-2xl font-bold tracking-tight">{t.order.evidenceTitle}</h2>
+      <p className="mt-2 text-sm text-gray-400">{t.order.evidenceBody}</p>
       {evidence === null && read.read.status === 'loading' && <Loading />}
-      {evidence === null && read.read.status === 'failed' && <ReadError what="The statements" error={read.read.error} onRetry={read.retry} />}
+      {evidence === null && read.read.status === 'failed' && <ReadError what={t.what.statements} error={read.read.error} onRetry={read.retry} />}
       {error && <Notice tone="error">{error}</Notice>}
       {evidence && (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div>
-            <p className="text-xs uppercase tracking-wider text-gray-400">Your statement</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400">{t.order.yourStatement}</p>
             {mine ? (
               <p className="mt-2 whitespace-pre-line rounded-xl border border-dark-border p-3 text-sm text-gray-200">{mine}</p>
             ) : (
@@ -294,11 +294,11 @@ export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: strin
                   const result = await orderEvidence(orderId, text);
                   setBusy(false);
                   if (result.ok) setWritten(result);
-                  else setError(result.error);
+                  else setError(say(result.error));
                 }}
               >
                 <label htmlFor="evidence" className="sr-only">
-                  Your statement
+                  {t.order.yourStatement}
                 </label>
                 <textarea
                   id="evidence"
@@ -311,16 +311,16 @@ export function EvidencePanel({ orderId, party = 'RECIPIENT' }: { orderId: strin
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs text-gray-400">{text.length} / 2000</span>
                   <Button type="submit" busy={busy} disabled={text.trim().length === 0}>
-                    Send statement
+                    {t.order.sendStatement}
                   </Button>
                 </div>
-                <p className="text-xs text-gray-400">It cannot be changed once sent.</p>
+                <p className="text-xs text-gray-400">{t.order.final}</p>
               </form>
             )}
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wider text-gray-400">{party === 'RECIPIENT' ? "The store's statement" : "The buyer's statement"}</p>
-            <p className="mt-2 whitespace-pre-line rounded-xl border border-dark-border p-3 text-sm text-gray-300">{theirs ?? 'Not written yet.'}</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400">{party === 'RECIPIENT' ? t.order.storeStatement : t.order.buyerStatement}</p>
+            <p className="mt-2 whitespace-pre-line rounded-xl border border-dark-border p-3 text-sm text-gray-300">{theirs ?? t.order.notWritten}</p>
           </div>
         </div>
       )}

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePublicClient, useReadContract, useReadContracts } from 'wagmi';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
-import { AddressLink, Card, Empty, Loading, NOT_READ, NotAvailable, Notice, PageTitle, ReadError, SectionTitle, Stat } from '../../components/keptra/ui';
+import { AddressLink, Card, Empty, Loading, NotAvailable, Notice, PageTitle, ReadError, SectionTitle, Stat } from '../../components/keptra/ui';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, keptraConfigured } from '../../lib/keptra/contracts';
-import { formatUsdc } from '../../lib/keptra/format';
+import { formatPercent, formatUsdc } from '../../lib/keptra/format';
 import { CHAIN_FAILED, LOADING, chainFailed, type Read } from '../../lib/keptra/reads';
+import { fill, useKeptraCopy } from '../keptra.i18n';
 
 /*
  * /pool — the guarantee pool in public (12.7, 16.6): capital, active coverage,
@@ -22,29 +23,35 @@ import { CHAIN_FAILED, LOADING, chainFailed, type Read } from '../../lib/keptra/
  * written by hand; P6-4: the fees are shown as amounts as well as the split.
  */
 
-const pct = (bps: bigint | number | null | undefined) => (bps === null || bps === undefined ? '…' : `${(Number(bps) / 100).toFixed(2)}%`);
-
 export function PoolPage() {
+  const { t } = useKeptraCopy();
   useEffect(() => {
-    document.title = 'Guarantee pool · Keptra';
-  }, []);
+    document.title = t.pool.metaTitle;
+  }, [t]);
   return (
     <KeptraShell>
-      <PageTitle eyebrow="Public, on-chain" title="Guarantee pool" />
+      <PageTitle eyebrow={t.pool.eyebrow} title={t.pool.title} />
       {keptraConfigured() ? <PoolBody /> : <NotAvailable />}
     </KeptraShell>
   );
 }
 
-/** P6-16: what a figure shows — its value, "Not read" once its read failed (kept while it is read again), or "…" only on the first read. */
-export function figureText(read: { status: 'success'; result: unknown } | { status: 'failure' } | undefined, show: (value: bigint | number) => string, failedBefore: boolean): string {
+/** P6-16: what a figure shows — its value, `notRead` ("Not read", in the page's language) once its read failed (kept while it is read again), or "…" only on the first read. */
+export function figureText(
+  read: { status: 'success'; result: unknown } | { status: 'failure' } | undefined,
+  show: (value: bigint | number) => string,
+  failedBefore: boolean,
+  notRead: string,
+): string {
   if (read?.status === 'success') return show(read.result as bigint | number);
-  if (read?.status === 'failure' || failedBefore) return NOT_READ;
+  if (read?.status === 'failure' || failedBefore) return notRead;
   return '…';
 }
 
 
 function PoolBody() {
+  const { t, lang } = useKeptraCopy();
+  const pct = (bps: bigint | number) => formatPercent(bps, lang);
   // P6-15: one "Try again" for the whole panel — it reads again everything that failed.
   const [attempt, setAttempt] = useState(0);
   const [childFailures, setChildFailures] = useState<Record<string, boolean>>({});
@@ -70,13 +77,13 @@ function PoolBody() {
     const read = itemOf(name);
     if (read?.status === 'failure' || (figures.isError && read === undefined)) failedOnce.current.add(name);
     if (read?.status === 'success') failedOnce.current.delete(name);
-    return figureText(read, show, failedOnce.current.has(name));
+    return figureText(read, show, failedOnce.current.has(name), t.ui.notRead);
   };
   const value = (name: (typeof names)[number]) => {
     const read = itemOf(name);
     return read?.status === 'success' ? (read.result as bigint | number) : null;
   };
-  const splitText = (index: number) => figureText(split.data?.[index] as Parameters<typeof figureText>[0], pct, split.isError);
+  const splitText = (index: number) => figureText(split.data?.[index] as Parameters<typeof figureText>[0], pct, split.isError, t.ui.notRead);
 
   useEffect(() => {
     if (attempt === 0) return;
@@ -86,28 +93,25 @@ function PoolBody() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt]);
 
-  if (source.isError) return <ReadError what="The pool" error={CHAIN_FAILED} onRetry={() => setAttempt((n) => n + 1)} />;
-  if (source.isLoading || pool === undefined || figures.isLoading) return <Loading label="Reading the pool from the chain…" />;
-  if (pool === '0x0000000000000000000000000000000000000000') return <Notice>The guarantee names no pool yet.</Notice>;
+  if (source.isError) return <ReadError what={t.what.pool} error={CHAIN_FAILED} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (source.isLoading || pool === undefined || figures.isLoading) return <Loading label={t.pool.reading} />;
+  if (pool === '0x0000000000000000000000000000000000000000') return <Notice>{t.pool.noPool}</Notice>;
   const anyFailed = chainFailed(figures) || chainFailed(split) || Object.values(childFailures).some(Boolean);
-  const usdcOf = (v: bigint | number) => formatUsdc(BigInt(v));
+  const usdcOf = (v: bigint | number) => formatUsdc(BigInt(v), lang);
   const count = (v: bigint | number) => String(v);
 
   return (
     <div className="space-y-8">
-      <p className="max-w-3xl text-base leading-relaxed text-gray-300">
-        The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the pool, and
-        the brand owes the pool what it paid. Its capital comes from the providers Keptra authorises, listed below.
-      </p>
-      {anyFailed && <ReadError what="Some of the pool's figures" error={CHAIN_FAILED} onRetry={() => setAttempt((n) => n + 1)} />}
+      <p className="max-w-3xl text-base leading-relaxed text-gray-300">{t.pool.intro}</p>
+      {anyFailed && <ReadError what={t.what.poolFigures} error={CHAIN_FAILED} onRetry={() => setAttempt((n) => n + 1)} />}
       <Card>
         <dl className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-6">
-          <Stat label="Capital" value={text('totalAssets', usdcOf)} />
-          <Stat label="Active guarantees" value={text('reservedTotal', usdcOf)} hint="Coverage reserved for live obligations" />
-          <Stat label="Free capacity" value={text('freeCapacity', usdcOf)} hint={`Up to ${text('maxUtilisationBps', pct)} of capital`} />
-          <Stat label="Utilisation" value={text('utilisationBps', pct)} />
-          <Stat label="Risk reserve" value={text('riskReserve', usdcOf)} hint="Absorbs losses before providers" />
-          <Stat label="Losses paid" value={text('lossesPaid', usdcOf)} />
+          <Stat label={t.pool.capital} value={text('totalAssets', usdcOf)} />
+          <Stat label={t.pool.active} value={text('reservedTotal', usdcOf)} hint={t.pool.activeHint} />
+          <Stat label={t.pool.free} value={text('freeCapacity', usdcOf)} hint={fill(t.pool.freeHint, { pct: text('maxUtilisationBps', pct) })} />
+          <Stat label={t.pool.utilisation} value={text('utilisationBps', pct)} />
+          <Stat label={t.pool.reserve} value={text('riskReserve', usdcOf)} hint={t.pool.reserveHint} />
+          <Stat label={t.pool.losses} value={text('lossesPaid', usdcOf)} />
         </dl>
         <PoolMeter capital={value('totalAssets')} reserved={value('reservedTotal')} maxBps={value('maxUtilisationBps')} />
       </Card>
@@ -115,16 +119,16 @@ function PoolBody() {
       {/* Each card as tall as what it holds: no card stretched into an empty box. */}
       <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
         <Card>
-          <SectionTitle>Protection fees</SectionTitle>
+          <SectionTitle>{t.pool.feesTitle}</SectionTitle>
           <dl className="grid grid-cols-2 gap-6">
-            <Stat label="Received by the pool, ever" value={text('feesReceived', usdcOf)} />
-            <Stat label="Withdrawals waiting" value={text('pendingRequests', count)} />
+            <Stat label={t.pool.feesReceived} value={text('feesReceived', usdcOf)} />
+            <Stat label={t.pool.withdrawals} value={text('pendingRequests', count)} />
           </dl>
-          <p className="mt-5 text-sm text-gray-400">Each fee a brand pays is split on-chain:</p>
+          <p className="mt-5 text-sm text-gray-400">{t.pool.splitIntro}</p>
           <dl className="mt-3 grid grid-cols-3 gap-4">
-            <Stat label="Pool" value={splitText(0)} />
-            <Stat label="Risk reserve" value={splitText(1)} />
-            <Stat label="Platform" value={splitText(2)} />
+            <Stat label={t.pool.splitPool} value={splitText(0)} />
+            <Stat label={t.pool.reserve} value={splitText(1)} />
+            <Stat label={t.pool.splitPlatform} value={splitText(2)} />
           </dl>
           <FeesDistributed pool={pool} attempt={attempt} report={reportFailure} />
         </Card>
@@ -132,7 +136,7 @@ function PoolBody() {
       </div>
       <Debts pool={pool} attempt={attempt} report={reportFailure} />
       <p className="text-xs text-gray-400">
-        Pool contract <AddressLink address={pool} /> · Guarantee contract <AddressLink address={KEPTRA_GUARANTEE} />
+        {t.pool.poolContract} <AddressLink address={pool} /> · {t.pool.guaranteeContract} <AddressLink address={KEPTRA_GUARANTEE} />
       </p>
     </div>
   );
@@ -144,6 +148,7 @@ function PoolBody() {
  * drawn for a figure not read. It fills in when the page opens.
  */
 function PoolMeter({ capital, reserved, maxBps }: { capital: bigint | number | null; reserved: bigint | number | null; maxBps: bigint | number | null }) {
+  const { t } = useKeptraCopy();
   if (capital === null || reserved === null || Number(capital) === 0) return null;
   const used = Math.min(1, Number(reserved) / Number(capital));
   const cap = maxBps === null ? null : Math.min(1, Number(maxBps) / 10_000);
@@ -154,8 +159,8 @@ function PoolMeter({ capital, reserved, maxBps }: { capital: bigint | number | n
         {cap !== null && <span className="absolute inset-y-0 w-px bg-gray-300" style={{ left: `${cap * 100}%` }} />}
       </div>
       <div className="mt-2 flex justify-between font-mono text-[11px] text-gray-400">
-        <span>Active guarantees</span>
-        <span>Free capacity</span>
+        <span>{t.pool.active}</span>
+        <span>{t.pool.free}</span>
       </div>
     </div>
   );
@@ -169,15 +174,16 @@ function PoolMeter({ capital, reserved, maxBps }: { capital: bigint | number | n
  * reads as an order.
  */
 function AbsorptionOrder({ reserve, capital }: { reserve: string; capital: string }) {
+  const { t } = useKeptraCopy();
   const layers = [
-    { name: 'Bond', body: "The brand's own deposit, paid first.", figure: null },
-    { name: 'Risk reserve', body: 'Absorbs losses before providers', figure: reserve },
-    { name: 'Capital', body: "The providers' capital, paid last.", figure: capital },
+    { name: t.pool.bond, body: t.pool.bondBody, figure: null },
+    { name: t.pool.reserve, body: t.pool.reserveHint, figure: reserve },
+    { name: t.pool.capital, body: t.pool.capitalBody, figure: capital },
   ];
   return (
     <section aria-labelledby="absorption" className="iw-surface-raised p-5 sm:p-7">
       <h2 id="absorption" className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
-        Who pays when a brand fails
+        {t.pool.absorption}
       </h2>
       <ol className="relative mt-6 grid gap-4 sm:grid-cols-3">
         <span aria-hidden="true" className="absolute left-[1.15rem] top-4 bottom-4 w-px overflow-hidden bg-dark-line sm:left-8 sm:right-8 sm:top-[1.15rem] sm:bottom-auto sm:h-px sm:w-auto">
@@ -210,6 +216,7 @@ type Reporter = (name: string, failed: boolean) => void;
  */
 function FeesDistributed({ pool, attempt, report }: { pool: `0x${string}`; attempt: number; report: Reporter }) {
   const client = usePublicClient();
+  const { t, lang } = useKeptraCopy();
   const [found, setFound] = useState<Read<{ charged: bigint; capital: bigint; reserve: bigint }>>(LOADING);
   useEffect(() => {
     if (!client) return;
@@ -234,15 +241,15 @@ function FeesDistributed({ pool, attempt, report }: { pool: `0x${string}`; attem
   }, [client, pool, attempt]);
   useEffect(() => report('fees', found.status === 'failed'), [found.status, report]);
   const show = (pick: (v: { charged: bigint; capital: bigint; reserve: bigint }) => bigint) =>
-    found.status === 'ready' ? formatUsdc(pick(found.value)) : found.status === 'failed' ? NOT_READ : '…';
+    found.status === 'ready' ? formatUsdc(pick(found.value), lang) : found.status === 'failed' ? t.ui.notRead : '…';
   return (
     <>
-      <p className="mt-5 text-sm text-gray-400">Distributed so far, in USDC:</p>
+      <p className="mt-5 text-sm text-gray-400">{t.pool.distributed}</p>
       <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="Fees charged" value={show((v) => v.charged)} />
-        <Stat label="To the pool" value={show((v) => v.capital)} />
-        <Stat label="To the risk reserve" value={show((v) => v.reserve)} />
-        <Stat label="To the platform" value={show((v) => (v.charged > v.capital + v.reserve ? v.charged - v.capital - v.reserve : 0n))} />
+        <Stat label={t.pool.charged} value={show((v) => v.charged)} />
+        <Stat label={t.pool.toPool} value={show((v) => v.capital)} />
+        <Stat label={t.pool.toReserve} value={show((v) => v.reserve)} />
+        <Stat label={t.pool.toPlatform} value={show((v) => (v.charged > v.capital + v.reserve ? v.charged - v.capital - v.reserve : 0n))} />
       </dl>
     </>
   );
@@ -263,6 +270,7 @@ function Providers({
   report: Reporter;
 }) {
   const client = usePublicClient();
+  const { t, lang } = useKeptraCopy();
   const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
   useEffect(() => {
     if (!client) return;
@@ -292,13 +300,13 @@ function Providers({
   useEffect(() => report('providers', found.status === 'failed' || chainFailed(balances)), [found.status, balances.isError, balances.data, report]);
   return (
     <Card>
-      <SectionTitle>Providers</SectionTitle>
+      <SectionTitle>{t.pool.providers}</SectionTitle>
       {found.status === 'failed' ? (
-        <p className="text-sm text-gray-400">{NOT_READ}</p>
+        <p className="text-sm text-gray-400">{t.ui.notRead}</p>
       ) : providers === null ? (
         <Loading />
       ) : providers.length === 0 ? (
-        <p className="text-sm text-gray-400">No provider authorised yet.</p>
+        <p className="text-sm text-gray-400">{t.pool.noProviders}</p>
       ) : (
         <>
           {/* The shares as one bar: each provider's part of the pool, drawn from the balances read below. */}
@@ -321,14 +329,16 @@ function Providers({
                 <li key={provider} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                   <AddressLink address={provider} />
                   <span className="text-right">
-                    <span className="block font-mono text-white">{share !== null ? `${(share / 100).toFixed(2)}% of the shares` : read?.status === 'failure' || balances.isError ? NOT_READ : '…'}</span>
-                    {held !== null && <span className="block font-mono text-xs text-gray-400">{formatUsdc(held)} of capital</span>}
+                    <span className="block font-mono text-white">
+                      {share !== null ? fill(t.pool.providerShare, { pct: formatPercent(share, lang) }) : read?.status === 'failure' || balances.isError ? t.ui.notRead : '…'}
+                    </span>
+                    {held !== null && <span className="block font-mono text-xs text-gray-400">{fill(t.pool.providerCapital, { amount: formatUsdc(held, lang) })}</span>}
                   </span>
                 </li>
               );
             })}
           </ul>
-          <p className="mt-4 text-xs leading-relaxed text-gray-400">Its capital comes from the providers Keptra authorises. Their capital pays after the brand's bond and the risk reserve.</p>
+          <p className="mt-4 text-xs leading-relaxed text-gray-400">{t.pool.providersNote}</p>
         </>
       )}
     </Card>
@@ -338,6 +348,7 @@ function Providers({
 /** 12.2.3 and H24: what brands owe the pool, from the guarantee's DebtRecorded and the pool's own debtOf. */
 function Debts({ pool, attempt, report }: { pool: `0x${string}`; attempt: number; report: Reporter }) {
   const client = usePublicClient();
+  const { t, lang } = useKeptraCopy();
   const [found, setFound] = useState<Read<`0x${string}`[]>>(LOADING);
   useEffect(() => {
     if (!client) return;
@@ -365,24 +376,24 @@ function Debts({ pool, attempt, report }: { pool: `0x${string}`; attempt: number
     .filter((row) => row.debt === null || row.debt > 0n);
   return (
     <Card>
-      <SectionTitle>Brands' debts</SectionTitle>
+      <SectionTitle>{t.pool.debts}</SectionTitle>
       {found.status === 'failed' || chainFailed(debts) ? (
-        <p className="text-sm text-gray-400">{NOT_READ}</p>
+        <p className="text-sm text-gray-400">{t.ui.notRead}</p>
       ) : brands === null ? (
         <Loading />
       ) : owing.length === 0 ? (
-        <Empty title="No brand owes the pool anything." />
+        <Empty title={t.pool.noDebts} />
       ) : (
         <ul className="divide-y divide-dark-border">
           {owing.map((row) => (
             <li key={row.brand} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
               <AddressLink address={row.brand} />
-              <span className="font-mono text-white">{row.debt === null ? '…' : formatUsdc(row.debt)}</span>
+              <span className="font-mono text-white">{row.debt === null ? '…' : formatUsdc(row.debt, lang)}</span>
             </li>
           ))}
         </ul>
       )}
-      <p className="mt-4 text-xs text-gray-400">A brand with a debt creates no new obligation until it is repaid.</p>
+      <p className="mt-4 text-xs text-gray-400">{t.pool.debtsNote}</p>
     </Card>
   );
 }

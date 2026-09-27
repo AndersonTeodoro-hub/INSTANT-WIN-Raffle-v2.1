@@ -6,6 +6,7 @@ import { createPasskey, passkeyOrigin, signHash } from '../../lib/keptra/webauth
 import { summaryWords } from '../../lib/keptra/format';
 import { trapTarget } from '../../lib/keptra/focus';
 import { AddressLink, Button } from './ui';
+import { useKeptraCopy } from '../../pages/keptra.i18n';
 
 /*
  * The account, the passkey and the relay, for every Keptra screen.
@@ -147,7 +148,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * focus while the bridge prepared, since a busy Button is not disabled (ui.tsx).
  */
 function SignSheet({ summary, onAnswer }: { summary: ActionSummary; onAnswer: (yes: boolean) => void }) {
-  const words = summaryWords(summary);
+  const { t, lang } = useKeptraCopy();
+  const words = summaryWords(summary, lang);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   // The provider hands a new onAnswer on every render; the sheet opens and closes once.
@@ -181,7 +183,7 @@ function SignSheet({ summary, onAnswer }: { summary: ActionSummary; onAnswer: (y
    */
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overscroll-contain sm:items-center sm:p-6" role="presentation">
-      <button type="button" tabIndex={-1} aria-label="Cancel" className="iw-sheet-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => onAnswer(false)} />
+      <button type="button" tabIndex={-1} aria-label={t.sheet.cancel} className="iw-sheet-backdrop absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => onAnswer(false)} />
       <div
         ref={dialogRef}
         role="dialog"
@@ -199,25 +201,25 @@ function SignSheet({ summary, onAnswer }: { summary: ActionSummary; onAnswer: (y
               {words.action}
             </h2>
           </div>
-          <button type="button" onClick={() => onAnswer(false)} className="iw-btn min-h-[44px] min-w-[44px] text-gray-400 hover:text-white" aria-label="Cancel">
+          <button type="button" onClick={() => onAnswer(false)} className="iw-btn min-h-[44px] min-w-[44px] text-gray-400 hover:text-white" aria-label={t.sheet.cancel}>
             <X className="mx-auto h-5 w-5" aria-hidden="true" />
           </button>
         </div>
-        <p className="mt-3 text-sm text-gray-400">Check what this transaction does. Your passkey signs it only after you continue.</p>
+        <p className="mt-3 text-sm text-gray-400">{t.sheet.intro}</p>
         <dl className="mt-5 overflow-hidden rounded-card border border-dark-border bg-black/30 text-sm">
           <div className="grid grid-cols-[7rem_1fr] gap-3 px-4 py-3">
-            <dt className="text-gray-400">Action</dt>
+            <dt className="text-gray-400">{t.sheet.action}</dt>
             <dd className="text-white">{words.action}</dd>
           </div>
           <div className="grid grid-cols-[7rem_1fr] gap-3 border-t border-dark-border px-4 py-3">
-            <dt className="text-gray-400">Amount</dt>
-            <dd className="font-mono text-base font-semibold text-white tabular-nums">{words.amounts.length === 0 ? 'Nothing moves' : words.amounts.join(' and ')}</dd>
+            <dt className="text-gray-400">{t.sheet.amount}</dt>
+            <dd className="font-mono text-base font-semibold text-white tabular-nums">{words.amounts.length === 0 ? t.sheet.nothingMoves : words.amounts.join(t.sheet.and)}</dd>
           </div>
           <div className="grid grid-cols-[7rem_1fr] gap-3 border-t border-dark-border px-4 py-3">
-            <dt className="text-gray-400">Destination</dt>
+            <dt className="text-gray-400">{t.sheet.destination}</dt>
             <dd className="min-w-0 text-white">
               {words.destination === null ? (
-                'None'
+                t.sheet.none
               ) : (
                 <>
                   <span className="block">{words.destination.words}</span>
@@ -229,10 +231,10 @@ function SignSheet({ summary, onAnswer }: { summary: ActionSummary; onAnswer: (y
         </dl>
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button tone="secondary" onClick={() => onAnswer(false)}>
-            Cancel
+            {t.sheet.cancel}
           </Button>
           <Button ref={confirmRef} onClick={() => onAnswer(true)}>
-            Sign with passkey
+            {t.sheet.sign}
           </Button>
         </div>
       </div>

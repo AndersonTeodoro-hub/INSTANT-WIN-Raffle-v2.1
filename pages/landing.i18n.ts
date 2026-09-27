@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 
 // i18n da landing. As strings do jogo (/play/*) vivem em ./app.i18n.ts e
 // partilham o `Lang`, o `useLang` e o localStorage daqui — mudar o idioma num
@@ -143,7 +143,7 @@ const en: LandingCopy = {
     body: 'Transparency your customers can verify is care they can feel — and Keptra makes it a checkbox at checkout, not a project.',
   },
   customers: {
-    title: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the pool.",
+    title: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the risk reserve, then by the pool.",
     body: "You never need to understand how; you can always check that it's true.",
   },
   pool: {
@@ -238,7 +238,7 @@ const pt: LandingCopy = {
     body: 'Transparência que os seus clientes podem verificar é cuidado que eles sentem — e a Keptra torna isso numa opção no checkout, não num projecto.',
   },
   customers: {
-    title: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pelo pool.',
+    title: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
     body: 'Nunca precisa de perceber como; pode sempre conferir que é verdade.',
   },
   pool: {
@@ -333,7 +333,7 @@ const es: LandingCopy = {
     body: 'La transparencia que tus clientes pueden verificar es cuidado que sienten — y Keptra la convierte en una opción en el checkout, no en un proyecto.',
   },
   customers: {
-    title: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por el pool.',
+    title: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por la reserva de riesgo, luego por el pool.',
     body: 'Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
   },
   pool: {
@@ -434,6 +434,19 @@ function readStoredLang(): Lang {
 let currentLang: Lang = readStoredLang();
 const langListeners = new Set<() => void>();
 
+/*
+ * O documento declara a língua do conteúdo: desde que o site carrega (a língua
+ * guardada) e a cada escolha. Todas as páginas seguem o selector — as do Keptra
+ * também, desde a decisão do owner de 27/09/2026 (T17 revista) —, por isso a língua
+ * escolhida é a do conteúdo em qualquer página, e o leitor de ecrã lê-o com a voz
+ * certa. Antes vivia num efeito de useLang, e só se aplicava quando uma página que
+ * o chamava abria.
+ */
+function declareLang(lang: Lang): void {
+  if (typeof document !== 'undefined') document.documentElement.lang = lang;
+}
+declareLang(currentLang);
+
 function subscribeLang(onChange: () => void): () => void {
   langListeners.add(onChange);
   return () => {
@@ -449,6 +462,7 @@ function getLangSnapshot(): Lang {
 export function setLang(next: Lang): void {
   if (next === currentLang) return;
   currentLang = next;
+  declareLang(next);
   try {
     localStorage.setItem(STORAGE_KEY, next);
   } catch {
@@ -459,10 +473,5 @@ export function setLang(next: Lang): void {
 
 export function useLang(): [Lang, (l: Lang) => void] {
   const lang = useSyncExternalStore(subscribeLang, getLangSnapshot, getLangSnapshot);
-
-  useEffect(() => {
-    if (typeof document !== 'undefined') document.documentElement.lang = lang;
-  }, [lang]);
-
   return [lang, setLang];
 }
