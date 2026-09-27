@@ -56,6 +56,8 @@ const en = {
     notAvailableTitle: 'Not available yet',
     notAvailableBody:
       'Keptra orders, offers and the guarantee pool open once their contracts are deployed on Arbitrum One. Nothing here can be paid or signed until then.',
+    /** An amount typed with the other language's decimal sign, a thousands separator or a space (lib/keptra/format.ts decimalText). */
+    amountFormat: 'Write without commas; use a point for cents (e.g. 1500 or 12.50).',
   },
   /** What a read that failed was reading (ui.readError): capitalised in English, where it opens the sentence. */
   what: {
@@ -307,9 +309,11 @@ const en = {
     carrier: 'Carrier, tracked by the Keptra oracle',
     ownMeans: 'The brand itself, with a delivery code',
     shipsWithin: 'Ships within',
-    shipDays: '{n} days of redeeming',
+    shipDaysOne: '{n} day of redeeming',
+    shipDaysMany: '{n} days of redeeming',
     arrivesWithin: 'Arrives within',
-    deliveryDays: '{n} days of shipping',
+    deliveryDaysOne: '{n} day of shipping',
+    deliveryDaysMany: '{n} days of shipping',
     deliversTo: 'Delivers to',
     failNote: "If the brand fails to deliver, you are paid the declared value plus shipping — from the brand's bond first, then from the Keptra guarantee pool.",
     redeem: 'Redeem',
@@ -626,6 +630,7 @@ const pt: KeptraCopy = {
     notAvailableTitle: 'Ainda não disponível',
     notAvailableBody:
       'As encomendas, as ofertas e o pool de garantia da Keptra abrem quando os seus contratos estiverem instalados na Arbitrum One. Até lá, nada aqui pode ser pago nem assinado.',
+    amountFormat: 'Escreva sem pontos; use vírgula para os cêntimos (ex.: 1500 ou 12,50).',
   },
   what: {
     yourAccount: 'a sua conta',
@@ -665,7 +670,7 @@ const pt: KeptraCopy = {
   },
   sheet: {
     cancel: 'Cancelar',
-    intro: 'Confira o que esta transacção faz. A sua passkey só a assina depois de continuar.',
+    intro: 'Verifique o que esta transacção faz. A sua passkey só a assina depois de continuar.',
     action: 'Acção',
     amount: 'Montante',
     destination: 'Destino',
@@ -867,9 +872,11 @@ const pt: KeptraCopy = {
     carrier: 'Transportadora, seguida pelo oráculo da Keptra',
     ownMeans: 'A própria marca, com um código de entrega',
     shipsWithin: 'Envio em',
-    shipDays: '{n} dias após o resgate',
+    shipDaysOne: '{n} dia após o resgate',
+    shipDaysMany: '{n} dias após o resgate',
     arrivesWithin: 'Chegada em',
-    deliveryDays: '{n} dias após o envio',
+    deliveryDaysOne: '{n} dia após o envio',
+    deliveryDaysMany: '{n} dias após o envio',
     deliversTo: 'Entrega em',
     failNote: 'Se a marca não entregar, recebe o valor declarado mais o envio — primeiro da caução da marca, depois do pool de garantia da Keptra.',
     redeem: 'Resgatar',
@@ -916,7 +923,7 @@ const pt: KeptraCopy = {
     capitalBody: 'O capital dos provedores, pago em último lugar.',
     providers: 'Provedores',
     noProviders: 'Ainda nenhum provedor autorizado.',
-    providerShare: '{pct} das quotas',
+    providerShare: '{pct} das participações',
     providerCapital: '{amount} de capital',
     providersNote: 'O seu capital vem dos provedores que a Keptra autoriza. O capital deles paga depois da caução da marca e da reserva de risco.',
     debts: 'Dívidas das marcas',
@@ -998,7 +1005,7 @@ const pt: KeptraCopy = {
   business: {
     metaTitle: 'Empresas · Keptra',
     eyebrow: 'Consola de empresa',
-    ordersTitle: 'Encomendas a cumprir',
+    ordersTitle: 'Encomendas por cumprir',
     offersTitle: 'Ofertas',
     obligationsTitle: 'Obrigações de prémio',
     orderTitle: 'Encomenda #{id}',
@@ -1183,6 +1190,7 @@ const es: KeptraCopy = {
     notAvailableTitle: 'Aún no disponible',
     notAvailableBody:
       'Los pedidos, las ofertas y el pool de garantía de Keptra se abren cuando sus contratos estén desplegados en Arbitrum One. Hasta entonces, aquí no se puede pagar ni firmar nada.',
+    amountFormat: 'Escribe sin puntos; usa coma para los céntimos (ej.: 1500 o 12,50).',
   },
   what: {
     yourAccount: 'tu cuenta',
@@ -1424,9 +1432,11 @@ const es: KeptraCopy = {
     carrier: 'Transportista, seguido por el oráculo de Keptra',
     ownMeans: 'La propia marca, con un código de entrega',
     shipsWithin: 'Se envía en',
-    shipDays: '{n} días desde el canje',
+    shipDaysOne: '{n} día desde el canje',
+    shipDaysMany: '{n} días desde el canje',
     arrivesWithin: 'Llega en',
-    deliveryDays: '{n} días desde el envío',
+    deliveryDaysOne: '{n} día desde el envío',
+    deliveryDaysMany: '{n} días desde el envío',
     deliversTo: 'Entrega en',
     failNote: 'Si la marca no entrega, cobras el valor declarado más el envío — primero de la fianza de la marca, luego del pool de garantía de Keptra.',
     redeem: 'Canjear',

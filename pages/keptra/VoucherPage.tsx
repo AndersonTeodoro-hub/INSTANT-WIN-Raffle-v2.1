@@ -140,8 +140,8 @@ function VoucherBody({ voucherId, status }: { voucherId: string; status: Account
                   [t.voucher.declaredValue, <span className="font-mono">{formatUsdc(terms.price, lang)}</span>],
                   [t.voucher.shippingCovered, <span className="font-mono">{formatUsdc(terms.shipping, lang)}</span>],
                   [t.voucher.deliveredBy, terms.mode === 0 ? t.voucher.carrier : t.voucher.ownMeans],
-                  [t.voucher.shipsWithin, fill(t.voucher.shipDays, { n: terms.shipDays })],
-                  [t.voucher.arrivesWithin, fill(t.voucher.deliveryDays, { n: terms.deliveryDays })],
+                  [t.voucher.shipsWithin, fill(terms.shipDays === 1 ? t.voucher.shipDaysOne : t.voucher.shipDaysMany, { n: terms.shipDays })],
+                  [t.voucher.arrivesWithin, fill(terms.deliveryDays === 1 ? t.voucher.deliveryDaysOne : t.voucher.deliveryDaysMany, { n: terms.deliveryDays })],
                   [t.voucher.deliversTo, regions.map((code) => countryName(code, lang)).join(', ')],
                 ]}
               />

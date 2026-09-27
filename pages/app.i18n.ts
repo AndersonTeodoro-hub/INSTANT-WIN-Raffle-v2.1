@@ -51,9 +51,9 @@ export interface AppCopy {
    * O que é preciso saber antes de jogar, na vista Overview (decisão do owner de
    * 27/09/2026): os textos que a página inicial tinha em 1acef6c
    * (pages/landing.i18n.ts :150, :164, :168, :170), nas três línguas, tal como
-   * estavam — o título das perguntas, a linha "para os jogadores" da tabela
-   * comparativa, e as três respostas: o que é preciso para jogar, para onde vai o
-   * dinheiro dos bilhetes, e a jurisdição.
+   * estavam — a linha "para os jogadores" da tabela comparativa, e as três
+   * respostas: o que é preciso para jogar, para onde vai o dinheiro dos bilhetes,
+   * e a jurisdição. O título da secção é o do owner (commit A4): "Before you play".
    */
   rules: {
     title: string;
@@ -244,7 +244,7 @@ const en: AppCopy = {
     vrfNote: 'Smart Contract verifies winner automatically via Chainlink VRF.',
   },
   rules: {
-    title: 'Good questions.',
+    title: 'Before you play',
     toPlayersLabel: 'To players',
     toPlayers: '85.7% of ticket money over time',
     items: [
@@ -428,7 +428,7 @@ const pt: AppCopy = {
     vrfNote: 'O smart contract verifica o ganhador automaticamente via Chainlink VRF.',
   },
   rules: {
-    title: 'Boas perguntas.',
+    title: 'Antes de jogar',
     toPlayersLabel: 'Para os jogadores',
     toPlayers: '85,7% do dinheiro dos bilhetes ao longo do tempo',
     items: [
@@ -610,7 +610,7 @@ const es: AppCopy = {
     vrfNote: 'El smart contract verifica al ganador automáticamente mediante Chainlink VRF.',
   },
   rules: {
-    title: 'Buenas preguntas.',
+    title: 'Antes de jugar',
     toPlayersLabel: 'Para los jugadores',
     toPlayers: '85,7% del dinero de los boletos con el tiempo',
     items: [

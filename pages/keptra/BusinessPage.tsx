@@ -340,6 +340,7 @@ function RefundForm({ orderId, run, busy }: { orderId: string; run: (amount: str
       onSubmit={(event) => {
         event.preventDefault();
         const value = parseUsdc(amount, lang);
+        if (value === null && amount.trim() !== '') return setError(t.ui.amountFormat);
         if (value === null || value === 0n) return setError(t.business.refundAmountNeeded);
         setError(null);
         run(value.toString());
@@ -408,6 +409,8 @@ function conditionsBody(
 ): { body: Record<string, unknown> } | { error: string } {
   const description = checkDescription({ title: draft.title, text: draft.text });
   if (!description.ok) return { error: description.field === 'title' ? t.business.titleMissing : t.business.describe };
+  // An amount written but not in the language's form is refused with how to write it, never read as another figure.
+  if ([draft.price, draft.shipping, draft.returnCost].some((text) => text.trim() !== '' && parseUsdc(text, lang) === null)) return { error: t.ui.amountFormat };
   const price = parseUsdc(draft.price, lang);
   const shipping = parseUsdc(draft.shipping, lang);
   const returnCost = parseUsdc(draft.returnCost || '0', lang);

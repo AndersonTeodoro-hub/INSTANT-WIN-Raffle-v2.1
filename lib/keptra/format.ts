@@ -47,14 +47,27 @@ export const formatPercent = (bps: bigint | number, lang: Lang = 'en'): string =
   new Intl.NumberFormat(LOCALE[lang], { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(bps) / 10_000);
 
 /**
- * "12.50" from what a person typed, in USDC base units; null when it is not an
- * amount with at most six decimals. In Portuguese and Spanish the page writes
- * "12,50", so one comma is read as the decimal point there; any grouping ("1.234,56",
- * "1 234") is refused, never guessed — the summary shows the amount before the passkey.
+ * An amount a person typed, with its decimal sign written as a point, or null when
+ * it holds the other sign (the owner's decision of 27/09/2026): in Portuguese and
+ * Spanish a comma is the decimal sign and a point is refused ("1500", "12,50"); in
+ * English a point is, and a comma is refused ("1500", "12.50"). A thousands separator
+ * is never read — "1.500" in Portuguese and "1,000" in English are refused, never
+ * guessed. The caller's pattern then allows one decimal sign at most, and no space.
+ */
+export function decimalText(text: string, lang: Lang = 'en'): string | null {
+  const clean = text.trim();
+  if (lang === 'en') return clean.includes(',') ? null : clean;
+  return clean.includes('.') ? null : clean.replace(',', '.');
+}
+
+/**
+ * "12.50" (EN) or "12,50" (PT, ES) from what a person typed, in USDC base units;
+ * null when it is not an amount with at most six decimals written with the
+ * language's decimal sign (decimalText).
  */
 export function parseUsdc(text: string, lang: Lang = 'en'): bigint | null {
-  const clean = lang === 'en' ? text.trim().replace(/,/g, '') : text.trim().replace(',', '.');
-  if (!/^\d{1,12}(\.\d{1,6})?$/.test(clean)) return null;
+  const clean = decimalText(text, lang);
+  if (clean === null || !/^\d{1,12}(\.\d{1,6})?$/.test(clean)) return null;
   const [whole, fraction = ''] = clean.split('.');
   return BigInt(whole) * 10n ** 6n + BigInt(fraction.padEnd(6, '0'));
 }
@@ -70,13 +83,13 @@ export function formatUtc(seconds: string | number | bigint, lang: Lang = 'en'):
   return `${day}, ${time} UTC`;
 }
 
-const TIME_WORDS: Record<Lang, { passed: string; days: string; hours: string; minutes: string }> = {
-  en: { passed: 'passed', days: 'in {n} days', hours: 'in {n} hours', minutes: 'in {n} minutes' },
-  pt: { passed: 'já passou', days: 'dentro de {n} dias', hours: 'dentro de {n} horas', minutes: 'dentro de {n} minutos' },
-  es: { passed: 'ya pasó', days: 'en {n} días', hours: 'en {n} horas', minutes: 'en {n} minutos' },
+const TIME_WORDS: Record<Lang, { passed: string; days: string; hours: string; minute: string; minutes: string }> = {
+  en: { passed: 'passed', days: 'in {n} days', hours: 'in {n} hours', minute: 'in 1 minute', minutes: 'in {n} minutes' },
+  pt: { passed: 'já passou', days: 'dentro de {n} dias', hours: 'dentro de {n} horas', minute: 'dentro de 1 minuto', minutes: 'dentro de {n} minutos' },
+  es: { passed: 'ya pasó', days: 'en {n} días', hours: 'en {n} horas', minute: 'en 1 minuto', minutes: 'en {n} minutos' },
 };
 
-/** "in 3 days" / "in 5 hours" / "passed", against the chain's clock or this device's. */
+/** "in 3 days" / "in 5 hours" / "in 1 minute" / "passed", against the chain's clock or this device's. */
 export function timeLeft(seconds: string | number | bigint, nowSeconds: number, lang: Lang = 'en'): string {
   const words = TIME_WORDS[lang];
   const left = Number(seconds) - nowSeconds;
@@ -85,13 +98,14 @@ export function timeLeft(seconds: string | number | bigint, nowSeconds: number, 
   if (days >= 2) return words.days.replace('{n}', String(days));
   const hours = Math.floor(left / 3_600);
   if (hours >= 2) return words.hours.replace('{n}', String(hours));
-  return words.minutes.replace('{n}', String(Math.max(1, Math.floor(left / 60))));
+  const minutes = Math.max(1, Math.floor(left / 60));
+  return minutes === 1 ? words.minute : words.minutes.replace('{n}', String(minutes));
 }
 
-/** ISO-3166-1 alpha-2 as a country's name in the page's language, through the platform's own table. */
+/** ISO-3166-1 alpha-2 as a country's name in the page's language — Portugal's Portuguese ("Irão", not "Irã") — through the platform's own table. */
 export function countryName(code: string, lang: Lang = 'en'): string {
   try {
-    return new Intl.DisplayNames([lang], { type: 'region' }).of(code) ?? code;
+    return new Intl.DisplayNames([LOCALE[lang]], { type: 'region' }).of(code) ?? code;
   } catch {
     return code;
   }

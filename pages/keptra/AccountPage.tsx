@@ -18,7 +18,7 @@ import {
   type AccountView,
   type Role,
 } from '../../lib/keptra/api';
-import { formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
+import { decimalText, formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
 import { CHAIN_FAILED } from '../../lib/keptra/reads';
 import { around, fill, useKeptraCopy } from '../keptra.i18n';
 
@@ -185,9 +185,11 @@ function SendPrize() {
       // P6-7: without the token's decimals read, no amount is computed — never with decimals nobody read.
       if (decimals.data === undefined) return setMessage({ tone: 'error', text: decimals.isError ? t.account.tokenUnread : t.account.tokenReading });
       const places = Number(decimals.data);
-      // In Portuguese and Spanish the decimal point is written as a comma (lib/keptra/format.ts parseUsdc).
-      const clean = lang === 'en' ? amount.trim() : amount.trim().replace(',', '.');
-      if (!new RegExp(`^\\d{1,24}(\\.\\d{1,${places}})?$`).test(clean)) return setMessage({ tone: 'error', text: t.account.amountNeeded });
+      // The language's own decimal sign, and no thousands separator (lib/keptra/format.ts decimalText).
+      const clean = decimalText(amount, lang);
+      if (clean === null || !new RegExp(`^\\d{1,24}(\\.\\d{1,${places}})?$`).test(clean)) {
+        return setMessage({ tone: 'error', text: amount.trim() === '' ? t.account.amountNeeded : t.ui.amountFormat });
+      }
       const [whole, fraction = ''] = clean.split('.');
       value = BigInt(whole) * 10n ** BigInt(places) + BigInt(fraction.padEnd(places, '0') || '0');
     }
@@ -320,6 +322,7 @@ function SendUsdc({ role, onSent }: { role: Role; onSent: () => void }) {
     setMessage(null);
     const value = parseUsdc(amount, lang);
     if (!/^0x[0-9a-fA-F]{40}$/.test(to.trim())) return setMessage({ tone: 'error', text: t.account.addressNeeded });
+    if (value === null && amount.trim() !== '') return setMessage({ tone: 'error', text: t.ui.amountFormat });
     if (value === null || value === 0n) return setMessage({ tone: 'error', text: t.account.usdcAmountNeeded });
     setBusy(true);
     const outcome = await relay({ kind: 'transferUsdc', to: to.trim(), amount: value.toString(), ...(role === 'CREATOR' ? { role: 'CREATOR' } : {}) });

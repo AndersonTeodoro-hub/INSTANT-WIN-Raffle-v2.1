@@ -1019,9 +1019,9 @@ await test(['AT17', 'AU3'], 'T17 as the owner revised it on 27/09/2026, and U3: 
   assert.equal(format.formatUsdc(12_345_000_000n, 'es'), '12.345,00 USDC');
   assert.equal(format.formatPercent(1250), '12.50%');
   assert.match(format.formatPercent(1250, 'es'), /^12,50\s?%$/u);
-  // A decimal comma is read as the decimal point in Portuguese and Spanish; a grouping is refused, never guessed.
+  // The language's own decimal sign — a comma in Portuguese and Spanish — and never a thousands separator (LK12).
   assert.equal(format.parseUsdc('12,5', 'pt'), 12_500_000n);
-  assert.equal(format.parseUsdc('12.5', 'es'), 12_500_000n);
+  assert.equal(format.parseUsdc('12.5', 'es'), null);
   assert.equal(format.parseUsdc('1.234,56', 'es'), null);
   assert.equal(format.parseUsdc('1 234,56', 'pt'), null);
   assert.equal(format.timeLeft(3 * 86_400 + 10, 0, 'pt'), 'dentro de 3 dias');
@@ -2158,4 +2158,64 @@ await test(['LK11'], 'no translation key is left unused: every word of the Keptr
   const rulesKeys = [...read('pages/app.i18n.ts').match(/ {2}rules: \{\n([\s\S]*?)\n {2}\};/)[1].matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]);
   assert.deepEqual(rulesKeys, ['title', 'toPlayersLabel', 'toPlayers', 'items']);
   for (const key of rulesKeys) assert.match(dashboard, new RegExp(`c\\.rules\\.${key}\\b`), `rules.${key} is not used`);
+});
+
+// ---------------------------------------------------------------------------
+// Commit A4 — the owner's decisions of 27/09/2026 after the audit of A3.
+// ---------------------------------------------------------------------------
+
+await test(['LK12'], 'an amount a person types is read in the form of the page’s language — in Portuguese and Spanish one comma for the cents and no point, in English one point and no comma — and anything else is refused with how to write it, never read as another figure; every amount field of the Keptra pages says so (checked in the source)', async () => {
+  const USDC = { '1.500': 1_500_000n, '1,000': 1_000_000n, '12,50': 12_500_000n, '12.50': 12_500_000n };
+  const expected = {
+    en: { '1.500': USDC['1.500'], '1,000': null, '12,50': null, '12.50': USDC['12.50'], '1 234': null },
+    pt: { '1.500': null, '1,000': USDC['1,000'], '12,50': USDC['12,50'], '12.50': null, '1 234': null },
+    es: { '1.500': null, '1,000': USDC['1,000'], '12,50': USDC['12,50'], '12.50': null, '1 234': null },
+  };
+  for (const [lang, values] of Object.entries(expected)) {
+    for (const [text, value] of Object.entries(values)) assert.equal(format.parseUsdc(text, lang), value, `${lang} "${text}"`);
+  }
+  // Unchanged: at most six decimals, a whole number, one sign at most.
+  assert.equal(format.parseUsdc('1500', 'pt'), 1_500_000_000n);
+  assert.equal(format.parseUsdc('0,000001', 'es'), 1n);
+  assert.equal(format.parseUsdc('1,1234567', 'pt'), null);
+  assert.equal(format.parseUsdc('1,2,3', 'pt'), null);
+  assert.equal(format.parseUsdc('1.2.3', 'en'), null);
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  assert.equal(k.en.ui.amountFormat, 'Write without commas; use a point for cents (e.g. 1500 or 12.50).');
+  assert.equal(k.pt.ui.amountFormat, 'Escreva sem pontos; use vírgula para os cêntimos (ex.: 1500 ou 12,50).');
+  assert.equal(k.es.ui.amountFormat, 'Escribe sin puntos; usa coma para los céntimos (ej.: 1500 o 12,50).');
+  // Every amount field: the send-USDC and prize forms (account), the refund and the offer's and obligation's conditions (console).
+  const account = codeOf('pages/keptra/AccountPage.tsx');
+  assert.match(account, /if \(value === null && amount\.trim\(\) !== ''\) return setMessage\(\{ tone: 'error', text: t\.ui\.amountFormat \}\);/);
+  assert.match(account, /const clean = decimalText\(amount, lang\);/);
+  assert.match(account, /amount\.trim\(\) === '' \? t\.account\.amountNeeded : t\.ui\.amountFormat/);
+  const business = codeOf('pages/keptra/BusinessPage.tsx');
+  assert.match(business, /if \(value === null && amount\.trim\(\) !== ''\) return setError\(t\.ui\.amountFormat\);/);
+  assert.match(business, /\[draft\.price, draft\.shipping, draft\.returnCost\]\.some\(\(text\) => text\.trim\(\) !== '' && parseUsdc\(text, lang\) === null\)\) return \{ error: t\.ui\.amountFormat \}/);
+  // No amount is read without the page's language.
+  for (const path of KEPTRA_PAGES) {
+    for (const m of codeOf(path).matchAll(/\b(?:parseUsdc|decimalText)\(([^()]*)\)/g)) assert.match(m[1], /, lang$/, `${path}: ${m[0]}`);
+  }
+});
+
+await test(['LK13'], 'the words the audit of A3 named: the countries in Portugal’s Portuguese, one minute and one day in the singular, “Verifique”, “Encomendas por cumprir”, “das participações”, and /play’s section titled “Before you play” in the three languages (the voucher page and /play’s copy checked in the source)', async () => {
+  assert.deepEqual(['IR', 'VN', 'PL', 'KE'].map((c) => format.countryName(c, 'pt')), ['Irão', 'Vietname', 'Polónia', 'Quénia']);
+  assert.deepEqual(['IR', 'PL'].map((c) => format.countryName(c, 'en')), ['Iran', 'Poland']);
+  assert.deepEqual(['IR', 'PL'].map((c) => format.countryName(c, 'es')), ['Irán', 'Polonia']);
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => format.timeLeft(90, 0, lang)), ['in 1 minute', 'dentro de 1 minuto', 'en 1 minuto']);
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => format.timeLeft(150, 0, lang)), ['in 2 minutes', 'dentro de 2 minutos', 'en 2 minutos']);
+  const { keptraTranslations: k, fill } = await import('../../../pages/keptra.i18n.ts');
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => fill(k[lang].voucher.shipDaysOne, { n: 1 })), ['1 day of redeeming', '1 dia após o resgate', '1 día desde el canje']);
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => fill(k[lang].voucher.deliveryDaysOne, { n: 1 })), ['1 day of shipping', '1 dia após o envio', '1 día desde el envío']);
+  const voucher = codeOf('pages/keptra/VoucherPage.tsx');
+  assert.match(voucher, /terms\.shipDays === 1 \? t\.voucher\.shipDaysOne : t\.voucher\.shipDaysMany/);
+  assert.match(voucher, /terms\.deliveryDays === 1 \? t\.voucher\.deliveryDaysOne : t\.voucher\.deliveryDaysMany/);
+  assert.match(k.pt.sheet.intro, /^Verifique o que esta transacção faz\./);
+  assert.equal(k.pt.business.ordersTitle, 'Encomendas por cumprir');
+  assert.equal(k.pt.pool.providerShare, '{pct} das participações');
+  // /play's copy, one block per language (as LK10 reads it).
+  const source = read('pages/app.i18n.ts');
+  const starts = ['en', 'pt', 'es'].map((lang) => source.indexOf(`const ${lang}: AppCopy = {`));
+  const titles = starts.map((start, index) => source.slice(start, starts[index + 1] ?? undefined).match(/ {2}rules: \{\n {4}title: '([^']*)',/)?.[1]);
+  assert.deepEqual(titles, ['Before you play', 'Antes de jogar', 'Antes de jugar']);
 });
