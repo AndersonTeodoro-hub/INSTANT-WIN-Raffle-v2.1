@@ -5,6 +5,11 @@ import { FilmAnchor, FilmSection, useFilmMode, type KeySpec } from './Film';
 /**
  * Um capítulo do filme: o texto num lado, a cena no outro (no telemóvel, a cena
  * em cima e o texto em baixo). Fixado enquanto a cena muda de forma.
+ *
+ * `figure`: um diagrama no lugar da cena (components/proof, commit B de
+ * 27/09/2026). Desenhado no DOM, entra e sai com o texto do capítulo; a cena
+ * espera por trás dele, escondida (chaves com alpha 0), e não tem legenda — os
+ * rótulos do diagrama dizem o que ele mostra.
  */
 export function Chapter({
   id,
@@ -13,6 +18,8 @@ export function Chapter({
   dense = false,
   label,
   caption,
+  figure,
+  figureClassName = 'max-w-[34rem]',
   children,
 }: {
   id: string;
@@ -21,8 +28,11 @@ export function Chapter({
   /** Muito texto ao lado: no telemóvel a forma encolhe, para o capítulo fixado caber no ecrã. */
   dense?: boolean;
   label: string;
-  /** O que a forma representa neste capítulo, em linguagem simples. */
-  caption: string;
+  /** O que a forma representa neste capítulo, em linguagem simples (sem `figure`). */
+  caption?: string;
+  figure?: React.ReactNode;
+  /** A largura do diagrama: no telemóvel, limitada pela altura do ecrã, como a forma que substitui. */
+  figureClassName?: string;
   children: React.ReactNode;
 }) {
   const live = useFilmMode() === 'live';
@@ -31,22 +41,33 @@ export function Chapter({
       <div
         className={clsx(
           'container mx-auto grid max-w-6xl gap-8 px-5 sm:px-6 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)] lg:items-center lg:gap-16',
-          live ? 'h-full content-center pb-16 pt-28 md:pt-24 lg:py-0' : 'py-16 sm:py-24',
+          // Below lg the header is two rows (117px): the chapter starts under it, and a
+          // chapter taller than the screen overflows at the foot, never under it.
+          live ? 'h-full [align-content:safe_center] pb-6 pt-[7.75rem] lg:py-0' : 'py-16 sm:py-24',
         )}
       >
         <div className="min-w-0 lg:order-2">
-          <FilmAnchor
-            keys={keys}
-            className={clsx(
-              'mx-auto w-full',
-              wide
-                ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_27rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
-                : dense
-                  ? 'aspect-square max-w-[min(64vw,max(11rem,calc(100svh_-_33rem)))] lg:max-w-[min(32rem,70svh)]'
-                  : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
-            )}
-          />
-          <SceneCaption text={caption} />
+          {figure ? (
+            <div className={clsx('relative mx-auto w-full', figureClassName)}>
+              <FilmAnchor keys={keys} ghost className="pointer-events-none absolute inset-0" />
+              <div data-film-panel>{figure}</div>
+            </div>
+          ) : (
+            <>
+              <FilmAnchor
+                keys={keys}
+                className={clsx(
+                  'mx-auto w-full',
+                  wide
+                    ? 'aspect-[4/3] max-w-[min(92vw,calc((100svh_-_32rem)_*_1.33))] lg:max-w-[min(40rem,calc(70svh_*_1.33))]'
+                    : dense
+                      ? 'aspect-square max-w-[min(64vw,max(11rem,calc(100svh_-_33rem)))] lg:max-w-[min(32rem,70svh)]'
+                      : 'aspect-square max-w-[min(80vw,calc(100svh_-_27rem))] lg:max-w-[min(32rem,70svh)]',
+                )}
+              />
+              <SceneCaption text={caption ?? ''} />
+            </>
+          )}
         </div>
         <div data-film-panel className="min-w-0 lg:order-1">
           {children}
@@ -72,7 +93,8 @@ export function ChapterHead({ index, label, title, sentence = false, center = fa
       <h2
         className={clsx(
           'mt-4 font-display font-bold tracking-tight text-white',
-          sentence ? 'text-[clamp(1.85rem,6vw,2.6rem)] leading-[1.08]' : 'text-[clamp(2.25rem,8vw,3.75rem)] leading-[1.02]',
+          // On a short phone the sentence steps down, so the pinned chapter keeps its drawing and its last link.
+          sentence ? 'text-[clamp(1.85rem,6vw,2.6rem)] leading-[1.08] max-lg:[@media(max-height:700px)]:text-[1.6rem]' : 'text-[clamp(2.25rem,8vw,3.75rem)] leading-[1.02]',
         )}
       >
         {title}

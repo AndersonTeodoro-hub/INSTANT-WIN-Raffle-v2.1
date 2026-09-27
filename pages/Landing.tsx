@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
-import { ArrowRight, ExternalLink, Ticket, Gift, CalendarDays } from 'lucide-react';
+import { ArrowRight, ExternalLink, Ticket, Gift, CalendarDays, PackageCheck, type LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { useLang, translations, type Lang } from './landing.i18n';
@@ -10,6 +10,9 @@ import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
 import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { EscrowFlow } from '../components/proof/EscrowFlow';
+import { BrandFlow } from '../components/proof/BrandFlow';
+import { PurchaseFlow } from '../components/proof/PurchaseFlow';
+import { PoolFlow } from '../components/proof/PoolFlow';
 import { ContactEmail } from '../components/ContactEmail';
 import { useLatestDraw } from '../components/proof/useLatestDraw';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
@@ -25,20 +28,24 @@ const contractLinks = [
 ];
 
 /**
- * Os três módulos da Keptra. Emparelham posicionalmente com
- * `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade do
- * módulo: nome, rota, ícone e estado.
+ * Os cartões da grelha: a entrega verificada à frente (decisão do owner de
+ * 27/09/2026, commit B) e os três módulos da Keptra. Emparelham posicionalmente
+ * com `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade
+ * do cartão: nome, rota, ícone e estado. A entrega verificada não tem nome aqui:
+ * o seu traduz-se, e vem de `copy.modules.items[0].name`.
  *
  * `live` é a única autorização de verde nesta secção: verde significa
  * "verificável agora". Lido na cadeia a 25/09/2026: a RaffleManagerV3 não está
  * pausada e tem uma ronda aberta; a GiveawayManagerV2 (Giveaways e Event
- * Center) não está pausada e tem a campanha 2 liquidada.
+ * Center) não está pausada e tem a campanha 2 liquidada. A 27/09/2026: o
+ * KeptraEscrow não está pausado.
  */
-const MODULES = [
+const MODULES: readonly { name?: string; to: string; icon: LucideIcon; live: boolean }[] = [
+  { to: '/business', icon: PackageCheck, live: true },
   { name: 'INSTANT WIN', to: '/play', icon: Ticket, live: true },
   { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: true },
   { name: 'EVENT CENTER', to: '/events', icon: CalendarDays, live: true },
-] as const;
+];
 
 /**
  * Tornar-se provedor é um pedido, nunca um depósito: os provedores do pool são
@@ -51,19 +58,37 @@ const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 /*
  * O filme: onde a cena está em cada capítulo e que forma mostra
- * (components/film/Film.tsx, lib/proof/scene.ts). A primeira tela é do diagrama
- * (components/proof/EscrowFlow.tsx): a cena espera debaixo dele, escondida, e
- * entra com o capítulo 02. O guilloché fica como assinatura — no nó da Keptra do diagrama, e
- * nos capítulos — não como explicação.
+ * (components/film/Film.tsx, lib/proof/scene.ts). A primeira tela e os capítulos
+ * 02 a 04 são de diagramas (components/proof: EscrowFlow, BrandFlow, PurchaseFlow,
+ * PoolFlow — commit B de 27/09/2026, o 03 refeito no B8): a cena espera por trás
+ * deles, escondida (alpha 0), e só aparece com os módulos (05) e o fecho (06). O guilloché fica como
+ * assinatura — no nó da Keptra dos diagramas, e nos capítulos 05 e 06 — não como
+ * explicação.
  */
 const KEYS = {
   hero: [{ at: 0, shape: 'rosette', alpha: 0, zoom: 0.8 }],
-  brands: [{ at: 0.2, shape: 'block', yaw: 0.62, pitch: -0.5, zoom: 0.88, tint: 0.12 }],
-  customers: [{ at: 0.2, shape: 'escrow', flow: 1, zoom: 0.86, pitch: -0.32 }],
-  pool: [{ at: 0.2, shape: 'rings', zoom: 0.78, pitch: -0.5, spin: 0.03 }],
+  brands: [{ at: 0.2, shape: 'rosette', alpha: 0, zoom: 0.8 }],
+  customers: [{ at: 0.2, shape: 'rosette', alpha: 0, zoom: 0.8 }],
+  pool: [{ at: 0.2, shape: 'modules', alpha: 0, zoom: 0.84, pitch: -0.3 }],
   modules: [{ at: 0.25, shape: 'modules', zoom: 0.84, pitch: -0.3 }],
   close: [{ at: 0.4, shape: 'rosette', zoom: 0.92, pitch: -0.3, spin: 0.05 }],
 } satisfies Record<string, KeySpec[]>;
+
+/*
+ * A largura de cada diagrama no telemóvel com o filme fixado, pela altura do ecrã:
+ * o que sobra dela depois do texto do capítulo, do cabeçalho e das margens
+ * (Chapter.tsx), na proporção de cada desenho — para o capítulo fixado caber num 375×667 com o
+ * último link à vista (decisão do owner de 27/09/2026, commit B). Abaixo da largura
+ * em que os rótulos de um desenho ainda se lêem (o 02 perto de 270px, o 04 perto
+ * de 290px), o desenho sai no filme fixado e fica o texto: no 02 abaixo de 840px de
+ * altura, no 04 abaixo de 720px. Na versão parada nada está fixado: o desenho tem a
+ * largura toda.
+ */
+const FIGURE_WIDTH = {
+  brands: 'max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc((100svh_-_42rem)*1.6))] [.film-live_&]:max-lg:[@media(max-height:840px)]:hidden',
+  customers: 'max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc((100svh_-_29rem)*1.76))]',
+  pool: 'max-w-[34rem] [.film-live_&]:max-lg:max-w-[min(34rem,calc((100svh_-_33.5rem)*1.65))] [.film-live_&]:max-lg:[@media(max-height:720px)]:hidden',
+} as const;
 
 type Copy = (typeof translations)['en'];
 
@@ -116,6 +141,14 @@ export const Landing: React.FC = () => {
   const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER);
   const [brandsWho, brandsWhat] = t.hero.ctaBrands.split(' — ');
   const [customersWho] = t.hero.ctaCustomers.split(' — ');
+  // Os diagramas dos capítulos 02 a 04 (commit B): cliente, loja, escrow e oráculo vêm do diagrama da primeira tela.
+  const brandFlow = (
+    <BrandFlow copy={{ ...t.diagrams.brand, customer: t.flow.customer, escrow: t.flow.escrow, oracle: t.flow.oracle, proven: t.flow.proven }} proof={proof} />
+  );
+  const purchaseFlow = (
+    <PurchaseFlow copy={{ ...t.diagrams.purchase, customer: t.flow.customer, store: t.flow.store, escrow: t.flow.escrow }} proof={proof} />
+  );
+  const poolFlow = <PoolFlow copy={t.diagrams.pool} active={pool.active} free={pool.free} />;
 
   // O separador diz o produto e a página, como na /giveaways e na /roadmap; o do
   // index.html (Keptra) volta à saída.
@@ -175,16 +208,18 @@ export const Landing: React.FC = () => {
           </FilmSection>
 
           {/* 02 — Para marcas. */}
-          <Chapter id="for-brands" keys={KEYS.brands} label={brandsWho} caption={t.film.captions.brand}>
+          <Chapter id="for-brands" keys={KEYS.brands} label={brandsWho} figure={brandFlow} figureClassName={FIGURE_WIDTH.brands}>
             <ChapterHead index={2} label={brandsWho} title={t.brands.title} sentence />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.brands.body}</p>
+            <p className="mt-3 max-w-[46ch] text-sm sm:text-base leading-relaxed text-gray-300">{t.brands.proof}</p>
+            <p className="mt-3 max-w-[46ch] text-sm leading-relaxed text-gray-400">{t.brands.next}</p>
             <Link to="/business" className={clsx(QUIET_LINK, 'mt-4')}>
               {brandsWhat} <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </Chapter>
 
-          {/* 03 — Para clientes: o destino do segundo botão da primeira tela. */}
-          <Chapter id="for-customers" keys={KEYS.customers} wide label={customersWho} caption={t.film.captions.escrow}>
+          {/* 03 — Para clientes: o destino do segundo botão da primeira tela; o diagrama é o de uma compra (B8). */}
+          <Chapter id="for-customers" keys={KEYS.customers} label={customersWho} figure={purchaseFlow} figureClassName={FIGURE_WIDTH.customers}>
             <ChapterHead index={3} label={customersWho} title={t.customers.title} sentence />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.customers.body}</p>
             <Link to="/pool" className={clsx(QUIET_LINK, 'mt-4')}>
@@ -193,7 +228,7 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           {/* 04 — O pool de garantia: discreto, e cada número lido da cadeia. */}
-          <Chapter id="film-pool" keys={KEYS.pool} dense label={t.pool.label} caption={t.film.captions.pool}>
+          <Chapter id="film-pool" keys={KEYS.pool} label={t.pool.label} figure={poolFlow} figureClassName={FIGURE_WIDTH.pool}>
             <ChapterHead index={4} label={t.pool.label} title={t.pool.title} sentence />
             <dl className="mt-5 grid max-w-md grid-cols-3 gap-4 border-y border-dark-border py-3">
               <PoolStat label={t.pool.capital} value={pool.capital} t={t} lang={lang} />
@@ -222,7 +257,7 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           <section className="relative z-10 px-5 sm:px-6 pb-16 md:pb-24">
-            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {MODULES.map((m, i) => {
                 const copy = t.modules.items[i];
                 const Icon = m.icon;
@@ -240,7 +275,7 @@ export const Landing: React.FC = () => {
                       {m.live && <span className="iw-live" aria-hidden="true" />}
                       {copy.badge}
                     </span>
-                    <h3 className={clsx('font-display font-bold mb-3', m.live ? 'text-2xl sm:text-3xl text-white' : 'text-xl sm:text-2xl text-gray-200')}>{m.name}</h3>
+                    <h3 className={clsx('font-display font-bold mb-3', m.live ? 'text-2xl sm:text-3xl text-white' : 'text-xl sm:text-2xl text-gray-200')}>{copy.name ?? m.name}</h3>
                     <p className="text-gray-400 leading-relaxed flex-1">{copy.body}</p>
                     <span className={clsx('inline-flex items-center gap-2 min-h-[44px] mt-5 font-bold text-sm', m.live ? 'text-white' : 'text-gray-400 group-hover:text-white')}>
                       {copy.cta}

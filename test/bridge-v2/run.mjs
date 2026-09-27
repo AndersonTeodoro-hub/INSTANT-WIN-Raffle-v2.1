@@ -126,7 +126,8 @@ const REQUIREMENTS = [
   // Commit A4 (the owner's decisions after the audit of A3): LK12 — an amount is
   // read in the form of the page's language, anything else refused with how to
   // write it — and LK13 — the words the audit named, and /play's section title.
-  ...Array.from({ length: 13 }, (_unused, index) => `LK${index + 1}`),
+  // Commit B (the owner's decisions after A4, feat/landing-keptra-b): LK14 on — the chapters' diagrams first, LK15 the home page's new texts and card, LK16 /business for brands without a session, LK17 /roadmap, LK18 Portugal's Portuguese, LK19 the voucher's three layers, LK20 small phones.
+  ...Array.from({ length: 20 }, (_unused, index) => `LK${index + 1}`),
 ];
 
 for (const path of SUITES) {

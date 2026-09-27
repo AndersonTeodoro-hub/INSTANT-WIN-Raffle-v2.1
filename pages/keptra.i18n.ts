@@ -81,6 +81,7 @@ const en = {
     yourOffers: 'Your offers',
     itsConditions: 'Its conditions',
     yourObligations: 'Your obligations',
+    brandTerms: 'The terms of a new brand',
   },
   /**
    * The sentences this app writes itself when something fails (lib/keptra/api.ts,
@@ -315,7 +316,12 @@ const en = {
     deliveryDaysOne: '{n} day of shipping',
     deliveryDaysMany: '{n} days of shipping',
     deliversTo: 'Delivers to',
-    failNote: "If the brand fails to deliver, you are paid the declared value plus shipping — from the brand's bond first, then from the Keptra guarantee pool.",
+    /**
+     * The order the contracts pay in (commit B, read at 5d85a46): the bond
+     * (KeptraGuarantee.settleUnit), then the risk reserve, then the pool's capital
+     * (KeptraPool.payCoverage, H25).
+     */
+    failNote: "If the brand fails to deliver, you are paid the declared value plus shipping — from the brand's bond first, then from the risk reserve, then from the Keptra guarantee pool.",
     redeem: 'Redeem',
     noLonger: 'This voucher can no longer be redeemed.',
     descriptionUnread: 'The prize’s description could not be read, so it cannot be redeemed until it is.',
@@ -331,7 +337,7 @@ const en = {
     reading: 'Reading the pool from the chain…',
     noPool: 'The guarantee names no pool yet.',
     intro:
-      "The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the pool, and the brand owes the pool what it paid. Its capital comes from the providers Keptra authorises, listed below.",
+      "The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the risk reserve, then from the pool, and the brand owes back what the reserve and the pool paid. Its capital comes from the providers Keptra authorises, listed below.",
     capital: 'Capital',
     active: 'Active guarantees',
     activeHint: 'Coverage reserved for live obligations',
@@ -591,6 +597,37 @@ const en = {
     entries: 'Entries allowed',
     createCampaign: 'Review and create campaign',
   },
+  /**
+   * /business without a session (the owner's decision of 27/09/2026, commit B): a
+   * short explanation for brands above the sign-in panel. What the brand gains is
+   * the home page's chapter 02 (landing.i18n.ts brands); the costs are only what the
+   * contracts say, read on-chain — `{percent}` and `{amount}` are those reads.
+   */
+  brandPitch: {
+    title: 'Offer verified delivery',
+    gainTitle: 'What your brand gains',
+    howTitle: 'How it works',
+    howSteps: [
+      'The brand publishes the offer.',
+      'The customer pays into escrow.',
+      'The brand ships with tracking.',
+      'An independent oracle proves the delivery.',
+      'The brand is paid.',
+    ],
+    costTitle: 'What it costs, and what the brand deposits',
+    /** {tier}: the tier the contract gives a brand with no history yet. */
+    costIntro: 'Read on-chain: the terms of a brand with no history yet (tier {tier}).',
+    saleFee: 'Fee per sale',
+    talkToUs: 'Talk to us',
+    saleDeposit: 'Deposit to sell',
+    noDeposit: "None: the customer's payment waits in escrow.",
+    prizeBond: 'Bond for a prize',
+    prizeBondValue: '{percent} of the declared value plus shipping, per voucher',
+    protection: 'Protection fee for a prize',
+    protectionValue: '{percent} of what the bond does not cover, paid when the prize is created',
+    coverageLimit: 'Coverage limit',
+    coverageLimitValue: "{amount} covered at once, across the brand's prizes",
+  },
   privacy: {
     metaTitle: 'Privacy · Keptra',
     title: 'Privacy',
@@ -653,6 +690,7 @@ const pt: KeptraCopy = {
     yourOffers: 'as suas ofertas',
     itsConditions: 'as suas condições',
     yourObligations: 'as suas obrigações',
+    brandTerms: 'as condições de uma marca nova',
   },
   errors: {
     network: 'A rede não respondeu. Verifique a sua ligação e tente de novo.',
@@ -878,7 +916,7 @@ const pt: KeptraCopy = {
     deliveryDaysOne: '{n} dia após o envio',
     deliveryDaysMany: '{n} dias após o envio',
     deliversTo: 'Entrega em',
-    failNote: 'Se a marca não entregar, recebe o valor declarado mais o envio — primeiro da caução da marca, depois do pool de garantia da Keptra.',
+    failNote: 'Se a marca não entregar, recebe o valor declarado mais o envio — primeiro da caução da marca, depois da reserva de risco, depois do pool de garantia da Keptra.',
     redeem: 'Resgatar',
     noLonger: 'Este voucher já não pode ser resgatado.',
     descriptionUnread: 'Não foi possível ler a descrição do prémio, por isso não pode ser resgatado até o ser.',
@@ -894,7 +932,7 @@ const pt: KeptraCopy = {
     reading: 'A ler o pool da blockchain…',
     noPool: 'A garantia ainda não indica nenhum pool.',
     intro:
-      'O pool sustenta as obrigações de prémio das marcas até um limite, depois da caução da própria marca. Quando uma marca falha, o vencedor é pago primeiro pela caução, depois pelo pool, e a marca fica a dever ao pool o que ele pagou. O seu capital vem dos provedores que a Keptra autoriza, listados abaixo.',
+      'O pool sustenta as obrigações de prémio das marcas até um limite, depois da caução da própria marca. Quando uma marca falha, o vencedor é pago primeiro pela caução, depois pela reserva de risco, depois pelo pool, e a marca fica a dever o que a reserva e o pool pagaram. O seu capital vem dos provedores que a Keptra autoriza, listados abaixo.',
     capital: 'Capital',
     active: 'Garantias activas',
     activeHint: 'Cobertura reservada para obrigações em vigor',
@@ -1153,6 +1191,30 @@ const pt: KeptraCopy = {
     entries: 'Participações permitidas',
     createCampaign: 'Rever e criar campanha',
   },
+  brandPitch: {
+    title: 'Ofereça entrega verificada',
+    gainTitle: 'O que a sua marca ganha',
+    howTitle: 'Como funciona',
+    howSteps: [
+      'A marca publica a oferta.',
+      'O cliente paga para o escrow.',
+      'A marca envia com tracking.',
+      'Um oráculo independente prova a entrega.',
+      'A marca recebe o pagamento.',
+    ],
+    costTitle: 'O que custa e o que a marca deposita',
+    costIntro: 'Lido on-chain: as condições de uma marca ainda sem histórico (nível {tier}).',
+    saleFee: 'Taxa por venda',
+    talkToUs: 'Fale connosco',
+    saleDeposit: 'Depósito para vender',
+    noDeposit: 'Nenhum: o pagamento do cliente espera no escrow.',
+    prizeBond: 'Caução de um prémio',
+    prizeBondValue: '{percent} do valor declarado mais o envio, por voucher',
+    protection: 'Taxa de protecção de um prémio',
+    protectionValue: '{percent} do que a caução não cobre, paga ao criar o prémio',
+    coverageLimit: 'Limite de cobertura',
+    coverageLimitValue: '{amount} cobertos ao mesmo tempo, em todos os prémios da marca',
+  },
   privacy: {
     metaTitle: 'Privacidade · Keptra',
     title: 'Privacidade',
@@ -1213,6 +1275,7 @@ const es: KeptraCopy = {
     yourOffers: 'tus ofertas',
     itsConditions: 'sus condiciones',
     yourObligations: 'tus obligaciones',
+    brandTerms: 'las condiciones de una marca nueva',
   },
   errors: {
     network: 'La red no respondió. Comprueba tu conexión e inténtalo de nuevo.',
@@ -1438,7 +1501,7 @@ const es: KeptraCopy = {
     deliveryDaysOne: '{n} día desde el envío',
     deliveryDaysMany: '{n} días desde el envío',
     deliversTo: 'Entrega en',
-    failNote: 'Si la marca no entrega, cobras el valor declarado más el envío — primero de la fianza de la marca, luego del pool de garantía de Keptra.',
+    failNote: 'Si la marca no entrega, cobras el valor declarado más el envío — primero de la fianza de la marca, luego de la reserva de riesgo, luego del pool de garantía de Keptra.',
     redeem: 'Canjear',
     noLonger: 'Este vale ya no se puede canjear.',
     descriptionUnread: 'No se pudo leer la descripción del premio, así que no se puede canjear hasta que se lea.',
@@ -1454,7 +1517,7 @@ const es: KeptraCopy = {
     reading: 'Leyendo el pool de la blockchain…',
     noPool: 'La garantía aún no indica ningún pool.',
     intro:
-      'El pool respalda las obligaciones de premio de las marcas hasta un límite, después de la fianza de la propia marca. Cuando una marca falla, el ganador cobra primero de la fianza, luego del pool, y la marca le debe al pool lo que este pagó. Su capital viene de los proveedores que Keptra autoriza, listados abajo.',
+      'El pool respalda las obligaciones de premio de las marcas hasta un límite, después de la fianza de la propia marca. Cuando una marca falla, el ganador cobra primero de la fianza, luego de la reserva de riesgo, luego del pool, y la marca debe lo que pagaron la reserva y el pool. Su capital viene de los proveedores que Keptra autoriza, listados abajo.',
     capital: 'Capital',
     active: 'Garantías activas',
     activeHint: 'Cobertura reservada para obligaciones vigentes',
@@ -1712,6 +1775,30 @@ const es: KeptraCopy = {
     runsFor: 'Duración (días)',
     entries: 'Participaciones permitidas',
     createCampaign: 'Revisar y crear campaña',
+  },
+  brandPitch: {
+    title: 'Ofrece entrega verificada',
+    gainTitle: 'Lo que gana tu marca',
+    howTitle: 'Cómo funciona',
+    howSteps: [
+      'La marca publica la oferta.',
+      'El cliente paga al escrow.',
+      'La marca envía con seguimiento.',
+      'Un oráculo independiente prueba la entrega.',
+      'La marca cobra.',
+    ],
+    costTitle: 'Lo que cuesta y lo que deposita la marca',
+    costIntro: 'Leído on-chain: las condiciones de una marca aún sin historial (nivel {tier}).',
+    saleFee: 'Comisión por venta',
+    talkToUs: 'Habla con nosotros',
+    saleDeposit: 'Depósito para vender',
+    noDeposit: 'Ninguno: el pago del cliente espera en el escrow.',
+    prizeBond: 'Fianza de un premio',
+    prizeBondValue: '{percent} del valor declarado más el envío, por voucher',
+    protection: 'Tarifa de protección de un premio',
+    protectionValue: '{percent} de lo que la fianza no cubre, pagada al crear el premio',
+    coverageLimit: 'Límite de cobertura',
+    coverageLimitValue: '{amount} cubiertos a la vez, en todos los premios de la marca',
   },
   privacy: {
     metaTitle: 'Privacidad · Keptra',
