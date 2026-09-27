@@ -11,6 +11,8 @@
  * without a deadline for the distinct-recipient count (R6), erasure within 30 days
  * of an order's final state (10.3).
  */
+import type { Lang } from '../../pages/landing.i18n';
+
 export const PRIVACY_TEXT = `KEPTRA — PRIVACY NOTICE
 
 Who we are
@@ -43,6 +45,81 @@ Your rights
 
 Changes
 If this notice changes, the new version will be published on this page. Last updated: 24 September 2026.`;
+
+/**
+ * The same notice in Portuguese and Spanish, for the page in those languages (the
+ * owner's decision of 27/09/2026: the Keptra screens follow the language switch).
+ * Translations of the owner's English text above, which stays the reference: a
+ * change to it is a change to these two as well. Same structure — blocks, headings,
+ * "- " items, a short label before a colon — so the page lays them out the same way.
+ */
+export const PRIVACY_TEXTS: Record<Lang, string> = {
+  en: PRIVACY_TEXT,
+  pt: `KEPTRA — AVISO DE PRIVACIDADE
+
+Quem somos
+A Keptra é operada por Anderson Luiz Lages Teodoro, Portugal. Contacto para pedidos de privacidade: instantwin.official@gmail.com
+
+O que recolhemos e porquê
+- Morada de entrega: recolhida quando paga uma encomenda ou resgata um voucher de prémio, para que a loja ou a marca possa enviar o seu artigo. É partilhada apenas com a loja ou a marca que cumpre essa encomenda. (Fundamento jurídico: execução de um contrato)
+- Endereço de email: usado apenas para lhe enviar avisos sobre as suas encomendas (por exemplo, quando abre a sua janela de acção). (Fundamento jurídico: execução de um contrato e o nosso interesse legítimo em prestar um serviço fiável)
+- Número de seguimento: fornecido pela loja quando envia a sua encomenda, e enviado ao nosso fornecedor de seguimento para confirmar a entrega.
+- Telefone do destinatário: guardamos apenas um hash unidireccional, nunca o próprio número. O hash é guardado sem prazo, porque a contagem de destinatários distintos de cada loja é permanente.
+- Conta: a sua conta é protegida por uma passkey no seu dispositivo. Não guardamos a sua passkey.
+
+Prestadores de serviços e transferências internacionais
+- Ship24, como subcontratante, para seguir as entregas. A Ship24 recebe apenas o número de seguimento, o código postal e o país, nunca o seu nome, email ou morada completa. Os dados enviados à Ship24 são guardados de acordo com a política de conservação da própria Ship24.
+- Resend, para enviar os avisos por email.
+- Vercel e Supabase, para alojar o serviço e a sua base de dados.
+Alguns destes prestadores podem tratar os seus dados fora do Espaço Económico Europeu (EEE). Quando isso acontece, garantimos que os seus dados ficam protegidos por garantias legais, como as Cláusulas Contratuais-Tipo aprovadas pela Comissão Europeia.
+
+O que é público
+Pagamentos, encomendas e prémios são registados na blockchain Arbitrum One. Os registos numa blockchain pública são visíveis para qualquer pessoa e não podem ser alterados nem apagados por nós nem por mais ninguém. A sua morada de entrega e o seu email nunca são escritos na blockchain.
+
+Durante quanto tempo guardamos os seus dados
+Os dados que a Keptra guarda sobre uma encomenda, incluindo qualquer prova de uma contestação, são apagados no prazo de 30 dias depois de a encomenda chegar ao seu estado final.
+
+Os seus direitos
+- Exportar: pode descarregar os seus dados na página Conta.
+- Apagar: pode apagar os seus dados na página Conta. O apagamento é recusado enquanto ainda tiver USDC ou vouchers em qualquer uma das suas contas Keptra, ou uma encomenda em aberto como comprador ou como loja.
+- Rectificar e outros pedidos: contacte-nos pelo endereço acima.
+- Tem também o direito de apresentar reclamação a uma autoridade de protecção de dados. Em Portugal, é a Comissão Nacional de Proteção de Dados (CNPD).
+
+Alterações
+Se este aviso mudar, a nova versão será publicada nesta página. Última actualização: 24 de Setembro de 2026.`,
+  es: `KEPTRA — AVISO DE PRIVACIDAD
+
+Quiénes somos
+Keptra es un servicio operado por Anderson Luiz Lages Teodoro, Portugal. Contacto para solicitudes de privacidad: instantwin.official@gmail.com
+
+Qué recogemos y por qué
+- Dirección de entrega: se recoge cuando pagas un pedido o canjeas un vale de premio, para que la tienda o la marca pueda enviarte el artículo. Solo se comparte con la tienda o la marca que cumple ese pedido. (Base jurídica: ejecución de un contrato)
+- Dirección de email: se usa solo para enviarte avisos sobre tus pedidos (por ejemplo, cuando se abre tu plazo para actuar). (Base jurídica: ejecución de un contrato y nuestro interés legítimo en prestar un servicio fiable)
+- Número de seguimiento: lo facilita la tienda cuando envía tu pedido, y se envía a nuestro proveedor de seguimiento para confirmar la entrega.
+- Teléfono del destinatario: guardamos solo un hash unidireccional, nunca el número en sí. El hash se guarda sin plazo, porque el recuento de destinatarios distintos de cada tienda es permanente.
+- Cuenta: tu cuenta está protegida por una passkey en tu dispositivo. No guardamos tu passkey.
+
+Proveedores de servicios y transferencias internacionales
+- Ship24, como encargado del tratamiento, para seguir las entregas. Ship24 recibe solo el número de seguimiento, el código postal y el país, nunca tu nombre, email o dirección completa. Los datos enviados a Ship24 se conservan según la política de conservación de la propia Ship24.
+- Resend, para enviar los avisos por email.
+- Vercel y Supabase, para alojar el servicio y su base de datos.
+Algunos de estos proveedores pueden tratar tus datos fuera del Espacio Económico Europeo (EEE). Cuando esto ocurre, nos aseguramos de que tus datos estén protegidos por garantías legales como las Cláusulas Contractuales Tipo aprobadas por la Comisión Europea.
+
+Qué es público
+Los pagos, pedidos y premios se registran en la blockchain Arbitrum One. Los registros en una blockchain pública son visibles para cualquiera y no pueden ser modificados ni borrados por nosotros ni por nadie. Tu dirección de entrega y tu email nunca se escriben en la blockchain.
+
+Cuánto tiempo guardamos tus datos
+Los datos que Keptra guarda sobre un pedido, incluida cualquier prueba de una impugnación, se borran en un plazo de 30 días después de que el pedido llegue a su estado final.
+
+Tus derechos
+- Exportar: puedes descargar tus datos desde la página Cuenta.
+- Borrar: puedes borrar tus datos desde la página Cuenta. El borrado se rechaza mientras aún tengas USDC o vales en cualquiera de tus cuentas Keptra, o un pedido abierto como comprador o como tienda.
+- Rectificar y otras solicitudes: contáctanos en la dirección indicada arriba.
+- También tienes derecho a presentar una reclamación ante una autoridad de protección de datos. En Portugal, es la Comissão Nacional de Proteção de Dados (CNPD).
+
+Cambios
+Si este aviso cambia, la nueva versión se publicará en esta página. Última actualización: 24 de septiembre de 2026.`,
+};
 
 /** T14: whether the address forms may open. */
 export const privacyPublished = (text: string = PRIVACY_TEXT): boolean => text.trim().length > 0;

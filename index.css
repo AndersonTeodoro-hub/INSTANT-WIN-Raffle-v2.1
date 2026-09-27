@@ -469,6 +469,13 @@ input::-webkit-inner-spin-button {
   opacity: 0;
   transform: translateY(28px);
 }
+/* Um capítulo aberto por uma âncora (#for-customers) não fica debaixo do cabeçalho; fixado no filme, o painel já o evita. */
+[data-film-section] {
+  scroll-margin-top: 7rem;
+}
+.film-live [data-film-section] {
+  scroll-margin-top: 0;
+}
 
 @keyframes iw-ping {
   from {

@@ -5,6 +5,7 @@ import { registerAddress, type PostalAddress } from '../../lib/keptra/api';
 import { countryName } from '../../lib/keptra/format';
 import { privacyPublished } from '../../lib/keptra/privacy';
 import { Button, Field, Notice, inputClass } from './ui';
+import { around, useKeptraCopy } from '../../pages/keptra.i18n';
 
 /*
  * The delivery address, before paying (COMPRA) or redeeming (PRÉMIO). Section 10,
@@ -31,18 +32,20 @@ export function AddressForm({
   const [country, setCountry] = useState(regions.length === 1 ? regions[0] : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { t, lang, say } = useKeptraCopy();
 
   if (!privacyPublished()) {
+    const [before, after] = around(t.address.lockedBody, 'link');
     return (
-      <Notice tone="warning" title="No address until the privacy page is published">
+      <Notice tone="warning" title={t.address.lockedTitle}>
         <p className="flex items-start gap-2">
           <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
-            Keptra asks for an address only once its privacy page is published, so you can read how it is kept and when it is erased. See the{' '}
+            {before}
             <Link to="/privacy" className="underline underline-offset-4">
-              privacy page
+              {t.address.privacyLink}
             </Link>
-            .
+            {after}
           </span>
         </p>
       </Notice>
@@ -53,8 +56,8 @@ export function AddressForm({
 
   const submit = async () => {
     setError(null);
-    if (!fields.name.trim() || !fields.street.trim() || !fields.postCode.trim() || !fields.city.trim()) return setError('Fill in the name, street, post code and city.');
-    if (!regions.includes(country)) return setError('Choose the country the order is delivered to.');
+    if (!fields.name.trim() || !fields.street.trim() || !fields.postCode.trim() || !fields.city.trim()) return setError(t.address.missingFields);
+    if (!regions.includes(country)) return setError(t.address.chooseCountry);
     const address: PostalAddress = {
       name: fields.name.trim(),
       street: fields.street.trim(),
@@ -66,7 +69,7 @@ export function AddressForm({
     setBusy(true);
     const result = await registerAddress(purpose, address);
     setBusy(false);
-    if (!result.ok) return setError(result.error);
+    if (!result.ok) return setError(say(result.error));
     setFields(EMPTY);
     onRegistered();
   };
@@ -80,36 +83,32 @@ export function AddressForm({
       }}
     >
       <div className="sm:col-span-2">
-        <Field id="addr-name" label="Full name">
+        <Field id="addr-name" label={t.address.name}>
           <input id="addr-name" autoComplete="name" className={inputClass} value={fields.name} onChange={set('name')} />
         </Field>
       </div>
       <div className="sm:col-span-2">
-        <Field id="addr-street" label="Street and number">
+        <Field id="addr-street" label={t.address.street}>
           <input id="addr-street" autoComplete="street-address" className={inputClass} value={fields.street} onChange={set('street')} />
         </Field>
       </div>
-      <Field
-        id="addr-post"
-        label="Post code"
-        hint="Sent, with the country and the tracking number, to the tracking provider and to the nodes of the oracle that check the delivery — never your name, email or street."
-      >
+      <Field id="addr-post" label={t.address.postCode} hint={t.address.postCodeHint}>
         <input id="addr-post" autoComplete="postal-code" className={inputClass} value={fields.postCode} onChange={set('postCode')} />
       </Field>
-      <Field id="addr-city" label="City">
+      <Field id="addr-city" label={t.address.city}>
         <input id="addr-city" autoComplete="address-level2" className={inputClass} value={fields.city} onChange={set('city')} />
       </Field>
-      <Field id="addr-country" label="Country" hint="Only the countries this offer delivers to.">
+      <Field id="addr-country" label={t.address.country} hint={t.address.countryHint}>
         <select id="addr-country" className={inputClass} value={country} onChange={(event) => setCountry(event.target.value)}>
-          <option value="">Choose…</option>
+          <option value="">{t.address.choose}</option>
           {regions.map((code) => (
             <option key={code} value={code}>
-              {countryName(code)}
+              {countryName(code, lang)}
             </option>
           ))}
         </select>
       </Field>
-      <Field id="addr-phone" label="Phone for the carrier (optional)">
+      <Field id="addr-phone" label={t.address.phone}>
         <input id="addr-phone" type="tel" autoComplete="tel" className={inputClass} value={fields.phone} onChange={set('phone')} />
       </Field>
       {error && (
@@ -118,11 +117,9 @@ export function AddressForm({
         </div>
       )}
       <div className="sm:col-span-2">
-        <p className="mb-3 text-xs text-gray-400">
-          Stored encrypted and read only by the store of this order. Never written on-chain, and erased within 30 days of the order ending.
-        </p>
+        <p className="mb-3 text-xs text-gray-400">{t.address.storedNote}</p>
         <Button type="submit" busy={busy}>
-          Save delivery address
+          {t.address.save}
         </Button>
       </div>
     </form>

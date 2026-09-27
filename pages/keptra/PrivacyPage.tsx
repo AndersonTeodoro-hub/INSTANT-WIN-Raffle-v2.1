@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { Notice, PageTitle } from '../../components/keptra/ui';
-import { PRIVACY_TEXT, privacyPublished } from '../../lib/keptra/privacy';
+import { PRIVACY_TEXTS, privacyPublished } from '../../lib/keptra/privacy';
+import { useKeptraCopy } from '../keptra.i18n';
 
 /*
  * /privacy — a route of the app, with the owner's text (10.4, T14). Until the
@@ -12,7 +13,9 @@ import { PRIVACY_TEXT, privacyPublished } from '../../lib/keptra/privacy';
  * here, from the text's own structure: the first block is the notice's name,
  * every other block opens with its heading, a line starting with "- " is a list
  * item (the dash becomes the list's marker), and a list item that opens with a
- * short label and a colon has that label set in bold.
+ * short label and a colon has that label set in bold. In Portuguese and Spanish the
+ * page shows the notice's translation (lib/keptra/privacy.ts PRIVACY_TEXTS), laid out
+ * by the same rules.
  */
 
 type Line = { kind: 'para'; text: string } | { kind: 'list'; items: string[] };
@@ -54,13 +57,14 @@ function Item({ text }: { text: string }) {
 }
 
 export function PrivacyPage() {
+  const { t, lang } = useKeptraCopy();
   useEffect(() => {
-    document.title = 'Privacy · Keptra';
-  }, []);
-  const notice = privacyPublished() ? parse(PRIVACY_TEXT) : null;
+    document.title = t.privacy.metaTitle;
+  }, [t]);
+  const notice = privacyPublished() ? parse(PRIVACY_TEXTS[lang]) : null;
   return (
     <KeptraShell>
-      <PageTitle eyebrow="Keptra" title="Privacy" />
+      <PageTitle eyebrow="Keptra" title={t.privacy.title} />
       {notice ? (
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_16rem]">
           <article className="max-w-3xl">
@@ -91,7 +95,7 @@ export function PrivacyPage() {
             ))}
           </article>
           {/* The notice's sections, to jump to: on the computer, beside the text. */}
-          <nav aria-label="Sections" className="hidden lg:block">
+          <nav aria-label={t.privacy.sections} className="hidden lg:block">
             <ul className="sticky top-28 space-y-1 border-l border-dark-border pl-4 text-sm">
               {notice.blocks.map((block) => (
                 <li key={block.id}>
@@ -104,9 +108,7 @@ export function PrivacyPage() {
           </nav>
         </div>
       ) : (
-        <Notice title="Not published yet">
-          Keptra's privacy notice is being prepared. Until it is published, Keptra does not ask for any delivery address.
-        </Notice>
+        <Notice title={t.privacy.notPublishedTitle}>{t.privacy.notPublishedBody}</Notice>
       )}
     </KeptraShell>
   );

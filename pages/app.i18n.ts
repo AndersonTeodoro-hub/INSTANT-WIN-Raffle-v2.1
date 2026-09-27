@@ -47,6 +47,20 @@ export interface AppCopy {
     enterRound: string;
     vrfNote: string;
   };
+  /**
+   * O que é preciso saber antes de jogar, na vista Overview (decisão do owner de
+   * 27/09/2026): os textos que a página inicial tinha em 1acef6c
+   * (pages/landing.i18n.ts :150, :164, :168, :170), nas três línguas, tal como
+   * estavam — a linha "para os jogadores" da tabela comparativa, e as três
+   * respostas: o que é preciso para jogar, para onde vai o dinheiro dos bilhetes,
+   * e a jurisdição. O título da secção é o do owner (commit A4): "Before you play".
+   */
+  rules: {
+    title: string;
+    toPlayersLabel: string;
+    toPlayers: string;
+    items: { q: string; a: string }[];
+  };
   raffle: {
     statusLoading: string;
     statusLive: string;
@@ -229,6 +243,22 @@ const en: AppCopy = {
     enterRound: 'ENTER ROUND NOW',
     vrfNote: 'Smart Contract verifies winner automatically via Chainlink VRF.',
   },
+  rules: {
+    title: 'Before you play',
+    toPlayersLabel: 'To players',
+    toPlayers: '85.7% of ticket money over time',
+    items: [
+      { q: 'What do I need to play?', a: 'An Arbitrum One wallet (such as MetaMask) with some USDC for tickets and a little ETH for gas.' },
+      {
+        q: 'How much of the money goes to players?',
+        a: 'About 85.7% over time. Each round pays 75% of its pool to the three winners and 12.5% to development; the other 12.5% rolls into the next round, so it comes back to players — minus the same development share each time it recycles.',
+      },
+      {
+        q: 'Is this available in my country?',
+        a: 'Access depends on the rules of your own jurisdiction. It is your responsibility to check whether you are allowed to participate where you live.',
+      },
+    ],
+  },
   raffle: {
     statusLoading: 'Loading Round',
     statusLive: 'Open for entries',
@@ -397,6 +427,22 @@ const pt: AppCopy = {
     enterRound: 'ENTRAR NA RODADA',
     vrfNote: 'O smart contract verifica o ganhador automaticamente via Chainlink VRF.',
   },
+  rules: {
+    title: 'Antes de jogar',
+    toPlayersLabel: 'Para os jogadores',
+    toPlayers: '85,7% do dinheiro dos bilhetes ao longo do tempo',
+    items: [
+      { q: 'O que eu preciso para jogar?', a: 'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.' },
+      {
+        q: 'Quanto do dinheiro vai para os jogadores?',
+        a: 'Cerca de 85,7% ao longo do tempo. Cada rodada paga 75% do seu pool aos três ganhadores e 12,5% ao desenvolvimento; os outros 12,5% entram na rodada seguinte, ou seja, voltam para os jogadores — menos a mesma fatia de desenvolvimento a cada reciclagem.',
+      },
+      {
+        q: 'Está disponível no meu país?',
+        a: 'O acesso depende das regras da sua própria jurisdição. É sua responsabilidade verificar se você tem permissão para participar no lugar onde vive.',
+      },
+    ],
+  },
   raffle: {
     statusLoading: 'Carregando rodada',
     statusLive: 'Aberta para entradas',
@@ -562,6 +608,22 @@ const es: AppCopy = {
     processing: 'Procesando...',
     enterRound: 'ENTRAR EN LA RONDA',
     vrfNote: 'El smart contract verifica al ganador automáticamente mediante Chainlink VRF.',
+  },
+  rules: {
+    title: 'Antes de jugar',
+    toPlayersLabel: 'Para los jugadores',
+    toPlayers: '85,7% del dinero de los boletos con el tiempo',
+    items: [
+      { q: '¿Qué necesito para jugar?', a: 'Una wallet en Arbitrum One (como MetaMask) con algo de USDC para los boletos y un poco de ETH para el gas.' },
+      {
+        q: '¿Cuánto dinero va a los jugadores?',
+        a: 'Alrededor del 85,7% con el tiempo. Cada ronda paga el 75% de su pool a los tres ganadores y el 12,5% al desarrollo; el otro 12,5% pasa a la ronda siguiente, o sea vuelve a los jugadores — menos la misma parte de desarrollo cada vez que se recicla.',
+      },
+      {
+        q: '¿Está disponible en mi país?',
+        a: 'El acceso depende de las normas de tu propia jurisdicción. Es tu responsabilidad verificar si tienes permiso para participar en el lugar donde vives.',
+      },
+    ],
   },
   raffle: {
     statusLoading: 'Cargando ronda',

@@ -203,6 +203,29 @@ export const Dashboard: React.FC = () => {
         />
         <MiniCard label={c.dashboard.network} value="Arbitrum One" icon={Zap} to="/play" />
       </div>
+
+      {/*
+        O que é preciso saber antes de jogar (decisão do owner de 27/09/2026): o que
+        é preciso, para onde vai o dinheiro dos bilhetes e a jurisdição — os textos
+        que a página inicial tinha em 1acef6c, aqui à vista, não dobrados.
+      */}
+      <section aria-labelledby="play-rules" className="iw-surface p-6 sm:p-8">
+        <h2 id="play-rules" className="font-display text-2xl font-bold text-white sm:text-3xl">
+          {c.rules.title}
+        </h2>
+        <p className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-y border-dark-border py-3 text-sm">
+          <span className="text-gray-400">{c.rules.toPlayersLabel}</span>
+          <span className="font-mono text-white">{c.rules.toPlayers}</span>
+        </p>
+        <dl className="mt-6 grid gap-6 md:grid-cols-3 md:gap-8">
+          {c.rules.items.map((item) => (
+            <div key={item.q}>
+              <dt className="font-display text-lg font-bold text-white">{item.q}</dt>
+              <dd className="mt-2 text-sm leading-relaxed text-gray-400">{item.a}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
     </div>
   );
 };

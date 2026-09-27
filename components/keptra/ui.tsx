@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ExternalLink, Inbox, Loader2 } from 'lucide-react';
 import { shortAddress } from '../../lib/keptra/format';
+import { fill, useKeptraCopy } from '../../pages/keptra.i18n';
 import { ProofSeal } from '../Proof';
 
 /*
@@ -93,10 +94,11 @@ export function ButtonLink({ to, children, tone = 'secondary' }: { to: string; c
   );
 }
 
-export function Loading({ label = 'Loading…' }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const { t } = useKeptraCopy();
   return (
     <p role="status" className="flex items-center gap-3 py-6 text-sm text-gray-400">
-      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {label}
+      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {label ?? t.ui.loading}
     </p>
   );
 }
@@ -138,6 +140,7 @@ export function Notice({ tone = 'info', title, children }: { tone?: 'info' | 'er
  * is one tap away. A transaction still confirming is never shown this way.
  */
 export function DoneOnChain({ text, txHash }: { text: string; txHash?: string }) {
+  const { t } = useKeptraCopy();
   return (
     <div role="status" className="iw-swap flex items-start gap-3 rounded-card border border-success/40 bg-success/[0.06] p-4 text-sm leading-relaxed">
       <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full border border-success/40 bg-black/50">
@@ -153,9 +156,9 @@ export function DoneOnChain({ text, txHash }: { text: string; txHash?: string })
             rel="noopener noreferrer"
             className="mt-0.5 inline-flex min-h-[32px] items-center gap-1.5 text-xs text-gray-300 hover:text-success"
           >
-            Transaction <span className="font-mono text-success">{`${txHash.slice(0, 6)}…${txHash.slice(-4)}`}</span>
+            {t.ui.transaction} <span className="font-mono text-success">{`${txHash.slice(0, 6)}…${txHash.slice(-4)}`}</span>
             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="sr-only">(opens Arbiscan)</span>
+            <span className="sr-only">{t.ui.opensArbiscan}</span>
           </a>
         )}
       </div>
@@ -189,6 +192,7 @@ export function Facts({ rows }: { rows: readonly (readonly [string, React.ReactN
 }
 
 export function AddressLink({ address, label }: { address: string; label?: string }) {
+  const { t } = useKeptraCopy();
   return (
     <a
       href={`${ARBISCAN}/address/${address}`}
@@ -199,7 +203,7 @@ export function AddressLink({ address, label }: { address: string; label?: strin
     >
       {label ?? shortAddress(address)}
       <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-      <span className="sr-only">(opens Arbiscan)</span>
+      <span className="sr-only">{t.ui.opensArbiscan}</span>
     </a>
   );
 }
@@ -237,14 +241,17 @@ export const inputClass =
 /**
  * V3 (A3): a read that failed — the chain's or the bridge's — shown as what it is,
  * with the way to read it again. Never an empty list, never a sentence about what
- * was not read. `error` is the bridge's own sentence, or reads.ts CHAIN_FAILED.
+ * was not read. `error` is the bridge's own sentence, or reads.ts CHAIN_FAILED
+ * (say() puts this app's own sentences in the page's language); `what` is one of
+ * the dictionary's `what` entries (pages/keptra.i18n.ts).
  */
 export function ReadError({ what, error, onRetry }: { what: string; error: string; onRetry: () => void }) {
+  const { t, say } = useKeptraCopy();
   return (
-    <Notice tone="error" title={`${what} could not be read.`}>
-      <p>{error}</p>
+    <Notice tone="error" title={fill(t.ui.readError, { what })}>
+      <p>{say(error)}</p>
       <Button tone="secondary" className="mt-3" onClick={onRetry}>
-        Try again
+        {t.ui.tryAgain}
       </Button>
     </Notice>
   );
@@ -255,16 +262,14 @@ export function ReadError({ what, error, onRetry }: { what: string; error: strin
  * answers complete: false past it). The page says so, rather than let a missing
  * voucher read as one the account does not hold.
  */
-/** V3 and P6-16: the words a figure the chain did not give shows in its place. */
-export const NOT_READ = 'Not read';
-
-export const VOUCHERS_INCOMPLETE = 'Not every voucher could be listed: the account holds more than the page reads at once, so some may be missing here.';
+/*
+ * V3 and P6-16: the words a figure the chain did not give shows in its place are
+ * the dictionary's ui.notRead; P6-11's note on a voucher list cut short is its
+ * ui.vouchersIncomplete (pages/keptra.i18n.ts), in the page's language.
+ */
 
 /** Q1 and U35: the contracts are not configured yet. */
 export function NotAvailable() {
-  return (
-    <Notice title="Not available yet">
-      Keptra orders, offers and the guarantee pool open once their contracts are deployed on Arbitrum One. Nothing here can be paid or signed until then.
-    </Notice>
-  );
+  const { t } = useKeptraCopy();
+  return <Notice title={t.ui.notAvailableTitle}>{t.ui.notAvailableBody}</Notice>;
 }

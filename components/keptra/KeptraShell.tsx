@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { SiteHeader, KeptraBrand } from '../SiteHeader';
+import { LangSwitch } from '../LangSwitch';
+import { useKeptraCopy, type KeptraCopy } from '../../pages/keptra.i18n';
 
 /*
  * The frame of every Keptra screen. T0: one identity (the app's system, named
@@ -19,26 +21,28 @@ interface NavItem {
   readonly end?: boolean;
 }
 
-const CUSTOMER_LINKS: readonly NavItem[] = [
-  { to: '/orders', label: 'My orders' },
-  { to: '/account', label: 'Account' },
-  { to: '/pool', label: 'Guarantee pool' },
+// The modules' names (Event Center, Instant Win) are not translated.
+const customerLinks = (t: KeptraCopy): readonly NavItem[] => [
+  { to: '/orders', label: t.shell.myOrders },
+  { to: '/account', label: t.shell.account },
+  { to: '/pool', label: t.shell.pool },
   { to: '/events', label: 'Event Center' },
   { to: '/play', label: 'Instant Win' },
 ];
 
-const BUSINESS_LINKS: readonly NavItem[] = [
-  { to: '/business', label: 'Console', end: true },
-  { to: '/business/offers', label: 'Offers' },
-  { to: '/business/obligations', label: 'Prize obligations' },
-  { to: '/pool', label: 'Guarantee pool' },
-  { to: '/account', label: 'Account' },
+const businessLinks = (t: KeptraCopy): readonly NavItem[] => [
+  { to: '/business', label: t.shell.console, end: true },
+  { to: '/business/offers', label: t.shell.offers },
+  { to: '/business/obligations', label: t.shell.obligations },
+  { to: '/pool', label: t.shell.pool },
+  { to: '/account', label: t.shell.account },
 ];
 
 export function KeptraShell({ area = 'customer', children }: { area?: 'customer' | 'business'; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const links = area === 'business' ? BUSINESS_LINKS : CUSTOMER_LINKS;
-  const other = area === 'business' ? { to: '/orders', label: 'Customer area' } : { to: '/business', label: 'For businesses' };
+  const { t } = useKeptraCopy();
+  const links = area === 'business' ? businessLinks(t) : customerLinks(t);
+  const other = area === 'business' ? { to: '/orders', label: t.shell.customerArea } : { to: '/business', label: t.shell.forBusinesses };
 
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `inline-flex min-h-[44px] items-center rounded-control px-3 text-sm transition-colors duration-200 ${isActive ? 'bg-white/[0.06] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'text-gray-400 hover:text-white'}`;
@@ -46,22 +50,27 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
   return (
     <div className="iw-ground flex min-h-screen flex-col text-white">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-brand focus:px-4 focus:py-2 focus:text-black">
-        Skip to content
+        {t.shell.skip}
       </a>
       {/* The platform's one header (SiteHeader): the Keptra mark, the area's
-          navigation, and the other area as the one secondary action. */}
+          navigation, the language — the home page's switch, in the same place,
+          after the navigation — and the other area as the one secondary action.
+          The switch translates these screens as it does the rest of the site
+          (T17, revised by the owner on 27/09/2026: the Keptra screens in the
+          chosen language). */}
       <SiteHeader
         lang={false}
-        brand={<KeptraBrand tag={area === 'business' ? 'Business' : undefined} />}
+        brand={<KeptraBrand tag={area === 'business' ? t.shell.business : undefined} />}
         actions={
           <>
-            <nav aria-label={area === 'business' ? 'Business' : 'Main'} className="hidden items-center gap-1 lg:flex">
+            <nav aria-label={area === 'business' ? t.shell.business : t.shell.main} className="hidden items-center gap-1 lg:flex">
               {links.map((link) => (
                 <NavLink key={link.to} to={link.to} end={link.end ?? false} className={navClass}>
                   {link.label}
                 </NavLink>
               ))}
             </nav>
+            <LangSwitch />
             <Link to={other.to} className="iw-btn iw-btn-secondary ml-2 hidden px-4 text-sm lg:inline-flex">
               {other.label}
             </Link>
@@ -73,13 +82,13 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
               onClick={() => setOpen((value) => !value)}
             >
               {open ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
-              <span className="sr-only">Menu</span>
+              <span className="sr-only">{t.shell.menu}</span>
             </button>
           </>
         }
       >
         {open && (
-          <nav id="keptra-menu" aria-label="Menu" className="iw-swap border-t border-dark-border px-4 pb-4 pt-2 lg:hidden">
+          <nav id="keptra-menu" aria-label={t.shell.menu} className="iw-swap border-t border-dark-border px-4 pb-4 pt-2 lg:hidden">
             <ul className="flex flex-col">
               {[...links, other].map((link) => (
                 <li key={link.to}>
@@ -97,13 +106,13 @@ export function KeptraShell({ area = 'customer', children }: { area?: 'customer'
       </main>
       <footer className="border-t border-dark-border bg-black/80">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 text-xs text-gray-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p>Keptra — promises, kept. On-chain guarantee for brands, on Arbitrum One.</p>
+          <p>{t.shell.tagline}</p>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             <Link to="/privacy" className="inline-flex min-h-[32px] items-center hover:text-white">
-              Privacy
+              {t.shell.privacy}
             </Link>
             <Link to="/pool" className="inline-flex min-h-[32px] items-center hover:text-white">
-              Guarantee pool
+              {t.shell.pool}
             </Link>
             <span className="inline-flex min-h-[32px] items-center">© 2026 Keptra</span>
           </div>

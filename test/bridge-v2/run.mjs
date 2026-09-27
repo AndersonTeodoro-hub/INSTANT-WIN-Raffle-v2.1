@@ -115,6 +115,18 @@ const REQUIREMENTS = [
   // SPEC-BLOCO-03 Adenda AB: the decisions of the audit of the lot, by their own
   // names. AB1 closes the oracle, AB8 is process and AB9 the general rehearsal.
   'AB2', 'AB3', 'AB4', 'AB5', 'AB6', 'AB7',
+  // The home page, Keptra first (the owner's request of 27/09/2026, commit A):
+  // the order of the chapters, the owner's texts, the pool read on-chain, the
+  // language switch on every Keptra screen, the first screen's diagram, the
+  // providers' request. Tests in suites/frontend.test.mjs.
+  // Commit A2 (the owner's decisions after approving A): LK7 to LK9.
+  // Commit A3 (the owner's decisions after the audit of A and A2): LK10 — the
+  // play rules on /play's Overview — and LK11 — no translation key unused; the
+  // Keptra screens in three languages are T17 as the owner revised it (AT17).
+  // Commit A4 (the owner's decisions after the audit of A3): LK12 — an amount is
+  // read in the form of the page's language, anything else refused with how to
+  // write it — and LK13 — the words the audit named, and /play's section title.
+  ...Array.from({ length: 13 }, (_unused, index) => `LK${index + 1}`),
 ];
 
 for (const path of SUITES) {
