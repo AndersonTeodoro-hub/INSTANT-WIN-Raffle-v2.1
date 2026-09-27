@@ -2350,3 +2350,49 @@ await test(['LK16'], '/business without a session explains Keptra to a brand abo
   // The ABIs are untouched: the fee per sale is still read by no ABI of the page (P6-19).
   assert.ok(!contracts.ESCROW_READ_ABI.some((item) => item.name === 'feeBps'));
 });
+
+await test(['LK17'], '/roadmap opens with the owner’s “Verified delivery”, live now, with the escrow, guarantee and pool to verify on Arbiscan; “Card payments” sits between the regulated company and the platform instrument, intended, “after the company”; the steps are numbered 01 to 06 in the three languages; Enter App leads to /orders (checked in the source)', async () => {
+  const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
+  const owner = {
+    en: {
+      titles: ['Verified delivery', 'Provably Fair Lottery', 'Event Center', 'Regulated company', 'Card payments', 'Platform instrument'],
+      delivery: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. If it is not proven, the customer is repaid — first from the brand's bond, then the risk reserve, then the pool.",
+      after: 'After the company',
+      cards: 'Customers pay a brand by debit or credit card, as they do today, with the same delivery guarantee. It needs the company and a licensed payment partner first.',
+    },
+    pt: {
+      titles: ['Entrega verificada', 'Lotaria Comprovadamente Justa', 'Event Center', 'Empresa regulada', 'Pagamento com cartão', 'Instrumento da plataforma'],
+      delivery: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. Se não for provada, o cliente é reembolsado — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
+      after: 'Depois da empresa',
+      cards: 'O cliente paga à marca com cartão de débito ou crédito, como faz hoje, com a mesma garantia de entrega. Precisa primeiro da empresa e de um parceiro de pagamentos licenciado.',
+    },
+    es: {
+      titles: ['Entrega verificada', 'Lotería Demostrablemente Justa', 'Event Center', 'Empresa regulada', 'Pago con tarjeta', 'Instrumento de la plataforma'],
+      delivery: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. Si no se prueba, el cliente recupera su dinero — primero de la fianza de la marca, luego de la reserva de riesgo, luego del pool.',
+      after: 'Después de la empresa',
+      cards: 'El cliente paga a la marca con tarjeta de débito o crédito, como hoy, con la misma garantía de entrega. Primero necesita la empresa y un socio de pagos con licencia.',
+    },
+  };
+  for (const [lang, o] of Object.entries(owner)) {
+    const steps = r[lang].steps;
+    assert.deepEqual(steps.map((step) => step.title), o.titles, `${lang} order`);
+    assert.deepEqual(steps.map((step) => step.num), ['01', '02', '03', '04', '05', '06'], `${lang} numbers`);
+    // Live now, like the lottery, with its proof to verify: three contracts, named.
+    assert.equal(steps[0].status, steps[1].status, `${lang}: verified delivery is not "live now"`);
+    assert.deepEqual(steps[0].body, [{ pre: o.delivery }], `${lang} verified delivery`);
+    assert.equal(steps[0].verify, steps[1].verify, `${lang}: no "verify it yourself"`);
+    assert.equal(steps[0].contracts.length, 3, `${lang}: escrow, guarantee, pool`);
+    // Card payments: after the regulated company, before the instrument, nothing to verify yet.
+    assert.equal(steps[4].status, o.after, `${lang} card payments' label`);
+    assert.deepEqual(steps[4].body, [{ pre: o.cards }], `${lang} card payments`);
+    assert.equal(steps[4].verify, undefined, `${lang}: card payments has nothing on-chain`);
+  }
+  const page = codeOf('pages/Roadmap.tsx');
+  // The same visual state as the regulated company: only the first three are on-chain.
+  assert.match(page, /const ONCHAIN_STEPS = 3;/);
+  assert.match(page, /\[KEPTRA_ESCROW, KEPTRA_GUARANTEE, pool\],\s*\[CONTRACTS\.RAFFLE_MANAGER\],\s*\[CONTRACTS\.GIVEAWAY_MANAGER_V2\],/);
+  // The pool is the one the guarantee names, read on-chain; never a literal.
+  assert.match(page, /useReadContract\(\{ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource' \}\)/);
+  assert.match(page, /href=\{`\$\{ARBISCAN\}\$\{address\}`\}/);
+  assert.match(page, /<HeaderAction to="\/orders" icon=\{ArrowRight\} label=\{t\.header\.enterApp\} \/>/);
+});

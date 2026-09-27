@@ -1,5 +1,5 @@
-import { useLang } from './landing.i18n';
-import type { Lang } from './landing.i18n';
+import { useLang } from './landing.i18n.js';
+import type { Lang } from './landing.i18n.js';
 
 // i18n da página /roadmap. Mesmo padrão do app.i18n.ts: objecto de lookup por
 // idioma, sem biblioteca, `Lang`/`useLang`/persistência vindos do landing.i18n.
@@ -18,7 +18,7 @@ interface Para {
 }
 
 interface Step {
-  /** '01'…'04'. O estado "live" é posicional (LIVE_STEP em Roadmap.tsx). */
+  /** '01'…'06'. O estado "live" é posicional (ONCHAIN_STEPS em Roadmap.tsx). */
   num: string;
   status: string;
   title: string;
@@ -28,12 +28,17 @@ interface Step {
   note?: string;
   /** Texto antes do endereço do contrato (só no degrau que já está on-chain). */
   verify?: string;
+  /**
+   * O nome de cada contrato a verificar, pela ordem dos endereços (verifyAddresses
+   * em Roadmap.tsx), quando o degrau tem mais do que um: a entrega verificada.
+   */
+  contracts?: string[];
 }
 
 export interface RoadmapCopy {
   meta: { title: string; description: string };
   hero: { eyebrow: string; title: string; intro: string };
-  /** Síntese das quatro fases lado a lado, acima da lista detalhada. */
+  /** Síntese das fases lado a lado, acima da lista detalhada. */
   overview: { onchainLabel: string; intendedLabel: string; note: string };
   steps: Step[];
   outro: { note: string; ctaLine1: string; ctaLine2: string; ctaButton: string; back: string };
@@ -60,6 +65,18 @@ const en: RoadmapCopy = {
     {
       num: '01',
       status: 'Live now',
+      title: 'Verified delivery',
+      body: [
+        {
+          pre: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. If it is not proven, the customer is repaid — first from the brand's bond, then the risk reserve, then the pool.",
+        },
+      ],
+      verify: 'Verify it yourself',
+      contracts: ['Escrow', 'Guarantee', 'Pool'],
+    },
+    {
+      num: '02',
+      status: 'Live now',
       title: 'Provably Fair Lottery',
       body: [
         {
@@ -69,7 +86,7 @@ const en: RoadmapCopy = {
       verify: 'Verify it yourself',
     },
     {
-      num: '02',
+      num: '03',
       status: 'Live now',
       title: 'Event Center',
       body: [
@@ -80,7 +97,7 @@ const en: RoadmapCopy = {
       verify: 'Verify it yourself',
     },
     {
-      num: '03',
+      num: '04',
       status: 'Next',
       title: 'Regulated company',
       body: [
@@ -90,7 +107,17 @@ const en: RoadmapCopy = {
       ],
     },
     {
-      num: '04',
+      num: '05',
+      status: 'After the company',
+      title: 'Card payments',
+      body: [
+        {
+          pre: 'Customers pay a brand by debit or credit card, as they do today, with the same delivery guarantee. It needs the company and a licensed payment partner first.',
+        },
+      ],
+    },
+    {
+      num: '06',
       status: 'Only then',
       title: 'Platform instrument',
       body: [
@@ -143,6 +170,18 @@ const pt: RoadmapCopy = {
     {
       num: '01',
       status: 'Ao vivo agora',
+      title: 'Entrega verificada',
+      body: [
+        {
+          pre: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. Se não for provada, o cliente é reembolsado — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
+        },
+      ],
+      verify: 'Verifique por si mesmo',
+      contracts: ['Escrow', 'Garantia', 'Pool'],
+    },
+    {
+      num: '02',
+      status: 'Ao vivo agora',
       title: 'Lotaria Comprovadamente Justa',
       body: [
         {
@@ -152,7 +191,7 @@ const pt: RoadmapCopy = {
       verify: 'Verifique por si mesmo',
     },
     {
-      num: '02',
+      num: '03',
       status: 'Ao vivo agora',
       title: 'Event Center',
       body: [
@@ -163,7 +202,7 @@ const pt: RoadmapCopy = {
       verify: 'Verifique por si mesmo',
     },
     {
-      num: '03',
+      num: '04',
       status: 'A seguir',
       title: 'Empresa regulada',
       body: [
@@ -173,7 +212,17 @@ const pt: RoadmapCopy = {
       ],
     },
     {
-      num: '04',
+      num: '05',
+      status: 'Depois da empresa',
+      title: 'Pagamento com cartão',
+      body: [
+        {
+          pre: 'O cliente paga à marca com cartão de débito ou crédito, como faz hoje, com a mesma garantia de entrega. Precisa primeiro da empresa e de um parceiro de pagamentos licenciado.',
+        },
+      ],
+    },
+    {
+      num: '06',
       status: 'Só depois',
       title: 'Instrumento da plataforma',
       body: [
@@ -213,6 +262,18 @@ const es: RoadmapCopy = {
     {
       num: '01',
       status: 'En vivo ahora',
+      title: 'Entrega verificada',
+      body: [
+        {
+          pre: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. Si no se prueba, el cliente recupera su dinero — primero de la fianza de la marca, luego de la reserva de riesgo, luego del pool.',
+        },
+      ],
+      verify: 'Verifícalo tú mismo',
+      contracts: ['Escrow', 'Garantía', 'Pool'],
+    },
+    {
+      num: '02',
+      status: 'En vivo ahora',
       title: 'Lotería Demostrablemente Justa',
       body: [
         {
@@ -222,7 +283,7 @@ const es: RoadmapCopy = {
       verify: 'Verifícalo tú mismo',
     },
     {
-      num: '02',
+      num: '03',
       status: 'En vivo ahora',
       title: 'Event Center',
       body: [
@@ -233,7 +294,7 @@ const es: RoadmapCopy = {
       verify: 'Verifícalo tú mismo',
     },
     {
-      num: '03',
+      num: '04',
       status: 'Siguiente',
       title: 'Empresa regulada',
       body: [
@@ -243,7 +304,17 @@ const es: RoadmapCopy = {
       ],
     },
     {
-      num: '04',
+      num: '05',
+      status: 'Después de la empresa',
+      title: 'Pago con tarjeta',
+      body: [
+        {
+          pre: 'El cliente paga a la marca con tarjeta de débito o crédito, como hoy, con la misma garantía de entrega. Primero necesita la empresa y un socio de pagos con licencia.',
+        },
+      ],
+    },
+    {
+      num: '06',
       status: 'Solo entonces',
       title: 'Instrumento de la plataforma',
       body: [

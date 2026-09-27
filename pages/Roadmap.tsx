@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { useReadContract } from 'wagmi';
 import { ExternalLink, Check, ArrowRight, CalendarOff } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
@@ -16,6 +17,7 @@ import { shortProof } from '../lib/proof/mark';
 import { useLang, translations } from './landing.i18n';
 import { useAppCopy } from './app.i18n';
 import { useEventsCopy } from './events.i18n';
+import { GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE } from '../lib/keptra/contracts';
 
 /*
  * A /roadmap é leitura: a cena abre a página e fecha-a, e sai de cena enquanto
@@ -36,8 +38,8 @@ const ARBISCAN = 'https://arbiscan.io/address/';
 
 /**
  * Quantos degraus iniciais entram no grupo "ao vivo / verificado on-chain"
- * (Lotaria + Event Center: ambos têm contratos implementados, verificados e
- * despausados). Emparelha posicionalmente com `copy.steps`. Governa tanto a
+ * (Entrega verificada + Lotaria + Event Center: todos têm contratos implementados,
+ * verificados e despausados; o KeptraEscrow lido não pausado a 27/09/2026). Emparelha posicionalmente com `copy.steps`. Governa tanto a
  * síntese (Check verde vs. seta cinzenta) como o estado "live" de cada cartão
  * na lista detalhada — é estado visual, portanto fora do i18n (mesma
  * convenção dos STEP_ICONS da Landing).
@@ -46,10 +48,9 @@ const ARBISCAN = 'https://arbiscan.io/address/';
  * Arbiscan logo abaixo: verde aqui significa "verificável agora", não decoração.
  * Âmbar não aparece em lado nenhum — nesta página não há valores de prémio.
  */
-const ONCHAIN_STEPS = 2;
+const ONCHAIN_STEPS = 3;
 
-/** Endereço a verificar por degrau, posicional com `copy.steps`. */
-const VERIFY_ADDRESSES = [CONTRACTS.RAFFLE_MANAGER, CONTRACTS.GIVEAWAY_MANAGER_V2];
+const ZERO = '0x0000000000000000000000000000000000000000';
 
 /** How far the reader is through the steps, drawn on the rail's fill (a transform, once per frame). */
 function useRail() {
@@ -102,8 +103,18 @@ export const Roadmap: React.FC = () => {
   const events = useEventsCopy();
   const { latest, round, campaign, loading } = useLatestDraw();
   const rail = useRail();
-  /** A prova de cada degrau vivo, pela ordem de `copy.steps`: a lotaria, o Event Center. */
-  const stepDraws = [round, campaign];
+  /** A prova de cada degrau vivo, pela ordem de `copy.steps`: a entrega verificada não tem sorteio; a lotaria, o Event Center. */
+  const stepDraws = [null, round, campaign];
+  // O pool que a garantia nomeia (defaultSource) — a mesma leitura da página inicial e da /pool:
+  // o endereço do pool não está escrito no código. Enquanto não for lido, não se mostra.
+  const source = useReadContract({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource' });
+  const pool = source.data !== undefined && source.data !== ZERO ? source.data : null;
+  /** Os endereços a verificar de cada degrau vivo, posicionais com `copy.steps` e, dentro de um degrau, com `step.contracts`. */
+  const verifyAddresses: readonly (readonly (`0x${string}` | null)[])[] = [
+    [KEPTRA_ESCROW, KEPTRA_GUARANTEE, pool],
+    [CONTRACTS.RAFFLE_MANAGER],
+    [CONTRACTS.GIVEAWAY_MANAGER_V2],
+  ];
 
   /*
    * SEO desta rota. O site é uma SPA com um único index.html, por isso o title e
@@ -130,10 +141,10 @@ export const Roadmap: React.FC = () => {
 
   return (
     <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
-      {/* O cabeçalho da plataforma; a acção do contexto é entrar no produto, como na página inicial. */}
+      {/* O cabeçalho da plataforma; a acção do contexto é a área do cliente da Keptra, como na página inicial (decisão do owner de 27/09/2026). */}
       <SiteHeader
         nav={<PublicNavLinks />}
-        actions={<HeaderAction to="/play" icon={ArrowRight} label={t.header.enterApp} />}
+        actions={<HeaderAction to="/orders" icon={ArrowRight} label={t.header.enterApp} />}
       />
 
       <Film
@@ -179,12 +190,12 @@ export const Roadmap: React.FC = () => {
           <FilmSection id="rm-reading" pinned={false} label={c.overview.onchainLabel}>
             <FilmAnchor keys={KEYS.reading} ghost className="pointer-events-none absolute left-1/2 top-0 h-[40vh] w-[40vh] -translate-x-1/2" />
             <div className="container mx-auto px-4 sm:px-6 max-w-3xl">
-              {/* Síntese das quatro fases lado a lado — mesmo conteúdo da lista
+              {/* Síntese das fases lado a lado — mesmo conteúdo da lista
                   abaixo, em formato de relance. Ícone + texto (não só cor) marcam
                   a distinção entre "verificado on-chain" e "pretendido nesta ordem",
                   para não depender de percepção de cor. */}
               <section className="mb-12 sm:mb-16">
-                <ul role="list" className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <ul role="list" className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
                   {c.steps.map((step, i) => {
                     const onchain = i < ONCHAIN_STEPS;
                     return (
@@ -201,7 +212,8 @@ export const Roadmap: React.FC = () => {
                           ) : (
                             <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden="true" />
                           )}
-                          <span className={clsx('text-xs font-medium truncate', onchain ? 'text-success' : 'text-gray-400')}>{step.status}</span>
+                          {/* Wraps rather than cut: "Después de la empresa" is wider than a phone's half. */}
+                          <span className={clsx('min-w-0 text-xs font-medium leading-snug', onchain ? 'text-success' : 'text-gray-400')}>{step.status}</span>
                         </div>
                         <p className="font-display font-bold text-sm sm:text-base text-white leading-snug">{step.title}</p>
                       </li>
@@ -225,7 +237,7 @@ export const Roadmap: React.FC = () => {
                 </div>
               </section>
 
-              {/* Os 4 degraus, num carril que se preenche com a leitura. */}
+              {/* Os degraus, num carril que se preenche com a leitura. */}
               <ol ref={rail.list} className="relative space-y-4 sm:space-y-6 pb-4 sm:pl-20">
                 <span aria-hidden="true" className="absolute bottom-8 left-7 top-8 hidden w-px overflow-hidden bg-dark-line sm:block">
                   <span ref={rail.fill} className="block h-full w-full origin-top bg-success/70" style={{ transform: 'scaleY(0)' }} />
@@ -279,19 +291,30 @@ export const Roadmap: React.FC = () => {
                         </ul>
                       )}
 
-                      {/* Prova verificável: o único link verde da página. */}
+                      {/* Prova verificável: o único link verde da página; um por contrato, com o nome quando o degrau tem vários. */}
                       {step.verify && (
                         <div className="mt-6">
                           <p className="text-xs text-gray-400 mb-2">{step.verify}</p>
-                          <a
-                            href={`${ARBISCAN}${VERIFY_ADDRESSES[i]}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
-                          >
-                            <span className="break-all">{VERIFY_ADDRESSES[i]}</span>
-                            <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
-                          </a>
+                          <div className="space-y-2">
+                            {verifyAddresses[i].map(
+                              (address, k) =>
+                                address && (
+                                  <a
+                                    key={address}
+                                    href={`${ARBISCAN}${address}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
+                                  >
+                                    <span className="min-w-0">
+                                      {step.contracts && <span className="block font-sans text-xs text-gray-400">{step.contracts[k]}</span>}
+                                      <span className="break-all">{address}</span>
+                                    </span>
+                                    <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+                                  </a>
+                                ),
+                            )}
+                          </div>
                         </div>
                       )}
 
