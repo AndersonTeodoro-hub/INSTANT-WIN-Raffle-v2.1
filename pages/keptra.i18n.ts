@@ -316,7 +316,12 @@ const en = {
     deliveryDaysOne: '{n} day of shipping',
     deliveryDaysMany: '{n} days of shipping',
     deliversTo: 'Delivers to',
-    failNote: "If the brand fails to deliver, you are paid the declared value plus shipping — from the brand's bond first, then from the Keptra guarantee pool.",
+    /**
+     * The order the contracts pay in (commit B, read at 5d85a46): the bond
+     * (KeptraGuarantee.settleUnit), then the risk reserve, then the pool's capital
+     * (KeptraPool.payCoverage, H25).
+     */
+    failNote: "If the brand fails to deliver, you are paid the declared value plus shipping — from the brand's bond first, then from the risk reserve, then from the Keptra guarantee pool.",
     redeem: 'Redeem',
     noLonger: 'This voucher can no longer be redeemed.',
     descriptionUnread: 'The prize’s description could not be read, so it cannot be redeemed until it is.',
@@ -332,7 +337,7 @@ const en = {
     reading: 'Reading the pool from the chain…',
     noPool: 'The guarantee names no pool yet.',
     intro:
-      "The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the pool, and the brand owes the pool what it paid. Its capital comes from the providers Keptra authorises, listed below.",
+      "The pool backs brands' prize obligations up to a limit, after the brand's own bond. When a brand fails, the winner is paid from the bond first, then from the risk reserve, then from the pool, and the brand owes back what the reserve and the pool paid. Its capital comes from the providers Keptra authorises, listed below.",
     capital: 'Capital',
     active: 'Active guarantees',
     activeHint: 'Coverage reserved for live obligations',
@@ -911,7 +916,7 @@ const pt: KeptraCopy = {
     deliveryDaysOne: '{n} dia após o envio',
     deliveryDaysMany: '{n} dias após o envio',
     deliversTo: 'Entrega em',
-    failNote: 'Se a marca não entregar, recebe o valor declarado mais o envio — primeiro da caução da marca, depois do pool de garantia da Keptra.',
+    failNote: 'Se a marca não entregar, recebe o valor declarado mais o envio — primeiro da caução da marca, depois da reserva de risco, depois do pool de garantia da Keptra.',
     redeem: 'Resgatar',
     noLonger: 'Este voucher já não pode ser resgatado.',
     descriptionUnread: 'Não foi possível ler a descrição do prémio, por isso não pode ser resgatado até o ser.',
@@ -927,7 +932,7 @@ const pt: KeptraCopy = {
     reading: 'A ler o pool da blockchain…',
     noPool: 'A garantia ainda não indica nenhum pool.',
     intro:
-      'O pool sustenta as obrigações de prémio das marcas até um limite, depois da caução da própria marca. Quando uma marca falha, o vencedor é pago primeiro pela caução, depois pelo pool, e a marca fica a dever ao pool o que ele pagou. O seu capital vem dos provedores que a Keptra autoriza, listados abaixo.',
+      'O pool sustenta as obrigações de prémio das marcas até um limite, depois da caução da própria marca. Quando uma marca falha, o vencedor é pago primeiro pela caução, depois pela reserva de risco, depois pelo pool, e a marca fica a dever o que a reserva e o pool pagaram. O seu capital vem dos provedores que a Keptra autoriza, listados abaixo.',
     capital: 'Capital',
     active: 'Garantias activas',
     activeHint: 'Cobertura reservada para obrigações em vigor',
@@ -1496,7 +1501,7 @@ const es: KeptraCopy = {
     deliveryDaysOne: '{n} día desde el envío',
     deliveryDaysMany: '{n} días desde el envío',
     deliversTo: 'Entrega en',
-    failNote: 'Si la marca no entrega, cobras el valor declarado más el envío — primero de la fianza de la marca, luego del pool de garantía de Keptra.',
+    failNote: 'Si la marca no entrega, cobras el valor declarado más el envío — primero de la fianza de la marca, luego de la reserva de riesgo, luego del pool de garantía de Keptra.',
     redeem: 'Canjear',
     noLonger: 'Este vale ya no se puede canjear.',
     descriptionUnread: 'No se pudo leer la descripción del premio, así que no se puede canjear hasta que se lea.',
@@ -1512,7 +1517,7 @@ const es: KeptraCopy = {
     reading: 'Leyendo el pool de la blockchain…',
     noPool: 'La garantía aún no indica ningún pool.',
     intro:
-      'El pool respalda las obligaciones de premio de las marcas hasta un límite, después de la fianza de la propia marca. Cuando una marca falla, el ganador cobra primero de la fianza, luego del pool, y la marca le debe al pool lo que este pagó. Su capital viene de los proveedores que Keptra autoriza, listados abajo.',
+      'El pool respalda las obligaciones de premio de las marcas hasta un límite, después de la fianza de la propia marca. Cuando una marca falla, el ganador cobra primero de la fianza, luego de la reserva de riesgo, luego del pool, y la marca debe lo que pagaron la reserva y el pool. Su capital viene de los proveedores que Keptra autoriza, listados abajo.',
     capital: 'Capital',
     active: 'Garantías activas',
     activeHint: 'Cobertura reservada para obligaciones vigentes',

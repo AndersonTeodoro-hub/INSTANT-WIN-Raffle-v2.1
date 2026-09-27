@@ -2424,3 +2424,21 @@ await test(['LK18'], 'the home page in Portuguese (the module cards, the caption
   // The owner's texts on the home page stay as the owner wrote them.
   assert.equal(home.hero.ctaCustomers, 'Para clientes — Compre com uma garantia que pode conferir');
 });
+
+await test(['LK19'], 'a voucher’s failure is paid in the contracts’ order — the brand’s bond, then the risk reserve, then the pool’s capital (KeptraGuarantee.settleUnit, KeptraPool.payCoverage at 5d85a46) — and the voucher page and /pool’s introduction say the three layers in that order, in the three languages, as /pool’s own diagram of the order does (checked in the source)', async () => {
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  const layers = { en: ['bond', 'risk reserve', 'pool'], pt: ['caução', 'reserva de risco', 'pool'], es: ['fianza', 'reserva de riesgo', 'pool'] };
+  for (const [lang, [bond, reserve, pool]] of Object.entries(layers)) {
+    for (const [name, text] of [['voucher.failNote', k[lang].voucher.failNote], ['pool.intro', k[lang].pool.intro]]) {
+      // In sequence: each layer after the one before it (the introduction names the pool and the bond earlier too).
+      let from = 0;
+      for (const word of [bond, reserve, pool]) {
+        const at = text.indexOf(word, from);
+        assert.ok(at >= 0, `${lang} ${name}: no ${word} after the layer before it: ${text}`);
+        from = at + word.length;
+      }
+    }
+  }
+  // /pool's own diagram of the order, unchanged: bond, risk reserve, capital.
+  assert.match(codeOf('pages/keptra/PoolPage.tsx'), /\{ name: t\.pool\.bond,[^}]*\},\s*\{ name: t\.pool\.reserve,[^}]*\},\s*\{ name: t\.pool\.capital,/);
+});
