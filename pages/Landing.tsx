@@ -10,6 +10,9 @@ import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
 import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { EscrowFlow } from '../components/proof/EscrowFlow';
+import { BrandFlow } from '../components/proof/BrandFlow';
+import { RefundFlow } from '../components/proof/RefundFlow';
+import { PoolFlow } from '../components/proof/PoolFlow';
 import { ContactEmail } from '../components/ContactEmail';
 import { useLatestDraw } from '../components/proof/useLatestDraw';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
@@ -51,19 +54,32 @@ const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 /*
  * O filme: onde a cena está em cada capítulo e que forma mostra
- * (components/film/Film.tsx, lib/proof/scene.ts). A primeira tela é do diagrama
- * (components/proof/EscrowFlow.tsx): a cena espera debaixo dele, escondida, e
- * entra com o capítulo 02. O guilloché fica como assinatura — no nó da Keptra do diagrama, e
- * nos capítulos — não como explicação.
+ * (components/film/Film.tsx, lib/proof/scene.ts). A primeira tela e os capítulos
+ * 02 a 04 são de diagramas (components/proof: EscrowFlow, BrandFlow, RefundFlow,
+ * PoolFlow — commit B de 27/09/2026): a cena espera por trás deles, escondida
+ * (alpha 0), e só aparece com os módulos (05) e o fecho (06). O guilloché fica como
+ * assinatura — no nó da Keptra dos diagramas, e nos capítulos 05 e 06 — não como
+ * explicação.
  */
 const KEYS = {
   hero: [{ at: 0, shape: 'rosette', alpha: 0, zoom: 0.8 }],
-  brands: [{ at: 0.2, shape: 'block', yaw: 0.62, pitch: -0.5, zoom: 0.88, tint: 0.12 }],
-  customers: [{ at: 0.2, shape: 'escrow', flow: 1, zoom: 0.86, pitch: -0.32 }],
-  pool: [{ at: 0.2, shape: 'rings', zoom: 0.78, pitch: -0.5, spin: 0.03 }],
+  brands: [{ at: 0.2, shape: 'rosette', alpha: 0, zoom: 0.8 }],
+  customers: [{ at: 0.2, shape: 'rosette', alpha: 0, zoom: 0.8 }],
+  pool: [{ at: 0.2, shape: 'modules', alpha: 0, zoom: 0.84, pitch: -0.3 }],
   modules: [{ at: 0.25, shape: 'modules', zoom: 0.84, pitch: -0.3 }],
   close: [{ at: 0.4, shape: 'rosette', zoom: 0.92, pitch: -0.3, spin: 0.05 }],
 } satisfies Record<string, KeySpec[]>;
+
+/*
+ * A largura de cada diagrama no telemóvel, pela altura do ecrã: a mesma altura que
+ * a forma que ele substitui tinha (Chapter.tsx — 100svh menos 27rem, ou menos 33rem
+ * no capítulo denso), na proporção de cada desenho, com a lista de passos do 02.
+ */
+const FIGURE_WIDTH = {
+  brands: 'max-w-[min(34rem,calc((100svh_-_27rem_-_60px)*1.6))] lg:max-w-[34rem]',
+  customers: 'max-w-[min(34rem,calc((100svh_-_27rem)*1.76))] lg:max-w-[34rem]',
+  pool: 'max-w-[min(34rem,calc(max(11rem,100svh_-_33rem)*1.65))] lg:max-w-[34rem]',
+} as const;
 
 type Copy = (typeof translations)['en'];
 
@@ -116,6 +132,12 @@ export const Landing: React.FC = () => {
   const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER);
   const [brandsWho, brandsWhat] = t.hero.ctaBrands.split(' — ');
   const [customersWho] = t.hero.ctaCustomers.split(' — ');
+  // Os diagramas dos capítulos 02 a 04 (commit B): cliente, escrow, oráculo e as três camadas vêm do diagrama da primeira tela.
+  const brandFlow = (
+    <BrandFlow copy={{ ...t.diagrams.brand, customer: t.flow.customer, escrow: t.flow.escrow, oracle: t.flow.oracle, proven: t.flow.proven }} proof={proof} />
+  );
+  const refundFlow = <RefundFlow copy={{ ...t.diagrams.refund, customer: t.flow.customer, layers: t.flow.layers }} />;
+  const poolFlow = <PoolFlow copy={t.diagrams.pool} active={pool.active} free={pool.free} />;
 
   // O separador diz o produto e a página, como na /giveaways e na /roadmap; o do
   // index.html (Keptra) volta à saída.
@@ -175,7 +197,7 @@ export const Landing: React.FC = () => {
           </FilmSection>
 
           {/* 02 — Para marcas. */}
-          <Chapter id="for-brands" keys={KEYS.brands} label={brandsWho} caption={t.film.captions.brand}>
+          <Chapter id="for-brands" keys={KEYS.brands} label={brandsWho} figure={brandFlow} figureClassName={FIGURE_WIDTH.brands}>
             <ChapterHead index={2} label={brandsWho} title={t.brands.title} sentence />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.brands.body}</p>
             <Link to="/business" className={clsx(QUIET_LINK, 'mt-4')}>
@@ -184,7 +206,7 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           {/* 03 — Para clientes: o destino do segundo botão da primeira tela. */}
-          <Chapter id="for-customers" keys={KEYS.customers} wide label={customersWho} caption={t.film.captions.escrow}>
+          <Chapter id="for-customers" keys={KEYS.customers} label={customersWho} figure={refundFlow} figureClassName={FIGURE_WIDTH.customers}>
             <ChapterHead index={3} label={customersWho} title={t.customers.title} sentence />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.customers.body}</p>
             <Link to="/pool" className={clsx(QUIET_LINK, 'mt-4')}>
@@ -193,7 +215,7 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           {/* 04 — O pool de garantia: discreto, e cada número lido da cadeia. */}
-          <Chapter id="film-pool" keys={KEYS.pool} dense label={t.pool.label} caption={t.film.captions.pool}>
+          <Chapter id="film-pool" keys={KEYS.pool} label={t.pool.label} figure={poolFlow} figureClassName={FIGURE_WIDTH.pool}>
             <ChapterHead index={4} label={t.pool.label} title={t.pool.title} sentence />
             <dl className="mt-5 grid max-w-md grid-cols-3 gap-4 border-y border-dark-border py-3">
               <PoolStat label={t.pool.capital} value={pool.capital} t={t} lang={lang} />

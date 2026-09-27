@@ -2219,3 +2219,59 @@ await test(['LK13'], 'the words the audit of A3 named: the countries in Portugal
   const titles = starts.map((start, index) => source.slice(start, starts[index + 1] ?? undefined).match(/ {2}rules: \{\n {4}title: '([^']*)',/)?.[1]);
   assert.deepEqual(titles, ['Before you play', 'Antes de jogar', 'Antes de jugar']);
 });
+
+// ---------------------------------------------------------------------------
+// Commit B — the owner's decisions of 27/09/2026 after A4 (branch feat/landing-keptra-b).
+// ---------------------------------------------------------------------------
+
+await test(['LK14'], 'the diagrams of chapters 02 to 04 tell their steps in order at every phase — a brand’s sale (offer, payment into escrow, shipment, proof, the proof kept, the brand paid), a refund (not proven, then bond, risk reserve, pool, repaid), the pool (capital in, guarantees up to the limit, brands paying back) — on the film’s clock (pause and reduced motion), each in its chapter in place of the scene, the pool’s drawn from the amounts read on-chain; chapter 05 keeps its shape beside the modules’ cards; the three layers are named bond / risk reserve / pool, in the first screen’s diagram too (checked in the source)', async () => {
+  const flow = await import('../../../lib/proof/flow.ts');
+  const phases = Array.from({ length: 3001 }, (_unused, i) => (i / 3000) * 3 - 1);
+  for (const phase of phases) {
+    const b = flow.brandFrame(phase);
+    if (b.pay > 0) assert.equal(b.publish, 1, `paid before published at ${phase}`);
+    if (b.held > 0) assert.equal(b.pay, 1, `held before paid at ${phase}`);
+    if (b.ship > 0) assert.equal(b.held, 1, `shipped before held at ${phase}`);
+    if (b.proven > 0) assert.equal(b.ship, 1, `proven before shipped at ${phase}`);
+    if (b.kept > 0) assert.equal(b.proven, 1, `proof kept before proven at ${phase}`);
+    if (b.paid > 0) assert.equal(b.proven, 1, `brand paid before the proof at ${phase}`);
+    const r = flow.refundFrame(phase);
+    if (r.bond > 0) assert.equal(r.failed, 1, `refund before the failure at ${phase}`);
+    if (r.reserve > 0) assert.equal(r.bond, 1, `risk reserve before the bond at ${phase}`);
+    if (r.pool > 0) assert.equal(r.reserve, 1, `pool before the risk reserve at ${phase}`);
+    if (r.repaid > 0) assert.equal(r.pool, 1, `repaid before the pool at ${phase}`);
+    const p = flow.poolFrame(phase);
+    if (p.capital > 0) assert.equal(p.deposit, 1, `capital before the deposits at ${phase}`);
+    if (p.cover > 0) assert.equal(p.capital, 1, `guarantees before the capital at ${phase}`);
+    if (p.repay > 0) assert.equal(p.cover, 1, `repayment before the guarantees at ${phase}`);
+  }
+  assert.deepEqual(flow.brandFrame(flow.BRAND_FINAL), { publish: 1, pay: 1, held: 1, ship: 1, proven: 1, kept: 1, paid: 1, shown: 1 });
+  assert.deepEqual(flow.refundFrame(flow.REFUND_FINAL), { failed: 1, bond: 1, reserve: 1, pool: 1, repaid: 1, shown: 1 });
+  assert.deepEqual(flow.poolFrame(flow.POOL_FINAL), { deposit: 1, capital: 1, cover: 1, repay: 1, shown: 1 });
+  // On the film's clock, the drawing hidden from assistive technology, its steps read.
+  for (const [file, name] of [['BrandFlow', 'BRAND'], ['RefundFlow', 'REFUND'], ['PoolFlow', 'POOL']]) {
+    const code = codeOf(`components/proof/${file}.tsx`);
+    assert.ok(code.includes(`useFilmTimeline(root, ${name}_PERIOD, ${name}_FINAL, draw);`), file);
+    assert.match(code, /aria-hidden="true"/, `${file}: the drawing is not hidden`);
+    assert.match(code, /<ol/, `${file}: no list of its steps`);
+  }
+  assert.ok(!/\d[\d.,]*\s*USDC/.test(codeOf('components/proof/PoolFlow.tsx')), 'the pool’s diagram writes a figure');
+  assert.match(codeOf('components/proof/PoolFlow.tsx'), /typeof active === 'bigint' && typeof free === 'bigint'/);
+  // In their chapters, in place of the scene, which waits hidden; chapter 05 keeps its shape.
+  const page = codeOf('pages/Landing.tsx');
+  assert.match(page, /<Chapter id="for-brands" keys=\{KEYS\.brands\} label=\{brandsWho\} figure=\{brandFlow\}/);
+  assert.match(page, /<Chapter id="for-customers" keys=\{KEYS\.customers\} label=\{customersWho\} figure=\{refundFlow\}/);
+  assert.match(page, /<Chapter id="film-pool" keys=\{KEYS\.pool\} label=\{t\.pool\.label\} figure=\{poolFlow\}/);
+  assert.match(page, /<PoolFlow copy=\{t\.diagrams\.pool\} active=\{pool\.active\} free=\{pool\.free\} \/>/);
+  for (const key of ['brands', 'customers', 'pool']) assert.match(page, new RegExp(`  ${key}: \\[\\{ at: 0\\.2, shape: '\\w+', alpha: 0,`), key);
+  assert.match(page, /<Chapter id="film-modules" keys=\{KEYS\.modules\} wide label=\{t\.modules\.title\} caption=\{t\.film\.captions\.modules\}>/);
+  const chapter = codeOf('components/film/Chapter.tsx');
+  assert.match(chapter, /<FilmAnchor keys=\{keys\} ghost className="pointer-events-none absolute inset-0" \/>\s*<div data-film-panel>\{figure\}<\/div>/);
+  // Bond / risk reserve / pool, the owner's terms, in the three languages.
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => translations[lang].flow.layers), [
+    ['Bond', 'Risk reserve', 'Pool'],
+    ['Caução', 'Reserva de risco', 'Pool'],
+    ['Fianza', 'Reserva de riesgo', 'Pool'],
+  ]);
+});

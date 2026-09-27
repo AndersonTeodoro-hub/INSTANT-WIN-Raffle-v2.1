@@ -26,8 +26,9 @@ import { markParams, markPaths, proofBytes } from '../../lib/proof/mark';
  */
 
 // The drawing's own units; the labels are HTML, placed in the same units, so they keep a readable size.
-const W = 480;
-const H = 272;
+// Exported with the colours and the helpers below: the diagrams of chapters 02 to 04 speak the same language.
+export const W = 480;
+export const H = 272;
 const Y = 150;
 const C = { x: 64, r: 22 };
 const K = { x: 240, r: 40, ring: 47 };
@@ -37,14 +38,14 @@ const PAY = [C.x + C.r, K.x - K.ring] as const;
 const RELEASE = [K.x + K.ring, S.x - S.r] as const;
 const ORACLE = [O.y + O.r, Y - K.ring] as const;
 
-const RAIL = '#2a2a31';
-const NODE = '#4b5563';
-const INK = '#e5e7eb';
-const PROOF = '#22c55e';
+export const RAIL = '#2a2a31';
+export const NODE = '#4b5563';
+export const INK = '#e5e7eb';
+export const PROOF = '#22c55e';
 
-const at = (x: number, y: number): React.CSSProperties => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const ease = (v: number, from: number, to: number) => {
+export const at = (x: number, y: number): React.CSSProperties => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const ease = (v: number, from: number, to: number) => {
   const t = Math.min(1, Math.max(0, (v - from) / (to - from)));
   return t * t * (3 - 2 * t);
 };

@@ -11,7 +11,7 @@ const STORAGE_KEY = 'iw-lang';
 
 // Technical terms kept in English across all languages (industry convention):
 // Chainlink VRF, USDC, Arbitrum One, on-chain, wallet, smart contract, open-source.
-export type SceneCaptionKey = 'mark' | 'brand' | 'pool' | 'payout' | 'escrow' | 'modules' | 'again' | 'entry' | 'prize' | 'pick';
+export type SceneCaptionKey = 'mark' | 'payout' | 'modules' | 'again' | 'entry' | 'prize' | 'pick';
 
 /**
  * A página inicial conta a Keptra primeiro (pedido do owner de 27/09/2026): 01 a
@@ -55,7 +55,33 @@ export interface LandingCopy {
     proven: string;
     /** Por cima das três camadas: quem paga se a entrega não for provada. */
     refund: string;
+    /** Caução, reserva de risco, pool: os termos do owner (commit B), também nos diagramas dos capítulos. */
     layers: [string, string, string];
+  };
+  /**
+   * Os diagramas dos capítulos 02 a 04 (decisão do owner de 27/09/2026, commit B:
+   * components/proof/BrandFlow, RefundFlow, PoolFlow). Cliente, escrow, oráculo,
+   * entrega provada e as três camadas vêm de `flow`; aqui fica só o que é novo.
+   */
+  diagrams: {
+    brand: {
+      brand: string;
+      proof: string;
+      proofKept: string;
+      shipped: string;
+      /** Os cinco passos do owner, por ordem: oferta, pagamento, envio, prova, a marca recebe. */
+      steps: [string, string, string, string, string];
+    };
+    refund: { failed: string; repaid: string };
+    pool: {
+      providers: string;
+      capital: string;
+      covered: string;
+      limit: string;
+      repay: string;
+      /** Lidos pelos leitores de ecrã: o desenho está escondido deles. */
+      steps: [string, string, string];
+    };
   };
   /** 02 e 03 — o texto do owner; a primeira frase é o título, o resto o corpo. */
   brands: { title: string; body: string };
@@ -136,7 +162,29 @@ const en: LandingCopy = {
     oracle: 'Independent oracle',
     proven: 'Delivery proven',
     refund: 'If not proven, the refund comes from',
-    layers: ['Bond', 'Reserve', 'Pool'],
+    layers: ['Bond', 'Risk reserve', 'Pool'],
+  },
+  diagrams: {
+    brand: {
+      brand: 'Brand',
+      proof: 'On-chain proof',
+      proofKept: 'kept',
+      shipped: 'Shipped with tracking',
+      steps: ['Offer published', 'Paid into escrow', 'Shipped with tracking', 'Delivery proven', 'Brand paid'],
+    },
+    refund: { failed: 'Delivery not proven', repaid: 'Repaid' },
+    pool: {
+      providers: 'Providers',
+      capital: 'Pool capital',
+      covered: 'Guarantees, up to the limit',
+      limit: 'limit',
+      repay: 'Brands pay back what the pool paid',
+      steps: [
+        'Providers put their capital into the pool.',
+        "The pool covers brands' guarantees up to its limit.",
+        'A brand pays back what the pool paid for it.',
+      ],
+    },
   },
   brands: {
     title: 'The stores that can show proof stand apart.',
@@ -193,10 +241,7 @@ const en: LandingCopy = {
     markPending: 'Waiting for the first settled draw.',
     captions: {
       mark: 'This shape is drawn from the proof of the latest draw. Every draw has its own, and no one can fake it.',
-      brand: 'A proven delivery, sealed in a block of the public record. From then on, no one can change it.',
-      pool: "The pool's capital, ring on ring: it stands behind every order, after the brand's bond.",
       payout: 'The prize, in amber, goes from the contract to the winner\'s wallet.',
-      escrow: 'Your payment waits in the middle. The green path to the store opens only once delivery is proven; the three layers below cover a failure.',
       modules: 'The three modules, each drawn from its latest draw. Giveaways and the Event Center run on one contract, so they share a shape. Green is live.',
       again: 'The shape of the latest draw, once more: the proof, drawn.',
       entry: 'An entry. The participant pays nothing for it.',
@@ -231,7 +276,29 @@ const pt: LandingCopy = {
     oracle: 'Oráculo independente',
     proven: 'Entrega provada',
     refund: 'Se não for provada, o reembolso vem de',
-    layers: ['Caução', 'Reserva', 'Pool'],
+    layers: ['Caução', 'Reserva de risco', 'Pool'],
+  },
+  diagrams: {
+    brand: {
+      brand: 'Marca',
+      proof: 'Prova on-chain',
+      proofKept: 'que fica',
+      shipped: 'Enviado com tracking',
+      steps: ['Oferta publicada', 'Pago para o escrow', 'Enviado com tracking', 'Entrega provada', 'A marca recebe'],
+    },
+    refund: { failed: 'Entrega não provada', repaid: 'Reembolsado' },
+    pool: {
+      providers: 'Provedores',
+      capital: 'Capital do pool',
+      covered: 'Garantias, até ao limite',
+      limit: 'limite',
+      repay: 'As marcas devolvem o que o pool pagou',
+      steps: [
+        'Os provedores põem o seu capital no pool.',
+        'O pool cobre as garantias das marcas até ao seu limite.',
+        'Uma marca devolve o que o pool pagou por ela.',
+      ],
+    },
   },
   brands: {
     title: 'As lojas que conseguem mostrar prova destacam-se.',
@@ -288,10 +355,7 @@ const pt: LandingCopy = {
     markPending: 'Aguardando o primeiro sorteio liquidado.',
     captions: {
       mark: 'Esta forma é desenhada a partir da prova do último sorteio. Cada sorteio tem a sua, e ninguém consegue falsificá-la.',
-      brand: 'Uma entrega provada, selada num bloco do registo público. A partir daí, ninguém a pode alterar.',
-      pool: 'O capital do pool, anel sobre anel: sustenta cada encomenda, depois da caução da marca.',
       payout: 'O prêmio, em âmbar, sai do contrato para a wallet de quem ganhou.',
-      escrow: 'O seu pagamento espera no meio. O caminho verde até a loja só abre quando a entrega é provada; as três camadas de baixo cobrem uma falha.',
       modules: 'Os três módulos, cada um desenhado a partir do seu último sorteio. Os Giveaways e o Event Center rodam no mesmo contrato, por isso têm a mesma forma. Verde é o que está no ar.',
       again: 'A forma do último sorteio, outra vez: a prova, desenhada.',
       entry: 'Uma inscrição. Quem participa não paga nada por ela.',
@@ -326,7 +390,29 @@ const es: LandingCopy = {
     oracle: 'Oráculo independiente',
     proven: 'Entrega probada',
     refund: 'Si no se prueba, el reembolso sale de',
-    layers: ['Fianza', 'Reserva', 'Pool'],
+    layers: ['Fianza', 'Reserva de riesgo', 'Pool'],
+  },
+  diagrams: {
+    brand: {
+      brand: 'Marca',
+      proof: 'Prueba on-chain',
+      proofKept: 'que queda',
+      shipped: 'Enviado con seguimiento',
+      steps: ['Oferta publicada', 'Pagado al escrow', 'Enviado con seguimiento', 'Entrega probada', 'La marca cobra'],
+    },
+    refund: { failed: 'Entrega no probada', repaid: 'Reembolsado' },
+    pool: {
+      providers: 'Proveedores',
+      capital: 'Capital del pool',
+      covered: 'Garantías, hasta el límite',
+      limit: 'límite',
+      repay: 'Las marcas devuelven lo que pagó el pool',
+      steps: [
+        'Los proveedores ponen su capital en el pool.',
+        'El pool cubre las garantías de las marcas hasta su límite.',
+        'Una marca devuelve lo que el pool pagó por ella.',
+      ],
+    },
   },
   brands: {
     title: 'Las tiendas que pueden mostrar prueba se distinguen.',
@@ -383,10 +469,7 @@ const es: LandingCopy = {
     markPending: 'Esperando el primer sorteo liquidado.',
     captions: {
       mark: 'Esta forma se dibuja a partir de la prueba del último sorteo. Cada sorteo tiene la suya, y nadie puede falsificarla.',
-      brand: 'Una entrega probada, sellada en un bloque del registro público. Desde entonces, nadie puede cambiarla.',
-      pool: 'El capital del pool, anillo sobre anillo: respalda cada pedido, después de la fianza de la marca.',
       payout: 'El premio, en ámbar, sale del contrato hacia la wallet de quien ganó.',
-      escrow: 'Tu pago espera en el medio. El camino verde hacia la tienda solo se abre cuando la entrega está probada; las tres capas de abajo cubren un fallo.',
       modules: 'Los tres módulos, cada uno dibujado a partir de su último sorteo. Los Giveaways y el Event Center funcionan en el mismo contrato, por eso comparten la forma. El verde es lo que está en marcha.',
       again: 'La forma del último sorteo, otra vez: la prueba, dibujada.',
       entry: 'Una participación. Quien participa no paga nada por ella.',
