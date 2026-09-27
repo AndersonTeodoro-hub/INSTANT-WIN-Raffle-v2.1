@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useReadContracts } from 'wagmi';
+import { useReadContract, useReadContracts } from 'wagmi';
 import { Copy, ExternalLink, PackagePlus, Truck } from 'lucide-react';
 import { KeptraShell } from '../../components/keptra/KeptraShell';
 import { useKeptra } from '../../components/keptra/KeptraProvider';
 import { AccountSetup, RequireAccount } from '../../components/keptra/SignIn';
 import { useBridgeRead, useTerms, useTier } from '../../components/keptra/hooks';
+import { ContactEmail } from '../../components/ContactEmail';
 import { EvidencePanel } from './OrderPage';
 import {
   AddressLink,
@@ -14,6 +15,7 @@ import {
   Card,
   DoneOnChain,
   Empty,
+  Facts,
   Field,
   Loading,
   NotAvailable,
@@ -38,12 +40,13 @@ import {
 } from '../../lib/keptra/api';
 import { CHAIN_FAILED, chainFailed, type Read } from '../../lib/keptra/reads';
 import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_GUARANTEE_ABI, OrderState, keptraConfigured } from '../../lib/keptra/contracts';
-import { countryName, formatNumber, formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
+import { KEPTRA_REPUTATION_ABI } from '../../lib/bridge-v2/abi';
+import { countryName, formatNumber, formatPercent, formatUsdc, formatUtc, parseUsdc } from '../../lib/keptra/format';
 import { orderStatusText, storeActions, type StoreAction } from '../../lib/keptra/orders';
 import { codeToBytes32, normalizeDeliveryCode } from '../../lib/keptra/deliveryCode';
 import { DESCRIPTION_TEXT_MAX, DESCRIPTION_TITLE_MAX, checkDescription } from '../../lib/keptra-description';
 import { around, fill, useKeptraCopy, type KeptraCopy } from '../keptra.i18n';
-import type { Lang } from '../landing.i18n';
+import { translations, type Lang } from '../landing.i18n';
 
 /*
  * The business area (T0: apart from the customer's), for a store (COMPRA) and a
@@ -63,6 +66,7 @@ type Section = 'orders' | 'offers' | 'obligations';
 export function BusinessPage({ section = 'orders' }: { section?: Section }) {
   const { id } = useParams();
   const { t } = useKeptraCopy();
+  const { signedIn } = useKeptra();
   useEffect(() => {
     document.title = t.business.metaTitle;
   }, [t]);
@@ -73,11 +77,97 @@ export function BusinessPage({ section = 'orders' }: { section?: Section }) {
       {!keptraConfigured() ? (
         <NotAvailable />
       ) : (
-        <RequireAccount intro={t.business.intro}>
-          {(status) => <BusinessBody section={section} status={status} focus={id ?? null} />}
-        </RequireAccount>
+        <>
+          {signedIn === false && section === 'orders' && id === undefined && <BrandPitch />}
+          <RequireAccount intro={t.business.intro}>
+            {(status) => <BusinessBody section={section} status={status} focus={id ?? null} />}
+          </RequireAccount>
+        </>
       )}
     </KeptraShell>
+  );
+}
+
+/** An address with no history: what the reputation contract gives it is what a new brand gets. */
+const NO_HISTORY = '0x0000000000000000000000000000000000000000';
+
+/**
+ * /business without a session (the owner's decision of 27/09/2026, commit B): what a
+ * brand gains (the home page's chapter 02 and its sentence on chargebacks), how it
+ * works, and what it costs — only what the contracts say, read on-chain: the terms
+ * KeptraReputation.termsFor gives an address with no history (bond, protection fee,
+ * coverage limit), and no deposit to sell (KeptraEscrow.createOffer takes none). The
+ * fee per sale is on-chain too, but no ABI of the page reads it (P6-19) and the owner
+ * allows no new one: that row says "Talk to us". Then the contact address, then the
+ * sign-in panel. Signed in, none of this shows.
+ */
+function BrandPitch() {
+  const { t, lang } = useKeptraCopy();
+  const home = translations[lang].brands;
+  const reputation = useReadContract({ address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'reputation' });
+  const terms = useReadContract({
+    address: (reputation.data ?? KEPTRA_ESCROW) as `0x${string}`,
+    abi: KEPTRA_REPUTATION_ABI,
+    functionName: 'termsFor',
+    args: [NO_HISTORY],
+    query: { enabled: reputation.data !== undefined },
+  });
+  // V3: what the chain did not give is "Not read", never a number standing in for it.
+  const failed = reputation.isError || terms.isError;
+  const pending = failed ? t.ui.notRead : '…';
+  const [tier, params] = terms.data ?? [];
+  return (
+    <section aria-labelledby="brand-pitch" className="mb-10">
+      <h2 id="brand-pitch" className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+        {t.brandPitch.title}
+      </h2>
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card as="article">
+          <h3 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.gainTitle}</h3>
+          <p className="mt-3 text-sm leading-relaxed text-gray-300">{`${home.title} ${home.body}`}</p>
+          <p className="mt-3 text-sm leading-relaxed text-gray-300">{home.proof}</p>
+        </Card>
+        <Card as="article">
+          <h3 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.howTitle}</h3>
+          <ol className="mt-3 space-y-2 text-sm leading-relaxed text-gray-300">
+            {t.brandPitch.howSteps.map((step, index) => (
+              <li key={step} className="flex gap-3">
+                <span className="font-mono text-gray-400" aria-hidden="true">
+                  {index + 1}
+                </span>
+                {step}
+              </li>
+            ))}
+          </ol>
+        </Card>
+        <Card as="article" className="lg:col-span-2">
+          <h3 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.costTitle}</h3>
+          <p className="mb-4 mt-2 text-sm text-gray-400">{fill(t.brandPitch.costIntro, { tier: tier === undefined ? pending : t.tiers[tier] })}</p>
+          <Facts
+            rows={[
+              [t.brandPitch.saleFee, t.brandPitch.talkToUs],
+              [t.brandPitch.saleDeposit, t.brandPitch.noDeposit],
+              [t.brandPitch.prizeBond, params ? fill(t.brandPitch.prizeBondValue, { percent: formatPercent(params.bondBps, lang) }) : pending],
+              [t.brandPitch.protection, params ? fill(t.brandPitch.protectionValue, { percent: formatPercent(params.protectionBps, lang) }) : pending],
+              [t.brandPitch.coverageLimit, params ? fill(t.brandPitch.coverageLimitValue, { amount: formatUsdc(params.coverageLimit, lang) }) : pending],
+            ]}
+          />
+          {failed && (
+            <div className="mt-5">
+              <ReadError
+                what={t.what.brandTerms}
+                error={CHAIN_FAILED}
+                onRetry={() => void (reputation.isError ? reputation.refetch() : terms.refetch())}
+              />
+            </div>
+          )}
+        </Card>
+      </div>
+      <div className="mt-6 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <p className="text-sm font-medium text-gray-300">{t.brandPitch.talkToUs}</p>
+        <ContactEmail />
+      </div>
+    </section>
   );
 }
 

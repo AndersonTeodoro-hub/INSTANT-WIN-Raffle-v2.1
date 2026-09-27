@@ -81,6 +81,7 @@ const en = {
     yourOffers: 'Your offers',
     itsConditions: 'Its conditions',
     yourObligations: 'Your obligations',
+    brandTerms: 'The terms of a new brand',
   },
   /**
    * The sentences this app writes itself when something fails (lib/keptra/api.ts,
@@ -591,6 +592,37 @@ const en = {
     entries: 'Entries allowed',
     createCampaign: 'Review and create campaign',
   },
+  /**
+   * /business without a session (the owner's decision of 27/09/2026, commit B): a
+   * short explanation for brands above the sign-in panel. What the brand gains is
+   * the home page's chapter 02 (landing.i18n.ts brands); the costs are only what the
+   * contracts say, read on-chain — `{percent}` and `{amount}` are those reads.
+   */
+  brandPitch: {
+    title: 'Offer verified delivery',
+    gainTitle: 'What your brand gains',
+    howTitle: 'How it works',
+    howSteps: [
+      'The brand publishes the offer.',
+      'The customer pays into escrow.',
+      'The brand ships with tracking.',
+      'An independent oracle proves the delivery.',
+      'The brand is paid.',
+    ],
+    costTitle: 'What it costs, and what the brand deposits',
+    /** {tier}: the tier the contract gives a brand with no history yet. */
+    costIntro: 'Read on-chain: the terms of a brand with no history yet (tier {tier}).',
+    saleFee: 'Fee per sale',
+    talkToUs: 'Talk to us',
+    saleDeposit: 'Deposit to sell',
+    noDeposit: "None: the customer's payment waits in escrow.",
+    prizeBond: 'Bond for a prize',
+    prizeBondValue: '{percent} of the declared value plus shipping, per voucher',
+    protection: 'Protection fee for a prize',
+    protectionValue: '{percent} of what the bond does not cover, paid when the prize is created',
+    coverageLimit: 'Coverage limit',
+    coverageLimitValue: "{amount} covered at once, across the brand's prizes",
+  },
   privacy: {
     metaTitle: 'Privacy · Keptra',
     title: 'Privacy',
@@ -653,6 +685,7 @@ const pt: KeptraCopy = {
     yourOffers: 'as suas ofertas',
     itsConditions: 'as suas condições',
     yourObligations: 'as suas obrigações',
+    brandTerms: 'as condições de uma marca nova',
   },
   errors: {
     network: 'A rede não respondeu. Verifique a sua ligação e tente de novo.',
@@ -1153,6 +1186,30 @@ const pt: KeptraCopy = {
     entries: 'Participações permitidas',
     createCampaign: 'Rever e criar campanha',
   },
+  brandPitch: {
+    title: 'Ofereça entrega verificada',
+    gainTitle: 'O que a sua marca ganha',
+    howTitle: 'Como funciona',
+    howSteps: [
+      'A marca publica a oferta.',
+      'O cliente paga para o escrow.',
+      'A marca envia com tracking.',
+      'Um oráculo independente prova a entrega.',
+      'A marca recebe o pagamento.',
+    ],
+    costTitle: 'O que custa e o que a marca deposita',
+    costIntro: 'Lido on-chain: as condições de uma marca ainda sem histórico (nível {tier}).',
+    saleFee: 'Taxa por venda',
+    talkToUs: 'Fale connosco',
+    saleDeposit: 'Depósito para vender',
+    noDeposit: 'Nenhum: o pagamento do cliente espera no escrow.',
+    prizeBond: 'Caução de um prémio',
+    prizeBondValue: '{percent} do valor declarado mais o envio, por voucher',
+    protection: 'Taxa de protecção de um prémio',
+    protectionValue: '{percent} do que a caução não cobre, paga ao criar o prémio',
+    coverageLimit: 'Limite de cobertura',
+    coverageLimitValue: '{amount} cobertos ao mesmo tempo, em todos os prémios da marca',
+  },
   privacy: {
     metaTitle: 'Privacidade · Keptra',
     title: 'Privacidade',
@@ -1213,6 +1270,7 @@ const es: KeptraCopy = {
     yourOffers: 'tus ofertas',
     itsConditions: 'sus condiciones',
     yourObligations: 'tus obligaciones',
+    brandTerms: 'las condiciones de una marca nueva',
   },
   errors: {
     network: 'La red no respondió. Comprueba tu conexión e inténtalo de nuevo.',
@@ -1712,6 +1770,30 @@ const es: KeptraCopy = {
     runsFor: 'Duración (días)',
     entries: 'Participaciones permitidas',
     createCampaign: 'Revisar y crear campaña',
+  },
+  brandPitch: {
+    title: 'Ofrece entrega verificada',
+    gainTitle: 'Lo que gana tu marca',
+    howTitle: 'Cómo funciona',
+    howSteps: [
+      'La marca publica la oferta.',
+      'El cliente paga al escrow.',
+      'La marca envía con seguimiento.',
+      'Un oráculo independiente prueba la entrega.',
+      'La marca cobra.',
+    ],
+    costTitle: 'Lo que cuesta y lo que deposita la marca',
+    costIntro: 'Leído on-chain: las condiciones de una marca aún sin historial (nivel {tier}).',
+    saleFee: 'Comisión por venta',
+    talkToUs: 'Habla con nosotros',
+    saleDeposit: 'Depósito para vender',
+    noDeposit: 'Ninguno: el pago del cliente espera en el escrow.',
+    prizeBond: 'Fianza de un premio',
+    prizeBondValue: '{percent} del valor declarado más el envío, por voucher',
+    protection: 'Tarifa de protección de un premio',
+    protectionValue: '{percent} de lo que la fianza no cubre, pagada al crear el premio',
+    coverageLimit: 'Límite de cobertura',
+    coverageLimitValue: '{amount} cubiertos a la vez, en todos los premios de la marca',
   },
   privacy: {
     metaTitle: 'Privacidad · Keptra',

@@ -434,9 +434,10 @@ await test(['AT2', 'U16', 'U15'], 'T2: every action’s summary is the bridge’
   const refund = await prepare({ kind: 'refund', orderId: '5', amount: '2000000' });
   assert.deepEqual(refund.summary, { action: 'refund', amounts: [{ kind: 'ERC20', token: USDC, value: '2000000' }], destination: { address: buyer.participant, role: 'RECIPIENT' } });
   // The client never recomputes an amount: no copy of the obligation formula (T2) and no price arithmetic in the page's code.
+  // A tier's rates may be shown as read (/business without a session, commit B), never computed with.
   for (const dir of ['lib/keptra', 'pages/keptra', 'components/keptra']) {
     for (const name of readdirSync(`${root}${dir}`)) {
-      assert.ok(!/bondBps|protectionBps/.test(codeOf(`${dir}/${name}`)), `${dir}/${name} repeats the obligation formula`);
+      assert.ok(!/(?:bondBps|protectionBps)\s*[-+*/%]|[-+*/%]\s*(?:\w+\.)*(?:bondBps|protectionBps)\b/.test(codeOf(`${dir}/${name}`)), `${dir}/${name} repeats the obligation formula`);
     }
   }
   // U15: the Event Center signs the entry only at ELIGIBLE, with the passkey; U16: the claim, when won.
@@ -2311,4 +2312,41 @@ await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its t
   assert.match(page, /const MODULES: [^=]+= \[\s*\{ to: '\/business', icon: PackageCheck, live: true \},\s*\{ name: 'INSTANT WIN', to: '\/play'/);
   assert.match(page, /\{`0\$\{i \+ 1\}`\}/);
   assert.match(page, /\{copy\.name \?\? m\.name\}<\/h3>/);
+});
+
+await test(['LK16'], '/business without a session explains Keptra to a brand above the sign-in panel — the owner’s title, what it gains (chapter 02 and the chargeback sentence), how it works, and what it costs read on-chain only (the terms of a brand with no history: bond, protection fee, coverage limit; no deposit to sell), the fee per sale “Talk to us” since no ABI of the page reads it; then the contact address with its Copy button, then the panel; nothing of it when signed in (checked in the source)', async () => {
+  const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => k[lang].brandPitch.title), ['Offer verified delivery', 'Ofereça entrega verificada', 'Ofrece entrega verificada']);
+  assert.equal(k.pt.brandPitch.talkToUs, 'Fale connosco');
+  for (const lang of ['en', 'pt', 'es']) {
+    const p = k[lang].brandPitch;
+    assert.equal(p.howSteps.length, 5, `${lang}: publish, pay into escrow, ship, proof, paid`);
+    // No figure is written: every number is a chain read put into {percent}, {amount} or {tier}.
+    for (const [path, word] of wordsOf(p)) assert.ok(!/\d/.test(word), `${lang} brandPitch${path} writes a figure`);
+    assert.match(p.prizeBondValue, /\{percent\}/);
+    assert.match(p.protectionValue, /\{percent\}/);
+    assert.match(p.coverageLimitValue, /\{amount\}/);
+    assert.match(p.costIntro, /\{tier\}/);
+  }
+  const page = codeOf('pages/keptra/BusinessPage.tsx');
+  // Above the sign-in panel, on /business only, and only when the bridge says there is no session.
+  assert.match(page, /\{signedIn === false && section === 'orders' && id === undefined && <BrandPitch \/>\}\s*<RequireAccount intro=\{t\.business\.intro\}>/);
+  // The terms of a brand with no history, from the reputation the escrow names, through the bridge's own ABI.
+  assert.match(page, /import \{ KEPTRA_REPUTATION_ABI \} from '\.\.\/\.\.\/lib\/bridge-v2\/abi';/);
+  assert.match(page, /functionName: 'reputation'/);
+  assert.match(page, /abi: KEPTRA_REPUTATION_ABI,\s*functionName: 'termsFor',\s*args: \[NO_HISTORY\],/);
+  assert.match(page, /const NO_HISTORY = '0x0{40}';/);
+  assert.match(page, /\[t\.brandPitch\.saleFee, t\.brandPitch\.talkToUs\]/);
+  assert.match(page, /formatPercent\(params\.bondBps, lang\)/);
+  assert.match(page, /formatPercent\(params\.protectionBps, lang\)/);
+  assert.match(page, /formatUsdc\(params\.coverageLimit, lang\)/);
+  assert.match(page, /const pending = failed \? t\.ui\.notRead : '…';/);
+  // Chapter 02's text and its chargeback sentence, from the home page's dictionary.
+  assert.match(page, /\{`\$\{home\.title\} \$\{home\.body\}`\}/);
+  assert.match(page, /\{home\.proof\}/);
+  // The contact address with its Copy button closes the explanation.
+  const pitch = page.slice(page.indexOf('function BrandPitch()'), page.indexOf('function BusinessBody('));
+  assert.match(pitch, /<ContactEmail \/>\s*<\/div>\s*<\/section>/);
+  // The ABIs are untouched: the fee per sale is still read by no ABI of the page (P6-19).
+  assert.ok(!contracts.ESCROW_READ_ABI.some((item) => item.name === 'feeBps'));
 });
