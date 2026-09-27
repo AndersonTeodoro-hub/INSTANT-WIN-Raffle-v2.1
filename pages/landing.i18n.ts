@@ -53,15 +53,16 @@ export interface LandingCopy {
     escrow: string;
     oracle: string;
     proven: string;
-    /** Por cima das três camadas: quem paga se a entrega não for provada. */
-    refund: string;
-    /** Caução, reserva de risco, pool: os termos do owner (commit B), também nos diagramas dos capítulos. */
-    layers: [string, string, string];
+    /**
+     * Por baixo do diagrama, o texto do owner de 27/09/2026 (commit B8): até quando o
+     * pagamento fica no escrow, e o que faz uma contestação. Tomou o lugar das três camadas.
+     */
+    note: string;
   };
   /**
    * Os diagramas dos capítulos 02 a 04 (decisão do owner de 27/09/2026, commit B:
-   * components/proof/BrandFlow, RefundFlow, PoolFlow). Cliente, escrow, oráculo,
-   * entrega provada e as três camadas vêm de `flow`; aqui fica só o que é novo.
+   * components/proof/BrandFlow, PurchaseFlow, PoolFlow). Cliente, loja, escrow, oráculo
+   * e entrega provada vêm de `flow`; aqui fica só o que é novo.
    */
   diagrams: {
     brand: {
@@ -72,7 +73,12 @@ export interface LandingCopy {
       /** Os cinco passos do owner, por ordem: oferta, pagamento, envio, prova, a marca recebe. */
       steps: [string, string, string, string, string];
     };
-    refund: { failed: string; repaid: string };
+    /**
+     * O 03, uma compra (commit B8): pagamento no escrow, entrega, 5 dias para contestar,
+     * árbitro, e o dinheiro sai do escrow para quem o árbitro decidir. Os passos são os
+     * do owner, por essa ordem; os rótulos do desenho foram escritos à volta deles.
+     */
+    purchase: { delivered: string; window: string; arbiter: string; decides: string; steps: [string, string, string, string, string] };
     pool: {
       providers: string;
       capital: string;
@@ -86,7 +92,8 @@ export interface LandingCopy {
   /**
    * 02 e 03 — o texto do owner; a primeira frase é o título, o resto o corpo. No
    * 02, por baixo, as duas frases do owner de 27/09/2026 (commit B): a prova contra
-   * um chargeback, e o pagamento com cartão que vem a seguir.
+   * um chargeback, e o pagamento com cartão que vem a seguir. O título do 03 é o do
+   * commit B8: a loja só recebe com a confirmação ou 5 dias sem contestação.
    */
   brands: { title: string; body: string; proof: string; next: string };
   customers: { title: string; body: string };
@@ -167,8 +174,7 @@ const en: LandingCopy = {
     escrow: 'escrow',
     oracle: 'Independent oracle',
     proven: 'Delivery proven',
-    refund: 'If not proven, the refund comes from',
-    layers: ['Bond', 'Risk reserve', 'Pool'],
+    note: 'Your payment stays in escrow until you confirm the delivery or 5 days pass without a contest. If you contest, an arbiter decides — and the money is still there.',
   },
   diagrams: {
     brand: {
@@ -178,7 +184,13 @@ const en: LandingCopy = {
       shipped: 'Shipped with tracking',
       steps: ['Offer published', 'Paid into escrow', 'Shipped with tracking', 'Delivery proven', 'Brand paid'],
     },
-    refund: { failed: 'Delivery not proven', repaid: 'Repaid' },
+    purchase: {
+      delivered: 'Delivered',
+      window: '5 days to contest',
+      arbiter: 'Arbiter',
+      decides: 'decides',
+      steps: ['Payment in escrow', 'Delivery', '5 days to contest', 'Arbiter', 'The money leaves escrow, to whoever the arbiter decides'],
+    },
     pool: {
       providers: 'Providers',
       capital: 'Pool capital',
@@ -199,7 +211,7 @@ const en: LandingCopy = {
     next: 'Next: your customers pay by card, as they always do — and delivery stays guaranteed. Company being incorporated to connect card payments.',
   },
   customers: {
-    title: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the risk reserve, then by the pool.",
+    title: 'Online or in store: the store is paid only when you confirm the delivery or 5 days pass without a contest — until then, the money is in escrow.',
     body: "You never need to understand how; you can always check that it's true.",
   },
   pool: {
@@ -214,13 +226,13 @@ const en: LandingCopy = {
   },
   modules: {
     eyebrow: 'Inside Keptra',
-    title: 'Three modules, one standard of proof.',
+    title: 'One standard of proof, everywhere.',
     obligation: 'Every order is a tokenized obligation — bond, coverage and settlement on-chain. Commerce as a real-world asset.',
     items: [
       {
         name: 'Verified delivery',
         badge: 'LIVE',
-        body: "Payment waits in escrow until an independent oracle proves the delivery. If it is not proven, the customer is repaid from the brand's bond, the risk reserve and the pool.",
+        body: "Payment waits in escrow until the customer confirms the delivery or 5 days pass without a contest; a contest goes to an arbiter, with the money still in escrow. Prizes brands promise are backed by the brand's bond and, by tier, a risk reserve and the pool.",
         cta: 'For brands',
       },
       {
@@ -289,8 +301,7 @@ const pt: LandingCopy = {
     escrow: 'escrow',
     oracle: 'Oráculo independente',
     proven: 'Entrega provada',
-    refund: 'Se não for provada, o reembolso vem de',
-    layers: ['Caução', 'Reserva de risco', 'Pool'],
+    note: 'O seu pagamento fica no escrow até confirmar a entrega ou passarem 5 dias sem a contestar. Se contestar, um árbitro decide — e o dinheiro ainda lá está.',
   },
   diagrams: {
     brand: {
@@ -300,7 +311,13 @@ const pt: LandingCopy = {
       shipped: 'Enviado com tracking',
       steps: ['Oferta publicada', 'Pago para o escrow', 'Enviado com tracking', 'Entrega provada', 'A marca recebe'],
     },
-    refund: { failed: 'Entrega não provada', repaid: 'Reembolsado' },
+    purchase: {
+      delivered: 'Entregue',
+      window: '5 dias para contestar',
+      arbiter: 'Árbitro',
+      decides: 'decide',
+      steps: ['Pagamento no escrow', 'Entrega', '5 dias para contestar', 'Árbitro', 'O dinheiro sai do escrow para quem o árbitro decidir'],
+    },
     pool: {
       providers: 'Provedores',
       capital: 'Capital do pool',
@@ -321,7 +338,7 @@ const pt: LandingCopy = {
     next: 'A seguir: os seus clientes pagam com cartão, como sempre — e a entrega continua garantida. Empresa em constituição para ligar os pagamentos com cartão.',
   },
   customers: {
-    title: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
+    title: 'Online ou na loja: a loja só recebe quando confirmar a entrega ou passarem 5 dias sem a contestar — até lá, o dinheiro está no escrow.',
     body: 'Nunca precisa de perceber como; pode sempre conferir que é verdade.',
   },
   pool: {
@@ -336,13 +353,13 @@ const pt: LandingCopy = {
   },
   modules: {
     eyebrow: 'Dentro da Keptra',
-    title: 'Três módulos, um só padrão de prova.',
+    title: 'Um só padrão de prova, em tudo.',
     obligation: 'Cada encomenda é uma obrigação tokenizada — caução, cobertura e liquidação on-chain. O comércio como activo do mundo real.',
     items: [
       {
         name: 'Entrega verificada',
         badge: 'AO VIVO',
-        body: 'O pagamento espera num escrow até um oráculo independente provar a entrega. Se não for provada, o cliente é reembolsado pela caução da marca, pela reserva de risco e pelo pool.',
+        body: 'O pagamento espera num escrow até o cliente confirmar a entrega ou passarem 5 dias sem contestação; uma contestação vai a um árbitro, com o dinheiro ainda no escrow. Os prémios que as marcas prometem são garantidos pela caução da marca e, conforme o escalão, por uma reserva de risco e pelo pool.',
         cta: 'Para marcas',
       },
       {
@@ -411,8 +428,7 @@ const es: LandingCopy = {
     escrow: 'escrow',
     oracle: 'Oráculo independiente',
     proven: 'Entrega probada',
-    refund: 'Si no se prueba, el reembolso sale de',
-    layers: ['Fianza', 'Reserva de riesgo', 'Pool'],
+    note: 'Tu pago se queda en el escrow hasta que confirmes la entrega o pasen 5 días sin impugnarla. Si la impugnas, un árbitro decide — y el dinero sigue ahí.',
   },
   diagrams: {
     brand: {
@@ -422,7 +438,13 @@ const es: LandingCopy = {
       shipped: 'Enviado con seguimiento',
       steps: ['Oferta publicada', 'Pagado al escrow', 'Enviado con seguimiento', 'Entrega probada', 'La marca cobra'],
     },
-    refund: { failed: 'Entrega no probada', repaid: 'Reembolsado' },
+    purchase: {
+      delivered: 'Entregado',
+      window: '5 días para impugnar',
+      arbiter: 'Árbitro',
+      decides: 'decide',
+      steps: ['Pago en el escrow', 'Entrega', '5 días para impugnar', 'Árbitro', 'El dinero sale del escrow hacia quien el árbitro decida'],
+    },
     pool: {
       providers: 'Proveedores',
       capital: 'Capital del pool',
@@ -443,7 +465,7 @@ const es: LandingCopy = {
     next: 'Próximamente: tus clientes pagan con tarjeta, como siempre — y la entrega sigue garantizada. Empresa en constitución para conectar los pagos con tarjeta.',
   },
   customers: {
-    title: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por la reserva de riesgo, luego por el pool.',
+    title: 'Online o en tienda: la tienda solo cobra cuando confirmas la entrega o pasan 5 días sin impugnarla — hasta entonces, el dinero está en el escrow.',
     body: 'Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
   },
   pool: {
@@ -458,13 +480,13 @@ const es: LandingCopy = {
   },
   modules: {
     eyebrow: 'Dentro de Keptra',
-    title: 'Tres módulos, un mismo estándar de prueba.',
+    title: 'Un solo estándar de prueba, en todo.',
     obligation: 'Cada pedido es una obligación tokenizada — fianza, cobertura y liquidación on-chain. El comercio como activo del mundo real.',
     items: [
       {
         name: 'Entrega verificada',
         badge: 'EN VIVO',
-        body: 'El pago espera en un escrow hasta que un oráculo independiente prueba la entrega. Si no se prueba, el cliente recupera su dinero de la fianza de la marca, la reserva de riesgo y el pool.',
+        body: 'El pago espera en un escrow hasta que el cliente confirma la entrega o pasan 5 días sin impugnación; una impugnación va a un árbitro, con el dinero aún en el escrow. Los premios que prometen las marcas están garantizados por la fianza de la marca y, según el nivel, por una reserva de riesgo y el pool.',
         cta: 'Para marcas',
       },
       {

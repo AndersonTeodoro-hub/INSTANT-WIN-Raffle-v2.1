@@ -90,29 +90,46 @@ export function brandFrame(phase: number): BrandFrame {
   };
 }
 
-/** 03 — a delivery not proven, and the refund, from the brand's bond, then the risk reserve, then the pool. */
-export interface RefundFrame {
-  /** The delivery is not proven. */
-  readonly failed: number;
-  readonly bond: number;
-  readonly reserve: number;
-  readonly pool: number;
-  /** The customer, repaid. */
-  readonly repaid: number;
+/**
+ * 03 — a purchase (the owner's decision of 27/09/2026, commit B8): the payment into
+ * escrow, the delivery, the 5 days to contest, the arbiter, and the money out of the
+ * escrow to whoever the arbiter decides (KeptraEscrow at 5d85a46: a contest only
+ * inside the window, :644-654; the arbiter's decision, :854-871). Guarantee and pool
+ * play no part in a purchase.
+ */
+export interface PurchaseFrame {
+  /** The customer's payment on its way to the escrow. */
+  readonly pay: number;
+  /** Held: the ring round Keptra closes. */
+  readonly held: number;
+  /** The delivery reaches the customer, and the 5-day window opens. */
+  readonly delivered: number;
+  /** The days that pass before the contest: three of the five, since a contest is only ever inside the window. */
+  readonly window: number;
+  /** The contest reaches the arbiter, who decides. */
+  readonly arbiter: number;
+  /** The money leaves the escrow, to whoever the arbiter decided. */
+  readonly out: number;
+  /** Where it goes: the store and the customer take turns, one cycle each. */
+  readonly toStore: boolean;
   readonly shown: number;
 }
 
-export const REFUND_PERIOD = 12;
-export const REFUND_FINAL = 0.9;
+export const PURCHASE_PERIOD = 14;
+export const PURCHASE_FINAL = 0.9;
+/** How many of the window's five days pass before the contest in the drawing. */
+export const CONTEST_DAY = 3;
 
-export function refundFrame(phase: number): RefundFrame {
+export function purchaseFrame(phase: number): PurchaseFrame {
   const p = wrap(phase);
   return {
-    failed: span(p, 0.02, 0.14),
-    bond: span(p, 0.18, 0.36),
-    reserve: span(p, 0.4, 0.58),
-    pool: span(p, 0.62, 0.8),
-    repaid: span(p, 0.8, 0.88),
+    pay: span(p, 0.03, 0.17),
+    held: span(p, 0.17, 0.23),
+    delivered: span(p, 0.26, 0.36),
+    window: span(p, 0.38, 0.56),
+    arbiter: span(p, 0.58, 0.68),
+    out: span(p, 0.7, 0.86),
+    toStore: (Math.floor(phase) & 1) === 0,
     shown: 1 - span(p, 0.95, 1),
   };
 }

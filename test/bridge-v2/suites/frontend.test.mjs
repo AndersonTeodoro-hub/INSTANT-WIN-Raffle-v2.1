@@ -1901,7 +1901,11 @@ await test(['AT8', 'AV6', 'P6-10'], 'V6, AA4 and AB: the matrix of piece 6 is in
 // The home page, Keptra first — the owner's request of 27/09/2026, commit A.
 // ---------------------------------------------------------------------------
 
-/** The owner's texts of 27/09/2026, as they were given; chapter 03 as the owner rewrote it for commit A3 (bond, risk reserve, pool). */
+/**
+ * The owner's texts of 27/09/2026, as they were given; chapter 03's title, the sentence
+ * under the first screen's diagram and chapter 05's title as the owner rewrote them for
+ * commit B8 (a purchase: the escrow, the 5 days, the arbiter).
+ */
 const OWNER_TEXTS = {
   en: {
     title: 'A brand that can prove it, cares.',
@@ -1911,7 +1915,9 @@ const OWNER_TEXTS = {
     band: 'Backed by a public guarantee pool: {capital} USDC, verified on Arbitrum One.',
     seePool: 'See the pool',
     brands: 'The stores that can show proof stand apart. Transparency your customers can verify is care they can feel — and Keptra makes it a checkbox at checkout, not a project.',
-    customers: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the risk reserve, then by the pool. You never need to understand how; you can always check that it's true.",
+    note: 'Your payment stays in escrow until you confirm the delivery or 5 days pass without a contest. If you contest, an arbiter decides — and the money is still there.',
+    customers: "Online or in store: the store is paid only when you confirm the delivery or 5 days pass without a contest — until then, the money is in escrow. You never need to understand how; you can always check that it's true.",
+    modulesTitle: 'One standard of proof, everywhere.',
     obligation: 'Every order is a tokenized obligation — bond, coverage and settlement on-chain. Commerce as a real-world asset.',
     providersTitle: 'Be part of the guarantee.',
     providersBody: "The pool's capital comes from providers who back every order. Providers earn a share of every protection fee.",
@@ -1925,7 +1931,9 @@ const OWNER_TEXTS = {
     band: 'Apoiado por um pool de garantia público: {capital} USDC, verificado na Arbitrum One.',
     seePool: 'Ver o pool',
     brands: 'As lojas que conseguem mostrar prova destacam-se. Transparência que os seus clientes podem verificar é cuidado que eles sentem — e a Keptra torna isso numa opção no checkout, não num projecto.',
-    customers: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool. Nunca precisa de perceber como; pode sempre conferir que é verdade.',
+    note: 'O seu pagamento fica no escrow até confirmar a entrega ou passarem 5 dias sem a contestar. Se contestar, um árbitro decide — e o dinheiro ainda lá está.',
+    customers: 'Online ou na loja: a loja só recebe quando confirmar a entrega ou passarem 5 dias sem a contestar — até lá, o dinheiro está no escrow. Nunca precisa de perceber como; pode sempre conferir que é verdade.',
+    modulesTitle: 'Um só padrão de prova, em tudo.',
     obligation: 'Cada encomenda é uma obrigação tokenizada — caução, cobertura e liquidação on-chain. O comércio como activo do mundo real.',
     providersTitle: 'Faça parte da garantia.',
     providersBody: 'O capital do pool vem de provedores que sustentam cada encomenda. Os provedores recebem uma parte de cada taxa de protecção.',
@@ -1939,7 +1947,9 @@ const OWNER_TEXTS = {
     band: 'Respaldado por un pool de garantía público: {capital} USDC, verificado en Arbitrum One.',
     seePool: 'Ver el pool',
     brands: 'Las tiendas que pueden mostrar prueba se distinguen. La transparencia que tus clientes pueden verificar es cuidado que sienten — y Keptra la convierte en una opción en el checkout, no en un proyecto.',
-    customers: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por la reserva de riesgo, luego por el pool. Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
+    note: 'Tu pago se queda en el escrow hasta que confirmes la entrega o pasen 5 días sin impugnarla. Si la impugnas, un árbitro decide — y el dinero sigue ahí.',
+    customers: 'Online o en tienda: la tienda solo cobra cuando confirmas la entrega o pasan 5 días sin impugnarla — hasta entonces, el dinero está en el escrow. Nunca necesitas entender cómo; siempre puedes comprobar que es verdad.',
+    modulesTitle: 'Un solo estándar de prueba, en todo.',
     obligation: 'Cada pedido es una obligación tokenizada — fianza, cobertura y liquidación on-chain. El comercio como activo del mundo real.',
     providersTitle: 'Forma parte de la garantía.',
     providersBody: 'El capital del pool viene de proveedores que respaldan cada pedido. Los proveedores reciben una parte de cada tarifa de protección.',
@@ -1962,7 +1972,7 @@ await test(['LK1'], 'Keptra first (27/09): the home page tells 01 Keptra, 02 for
   assert.ok(routes(read('App.tsx')).includes('/play'), '/play is gone');
 });
 
-await test(['LK2'], 'the owner’s texts of 27/09 are on the home page word for word, in English, Portuguese and Spanish — title, subtitle, the two calls, the band, chapters 02, 03 and 05, and chapter 06’s title, text and call', async () => {
+await test(['LK2'], 'the owner’s texts of 27/09 are on the home page word for word, in English, Portuguese and Spanish — title, subtitle, the two calls, the band, the sentence under the first screen’s diagram, chapters 02, 03 and 05 (chapter 05’s title too), and chapter 06’s title, text and call', async () => {
   const { translations } = await import('../../../pages/landing.i18n.ts');
   for (const [lang, owner] of Object.entries(OWNER_TEXTS)) {
     const t = translations[lang];
@@ -1972,9 +1982,11 @@ await test(['LK2'], 'the owner’s texts of 27/09 are on the home page word for 
     assert.equal(t.hero.ctaCustomers, owner.customersCta, `${lang} call for customers`);
     assert.equal(t.hero.band, owner.band, `${lang} band`);
     assert.equal(t.hero.seePool, owner.seePool, `${lang} link to the pool`);
+    assert.equal(t.flow.note, owner.note, `${lang} under the first screen's diagram`);
     // Chapters 02 and 03: the first sentence is the title, the rest the text.
     assert.equal(`${t.brands.title} ${t.brands.body}`, owner.brands, `${lang} chapter 02`);
     assert.equal(`${t.customers.title} ${t.customers.body}`, owner.customers, `${lang} chapter 03`);
+    assert.equal(t.modules.title, owner.modulesTitle, `${lang} chapter 05 title`);
     assert.equal(t.modules.obligation, owner.obligation, `${lang} chapter 05`);
     assert.equal(t.providers.title, owner.providersTitle, `${lang} chapter 06 title`);
     assert.equal(t.providers.body, owner.providersBody, `${lang} chapter 06 text`);
@@ -2234,7 +2246,7 @@ await test(['LK13'], 'the words the audit of A3 named: the countries in Portugal
 // Commit B — the owner's decisions of 27/09/2026 after A4 (branch feat/landing-keptra-b).
 // ---------------------------------------------------------------------------
 
-await test(['LK14'], 'the diagrams of chapters 02 to 04 tell their steps in order at every phase — a brand’s sale (offer, payment into escrow, shipment, proof, the proof kept, the brand paid), a refund (not proven, then bond, risk reserve, pool, repaid), the pool (capital in, guarantees up to the limit, brands paying back) — on the film’s clock (pause and reduced motion), each in its chapter in place of the scene, the pool’s drawn from the amounts read on-chain; chapter 05 keeps its shape beside the modules’ cards; the three layers are named bond / risk reserve / pool, in the first screen’s diagram too (checked in the source)', async () => {
+await test(['LK14'], 'the diagrams of chapters 02 to 04 tell their steps in order at every phase — a brand’s sale (offer, payment into escrow, shipment, proof, the proof kept, the brand paid), a purchase (payment into escrow, delivery, the days to contest, inside the window, the arbiter, then the money out of escrow, to the store and back to the customer in turn, both ways in the still picture — commit B8), the pool (capital in, guarantees up to the limit, brands paying back) — on the film’s clock (pause and reduced motion), each in its chapter in place of the scene, the pool’s drawn from the amounts read on-chain; chapter 05 keeps its shape beside the modules’ cards; neither the first screen’s diagram nor the purchase names bond, risk reserve or pool (B8) (checked in the source)', async () => {
   const flow = await import('../../../lib/proof/flow.ts');
   const phases = Array.from({ length: 3001 }, (_unused, i) => (i / 3000) * 3 - 1);
   for (const phase of phases) {
@@ -2245,21 +2257,26 @@ await test(['LK14'], 'the diagrams of chapters 02 to 04 tell their steps in orde
     if (b.proven > 0) assert.equal(b.ship, 1, `proven before shipped at ${phase}`);
     if (b.kept > 0) assert.equal(b.proven, 1, `proof kept before proven at ${phase}`);
     if (b.paid > 0) assert.equal(b.proven, 1, `brand paid before the proof at ${phase}`);
-    const r = flow.refundFrame(phase);
-    if (r.bond > 0) assert.equal(r.failed, 1, `refund before the failure at ${phase}`);
-    if (r.reserve > 0) assert.equal(r.bond, 1, `risk reserve before the bond at ${phase}`);
-    if (r.pool > 0) assert.equal(r.reserve, 1, `pool before the risk reserve at ${phase}`);
-    if (r.repaid > 0) assert.equal(r.pool, 1, `repaid before the pool at ${phase}`);
+    const u = flow.purchaseFrame(phase);
+    if (u.held > 0) assert.equal(u.pay, 1, `held before paid at ${phase}`);
+    if (u.delivered > 0) assert.equal(u.held, 1, `delivered before the payment is held at ${phase}`);
+    if (u.window > 0) assert.equal(u.delivered, 1, `the days to contest before the delivery at ${phase}`);
+    if (u.arbiter > 0) assert.equal(u.window, 1, `the arbiter before the days to contest at ${phase}`);
+    if (u.out > 0) assert.equal(u.arbiter, 1, `out of escrow before the arbiter decides at ${phase}`);
+    // The store and the customer take turns: one cycle each.
+    assert.notEqual(u.toStore, flow.purchaseFrame(phase + 1).toStore, `the same way out two cycles running at ${phase}`);
     const p = flow.poolFrame(phase);
     if (p.capital > 0) assert.equal(p.deposit, 1, `capital before the deposits at ${phase}`);
     if (p.cover > 0) assert.equal(p.capital, 1, `guarantees before the capital at ${phase}`);
     if (p.repay > 0) assert.equal(p.cover, 1, `repayment before the guarantees at ${phase}`);
   }
   assert.deepEqual(flow.brandFrame(flow.BRAND_FINAL), { publish: 1, pay: 1, held: 1, ship: 1, proven: 1, kept: 1, paid: 1, shown: 1 });
-  assert.deepEqual(flow.refundFrame(flow.REFUND_FINAL), { failed: 1, bond: 1, reserve: 1, pool: 1, repaid: 1, shown: 1 });
+  assert.deepEqual(flow.purchaseFrame(flow.PURCHASE_FINAL), { pay: 1, held: 1, delivered: 1, window: 1, arbiter: 1, out: 1, toStore: true, shown: 1 });
+  // The contest falls inside the five days (KeptraEscrow.contest reverts after windowEndsAt, :648 at 5d85a46).
+  assert.ok(Number.isInteger(flow.CONTEST_DAY) && flow.CONTEST_DAY >= 1 && flow.CONTEST_DAY < 5, `contest on day ${flow.CONTEST_DAY}`);
   assert.deepEqual(flow.poolFrame(flow.POOL_FINAL), { deposit: 1, capital: 1, cover: 1, repay: 1, shown: 1 });
   // On the film's clock, the drawing hidden from assistive technology, its steps read.
-  for (const [file, name] of [['BrandFlow', 'BRAND'], ['RefundFlow', 'REFUND'], ['PoolFlow', 'POOL']]) {
+  for (const [file, name] of [['BrandFlow', 'BRAND'], ['PurchaseFlow', 'PURCHASE'], ['PoolFlow', 'POOL']]) {
     const code = codeOf(`components/proof/${file}.tsx`);
     assert.ok(code.includes(`useFilmTimeline(root, ${name}_PERIOD, ${name}_FINAL, draw);`), file);
     assert.match(code, /aria-hidden="true"/, `${file}: the drawing is not hidden`);
@@ -2267,42 +2284,51 @@ await test(['LK14'], 'the diagrams of chapters 02 to 04 tell their steps in orde
   }
   assert.ok(!/\d[\d.,]*\s*USDC/.test(codeOf('components/proof/PoolFlow.tsx')), 'the pool’s diagram writes a figure');
   assert.match(codeOf('components/proof/PoolFlow.tsx'), /typeof active === 'bigint' && typeof free === 'bigint'/);
+  // A purchase: one way out per cycle while it moves, both in the still picture; no guarantee, reserve or pool in it.
+  const purchase = codeOf('components/proof/PurchaseFlow.tsx');
+  assert.match(purchase, /const both = !liveRef\.current;/);
+  assert.match(purchase, /set\(storeLine\.current, f\.toStore \|\| both \? f\.out : 0, f\.shown\);\s*set\(backLine\.current, !f\.toStore \|\| both \? f\.out : 0, f\.shown\);/);
+  assert.ok(!/layers|bond|reserve|pool/i.test(purchase), 'the purchase names a guarantee layer');
   // In their chapters, in place of the scene, which waits hidden; chapter 05 keeps its shape.
   const page = codeOf('pages/Landing.tsx');
   assert.match(page, /<Chapter id="for-brands" keys=\{KEYS\.brands\} label=\{brandsWho\} figure=\{brandFlow\}/);
-  assert.match(page, /<Chapter id="for-customers" keys=\{KEYS\.customers\} label=\{customersWho\} figure=\{refundFlow\}/);
+  assert.match(page, /<Chapter id="for-customers" keys=\{KEYS\.customers\} label=\{customersWho\} figure=\{purchaseFlow\}/);
   assert.match(page, /<Chapter id="film-pool" keys=\{KEYS\.pool\} label=\{t\.pool\.label\} figure=\{poolFlow\}/);
   assert.match(page, /<PoolFlow copy=\{t\.diagrams\.pool\} active=\{pool\.active\} free=\{pool\.free\} \/>/);
   for (const key of ['brands', 'customers', 'pool']) assert.match(page, new RegExp(`  ${key}: \\[\\{ at: 0\\.2, shape: '\\w+', alpha: 0,`), key);
   assert.match(page, /<Chapter id="film-modules" keys=\{KEYS\.modules\} wide label=\{t\.modules\.title\} caption=\{t\.film\.captions\.modules\}>/);
   const chapter = codeOf('components/film/Chapter.tsx');
   assert.match(chapter, /<FilmAnchor keys=\{keys\} ghost className="pointer-events-none absolute inset-0" \/>\s*<div data-film-panel>\{figure\}<\/div>/);
-  // Bond / risk reserve / pool, the owner's terms, in the three languages.
+  // B8: the first screen's diagram has no chain of layers left; the owner's sentence is under it.
   const { translations } = await import('../../../pages/landing.i18n.ts');
-  assert.deepEqual(['en', 'pt', 'es'].map((lang) => translations[lang].flow.layers), [
-    ['Bond', 'Risk reserve', 'Pool'],
-    ['Caução', 'Reserva de risco', 'Pool'],
-    ['Fianza', 'Reserva de riesgo', 'Pool'],
-  ]);
+  for (const lang of ['en', 'pt', 'es']) {
+    const t = translations[lang];
+    assert.deepEqual(Object.keys(t.flow), ['customer', 'store', 'escrow', 'oracle', 'proven', 'note'], `${lang}: the first screen's labels`);
+    assert.equal(t.diagrams.purchase.steps.length, 5, `${lang}: the owner's five steps of a purchase`);
+    assert.ok(!/bond|reserv|pool|caução|fianza/i.test(JSON.stringify(t.diagrams.purchase)), `${lang}: the purchase names a guarantee layer`);
+  }
+  const escrow = codeOf('components/proof/EscrowFlow.tsx');
+  assert.ok(!/layers|refund/.test(escrow), 'the first screen still draws the layers');
+  assert.match(escrow, /<\/div>\s*<p [^>]*>\{copy\.note\}<\/p>\s*<\/div>\s*\);\s*\}\s*$/);
 });
 
-await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its text, word for word — the on-chain proof against a chargeback, and card payments next with the company being incorporated — and the cards open with the owner’s “Verified delivery”, live, to /business, numbered first, the modules after it (checked in the source)', async () => {
+await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its text, word for word — the on-chain proof against a chargeback, and card payments next with the company being incorporated — and the cards open with the owner’s “Verified delivery” (its text as rewritten for B8: escrow, 5 days, arbiter; the three layers for prizes), live, to /business, numbered first, the modules after it (checked in the source)', async () => {
   const { translations } = await import('../../../pages/landing.i18n.ts');
   const owner = {
     en: {
       proof: 'Every delivery leaves an on-chain proof — evidence you can use against a chargeback.',
       next: 'Next: your customers pay by card, as they always do — and delivery stays guaranteed. Company being incorporated to connect card payments.',
-      card: { name: 'Verified delivery', badge: 'LIVE', cta: 'For brands', body: "Payment waits in escrow until an independent oracle proves the delivery. If it is not proven, the customer is repaid from the brand's bond, the risk reserve and the pool." },
+      card: { name: 'Verified delivery', badge: 'LIVE', cta: 'For brands', body: "Payment waits in escrow until the customer confirms the delivery or 5 days pass without a contest; a contest goes to an arbiter, with the money still in escrow. Prizes brands promise are backed by the brand's bond and, by tier, a risk reserve and the pool." },
     },
     pt: {
       proof: 'Cada entrega deixa uma prova on-chain — uma evidência que pode usar para contestar um chargeback.',
       next: 'A seguir: os seus clientes pagam com cartão, como sempre — e a entrega continua garantida. Empresa em constituição para ligar os pagamentos com cartão.',
-      card: { name: 'Entrega verificada', badge: 'AO VIVO', cta: 'Para marcas', body: 'O pagamento espera num escrow até um oráculo independente provar a entrega. Se não for provada, o cliente é reembolsado pela caução da marca, pela reserva de risco e pelo pool.' },
+      card: { name: 'Entrega verificada', badge: 'AO VIVO', cta: 'Para marcas', body: 'O pagamento espera num escrow até o cliente confirmar a entrega ou passarem 5 dias sem contestação; uma contestação vai a um árbitro, com o dinheiro ainda no escrow. Os prémios que as marcas prometem são garantidos pela caução da marca e, conforme o escalão, por uma reserva de risco e pelo pool.' },
     },
     es: {
       proof: 'Cada entrega deja una prueba on-chain — una evidencia que puedes usar para disputar un contracargo.',
       next: 'Próximamente: tus clientes pagan con tarjeta, como siempre — y la entrega sigue garantizada. Empresa en constitución para conectar los pagos con tarjeta.',
-      card: { name: 'Entrega verificada', badge: 'EN VIVO', cta: 'Para marcas', body: 'El pago espera en un escrow hasta que un oráculo independiente prueba la entrega. Si no se prueba, el cliente recupera su dinero de la fianza de la marca, la reserva de riesgo y el pool.' },
+      card: { name: 'Entrega verificada', badge: 'EN VIVO', cta: 'Para marcas', body: 'El pago espera en un escrow hasta que el cliente confirma la entrega o pasan 5 días sin impugnación; una impugnación va a un árbitro, con el dinero aún en el escrow. Los premios que prometen las marcas están garantizados por la fianza de la marca y, según el nivel, por una reserva de riesgo y el pool.' },
     },
   };
   for (const [lang, o] of Object.entries(owner)) {
@@ -2323,7 +2349,7 @@ await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its t
   assert.match(page, /\{copy\.name \?\? m\.name\}<\/h3>/);
 });
 
-await test(['LK16'], '/business without a session explains Keptra to a brand above the sign-in panel — the owner’s title, what it gains (chapter 02 and the chargeback sentence), how it works, and what it costs read on-chain only (the terms of a brand with no history: bond, protection fee, coverage limit; no deposit to sell), the fee per sale “Talk to us” since no ABI of the page reads it; then the contact address with its Copy button, then the panel; nothing of it when signed in (checked in the source)', async () => {
+await test(['LK16'], '/business without a session explains Keptra to a brand above the sign-in panel — the owner’s title, what it gains (chapter 02 and the chargeback sentence), how it works, and what it costs read on-chain only (the terms of a brand with no history: bond, protection fee, coverage limit; no deposit to sell), the fee per sale “Talk to us” since no ABI of the page reads it; then the contact address with its Copy button, then the panel; nothing of it when signed in; “Orders to fulfil” only with a session, the explanation’s title the page’s own without one (B8) (checked in the source)', async () => {
   const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
   assert.deepEqual(['en', 'pt', 'es'].map((lang) => k[lang].brandPitch.title), ['Offer verified delivery', 'Ofereça entrega verificada', 'Ofrece entrega verificada']);
   assert.equal(k.pt.brandPitch.talkToUs, 'Fale connosco');
@@ -2340,6 +2366,10 @@ await test(['LK16'], '/business without a session explains Keptra to a brand abo
   const page = codeOf('pages/keptra/BusinessPage.tsx');
   // Above the sign-in panel, on /business only, and only when the bridge says there is no session.
   assert.match(page, /\{signedIn === false && section === 'orders' && id === undefined && <BrandPitch \/>\}\s*<RequireAccount intro=\{t\.business\.intro\}>/);
+  // B8: the orders' title only with a session; without one, the explanation's title is the page's one h1.
+  assert.match(page, /const ordersWithoutSession = keptraConfigured\(\) && section === 'orders' && id === undefined && signedIn !== true;/);
+  assert.match(page, /\{!ordersWithoutSession && <PageTitle eyebrow=\{t\.business\.eyebrow\} title=\{id \? fill\(t\.business\.orderTitle, \{ id \}\) : title\} \/>\}/);
+  assert.match(page, /<h1 id="brand-pitch"[^>]*>\s*\{t\.brandPitch\.title\}\s*<\/h1>/);
   // The terms of a brand with no history, from the reputation the escrow names, through the bridge's own ABI.
   assert.match(page, /import \{ KEPTRA_REPUTATION_ABI \} from '\.\.\/\.\.\/lib\/bridge-v2\/abi';/);
   assert.match(page, /functionName: 'reputation'/);
@@ -2365,19 +2395,19 @@ await test(['LK17'], '/roadmap opens with the owner’s “Verified delivery”,
   const owner = {
     en: {
       titles: ['Verified delivery', 'Provably Fair Lottery', 'Event Center', 'Regulated company', 'Card payments', 'Platform instrument'],
-      delivery: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. If it is not proven, the customer is repaid — first from the brand's bond, then the risk reserve, then the pool.",
+      delivery: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. The store is paid when the customer confirms or 5 days pass without a contest; a contest goes to an arbiter, with the money still in escrow. Prizes brands promise are backed by the brand's bond and, by tier, a risk reserve and the pool.",
       after: 'After the company',
       cards: 'Customers pay a brand by debit or credit card, as they do today, with the same delivery guarantee. It needs the company and a licensed payment partner first.',
     },
     pt: {
       titles: ['Entrega verificada', 'Lotaria Comprovadamente Justa', 'Event Center', 'Empresa regulada', 'Pagamento com cartão', 'Instrumento da plataforma'],
-      delivery: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. Se não for provada, o cliente é reembolsado — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
+      delivery: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. A loja recebe quando o cliente confirma ou passam 5 dias sem contestação; uma contestação vai a um árbitro, com o dinheiro ainda no escrow. Os prémios que as marcas prometem são garantidos pela caução da marca e, conforme o escalão, por uma reserva de risco e pelo pool.',
       after: 'Depois da empresa',
       cards: 'O cliente paga à marca com cartão de débito ou crédito, como faz hoje, com a mesma garantia de entrega. Precisa primeiro da empresa e de um parceiro de pagamentos licenciado.',
     },
     es: {
       titles: ['Entrega verificada', 'Lotería Demostrablemente Justa', 'Event Center', 'Empresa regulada', 'Pago con tarjeta', 'Instrumento de la plataforma'],
-      delivery: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. Si no se prueba, el cliente recupera su dinero — primero de la fianza de la marca, luego de la reserva de riesgo, luego del pool.',
+      delivery: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. La tienda cobra cuando el cliente confirma o pasan 5 días sin impugnación; una impugnación va a un árbitro, con el dinero aún en el escrow. Los premios que prometen las marcas están garantizados por la fianza de la marca y, según el nivel, por una reserva de riesgo y el pool.',
       after: 'Después de la empresa',
       cards: 'El cliente paga a la marca con tarjeta de débito o crédito, como hoy, con la misma garantía de entrega. Primero necesita la empresa y un socio de pagos con licencia.',
     },

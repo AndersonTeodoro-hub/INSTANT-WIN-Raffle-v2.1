@@ -68,7 +68,7 @@ const en: RoadmapCopy = {
       title: 'Verified delivery',
       body: [
         {
-          pre: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. If it is not proven, the customer is repaid — first from the brand's bond, then the risk reserve, then the pool.",
+          pre: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. The store is paid when the customer confirms or 5 days pass without a contest; a contest goes to an arbiter, with the money still in escrow. Prizes brands promise are backed by the brand's bond and, by tier, a risk reserve and the pool.",
         },
       ],
       verify: 'Verify it yourself',
@@ -173,7 +173,7 @@ const pt: RoadmapCopy = {
       title: 'Entrega verificada',
       body: [
         {
-          pre: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. Se não for provada, o cliente é reembolsado — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
+          pre: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. A loja recebe quando o cliente confirma ou passam 5 dias sem contestação; uma contestação vai a um árbitro, com o dinheiro ainda no escrow. Os prémios que as marcas prometem são garantidos pela caução da marca e, conforme o escalão, por uma reserva de risco e pelo pool.',
         },
       ],
       verify: 'Verifique por si mesmo',
@@ -265,7 +265,7 @@ const es: RoadmapCopy = {
       title: 'Entrega verificada',
       body: [
         {
-          pre: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. Si no se prueba, el cliente recupera su dinero — primero de la fianza de la marca, luego de la reserva de riesgo, luego del pool.',
+          pre: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. La tienda cobra cuando el cliente confirma o pasan 5 días sin impugnación; una impugnación va a un árbitro, con el dinero aún en el escrow. Los premios que prometen las marcas están garantizados por la fianza de la marca y, según el nivel, por una reserva de riesgo y el pool.',
         },
       ],
       verify: 'Verifícalo tú mismo',

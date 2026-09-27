@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef } from 'react';
-import { ArrowRight, Store, User } from 'lucide-react';
+import { Store, User } from 'lucide-react';
 import { useFilmTimeline } from '../film/Film';
 import { ESCROW_FINAL, ESCROW_PERIOD, escrowFrame } from '../../lib/proof/flow';
 import { markParams, markPaths, proofBytes } from '../../lib/proof/mark';
@@ -8,8 +8,9 @@ import { markParams, markPaths, proofBytes } from '../../lib/proof/mark';
  * The first screen's diagram: an order through Keptra. Customer, Keptra, store;
  * the payment leaves the customer and stops at Keptra, in escrow; the independent
  * oracle's seal lights — delivery proven — and only then does the line go on to
- * the store. Under it, quietly, who pays back when a delivery is not proven: the
- * bond, the reserve, the pool.
+ * the store. Under it, the owner's sentence (27/09/2026, commit B8): the payment
+ * stays in escrow until the customer confirms or five days pass with no contest, and
+ * a contest goes to an arbiter with the money still there.
  *
  * The timeline is lib/proof/flow.ts; the film's clock drives it (scroll through
  * the chapter, and a slow loop while it is on screen). The markup is the whole
@@ -21,8 +22,7 @@ import { markParams, markPaths, proofBytes } from '../../lib/proof/mark';
  * drawn from the latest settled draw's proof — it explains nothing here.
  *
  * The drawing is hidden from assistive technology — the subtitle beside it says
- * the same in words; the refund order under it is read, since no other text on
- * the page names the three layers.
+ * the same in words; the sentence under it is read.
  */
 
 // The drawing's own units; the labels are HTML, placed in the same units, so they keep a readable size.
@@ -56,8 +56,8 @@ export interface EscrowFlowCopy {
   escrow: string;
   oracle: string;
   proven: string;
-  refund: string;
-  layers: readonly [string, string, string];
+  /** Under the drawing: until when the payment stays in escrow, and what a contest does. */
+  note: string;
 }
 
 export function EscrowFlow({ copy, proof, className }: { copy: EscrowFlowCopy; proof: string | undefined; className?: string }) {
@@ -184,23 +184,7 @@ export function EscrowFlow({ copy, proof, className }: { copy: EscrowFlowCopy; p
         </span>
       </div>
 
-      {/* When a delivery is not proven: who pays back, in order. Quiet, under Keptra. */}
-      <div className="mt-3 flex flex-col items-center gap-2 text-xs">
-        <p className="text-gray-400">{copy.refund}</p>
-        <ol className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-2 text-gray-300">
-          {copy.layers.map((layer, index) => (
-            <li key={layer} className="flex items-center gap-1.5">
-              {index > 0 && <ArrowRight className="h-3 w-3 text-gray-500" aria-hidden="true" />}
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-dark-line bg-black/50 px-2.5 py-1">
-                <span className="font-mono text-gray-400" aria-hidden="true">
-                  {index + 1}
-                </span>
-                {layer}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <p className="mx-auto mt-4 max-w-[44ch] text-balance text-center text-sm leading-relaxed text-gray-300">{copy.note}</p>
     </div>
   );
 }

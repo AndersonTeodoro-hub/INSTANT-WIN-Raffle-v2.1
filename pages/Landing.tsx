@@ -11,7 +11,7 @@ import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../com
 import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { EscrowFlow } from '../components/proof/EscrowFlow';
 import { BrandFlow } from '../components/proof/BrandFlow';
-import { RefundFlow } from '../components/proof/RefundFlow';
+import { PurchaseFlow } from '../components/proof/PurchaseFlow';
 import { PoolFlow } from '../components/proof/PoolFlow';
 import { ContactEmail } from '../components/ContactEmail';
 import { useLatestDraw } from '../components/proof/useLatestDraw';
@@ -59,9 +59,9 @@ const short = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 /*
  * O filme: onde a cena está em cada capítulo e que forma mostra
  * (components/film/Film.tsx, lib/proof/scene.ts). A primeira tela e os capítulos
- * 02 a 04 são de diagramas (components/proof: EscrowFlow, BrandFlow, RefundFlow,
- * PoolFlow — commit B de 27/09/2026): a cena espera por trás deles, escondida
- * (alpha 0), e só aparece com os módulos (05) e o fecho (06). O guilloché fica como
+ * 02 a 04 são de diagramas (components/proof: EscrowFlow, BrandFlow, PurchaseFlow,
+ * PoolFlow — commit B de 27/09/2026, o 03 refeito no B8): a cena espera por trás
+ * deles, escondida (alpha 0), e só aparece com os módulos (05) e o fecho (06). O guilloché fica como
  * assinatura — no nó da Keptra dos diagramas, e nos capítulos 05 e 06 — não como
  * explicação.
  */
@@ -141,11 +141,13 @@ export const Landing: React.FC = () => {
   const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER);
   const [brandsWho, brandsWhat] = t.hero.ctaBrands.split(' — ');
   const [customersWho] = t.hero.ctaCustomers.split(' — ');
-  // Os diagramas dos capítulos 02 a 04 (commit B): cliente, escrow, oráculo e as três camadas vêm do diagrama da primeira tela.
+  // Os diagramas dos capítulos 02 a 04 (commit B): cliente, loja, escrow e oráculo vêm do diagrama da primeira tela.
   const brandFlow = (
     <BrandFlow copy={{ ...t.diagrams.brand, customer: t.flow.customer, escrow: t.flow.escrow, oracle: t.flow.oracle, proven: t.flow.proven }} proof={proof} />
   );
-  const refundFlow = <RefundFlow copy={{ ...t.diagrams.refund, customer: t.flow.customer, layers: t.flow.layers }} />;
+  const purchaseFlow = (
+    <PurchaseFlow copy={{ ...t.diagrams.purchase, customer: t.flow.customer, store: t.flow.store, escrow: t.flow.escrow }} proof={proof} />
+  );
   const poolFlow = <PoolFlow copy={t.diagrams.pool} active={pool.active} free={pool.free} />;
 
   // O separador diz o produto e a página, como na /giveaways e na /roadmap; o do
@@ -216,8 +218,8 @@ export const Landing: React.FC = () => {
             </Link>
           </Chapter>
 
-          {/* 03 — Para clientes: o destino do segundo botão da primeira tela. */}
-          <Chapter id="for-customers" keys={KEYS.customers} label={customersWho} figure={refundFlow} figureClassName={FIGURE_WIDTH.customers}>
+          {/* 03 — Para clientes: o destino do segundo botão da primeira tela; o diagrama é o de uma compra (B8). */}
+          <Chapter id="for-customers" keys={KEYS.customers} label={customersWho} figure={purchaseFlow} figureClassName={FIGURE_WIDTH.customers}>
             <ChapterHead index={3} label={customersWho} title={t.customers.title} sentence />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.customers.body}</p>
             <Link to="/pool" className={clsx(QUIET_LINK, 'mt-4')}>

@@ -71,9 +71,11 @@ export function BusinessPage({ section = 'orders' }: { section?: Section }) {
     document.title = t.business.metaTitle;
   }, [t]);
   const title = { orders: t.business.ordersTitle, offers: t.business.offersTitle, obligations: t.business.obligationsTitle }[section];
+  // "Orders to fulfil" only with a session (the owner's decision of 27/09/2026, commit B8): without one, the brand's explanation opens the page, under its own title.
+  const ordersWithoutSession = keptraConfigured() && section === 'orders' && id === undefined && signedIn !== true;
   return (
     <KeptraShell area="business">
-      <PageTitle eyebrow={t.business.eyebrow} title={id ? fill(t.business.orderTitle, { id }) : title} />
+      {!ordersWithoutSession && <PageTitle eyebrow={t.business.eyebrow} title={id ? fill(t.business.orderTitle, { id }) : title} />}
       {!keptraConfigured() ? (
         <NotAvailable />
       ) : (
@@ -99,7 +101,8 @@ const NO_HISTORY = '0x0000000000000000000000000000000000000000';
  * coverage limit), and no deposit to sell (KeptraEscrow.createOffer takes none). The
  * fee per sale is on-chain too, but no ABI of the page reads it (P6-19) and the owner
  * allows no new one: that row says "Talk to us". Then the contact address, then the
- * sign-in panel. Signed in, none of this shows.
+ * sign-in panel. Signed in, none of this shows. Its title is the page's (B8): without
+ * a session, /business has no "Orders to fulfil".
  */
 function BrandPitch() {
   const { t, lang } = useKeptraCopy();
@@ -118,17 +121,17 @@ function BrandPitch() {
   const [tier, params] = terms.data ?? [];
   return (
     <section aria-labelledby="brand-pitch" className="mb-10">
-      <h2 id="brand-pitch" className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+      <h1 id="brand-pitch" className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
         {t.brandPitch.title}
-      </h2>
+      </h1>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card as="article">
-          <h3 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.gainTitle}</h3>
+          <h2 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.gainTitle}</h2>
           <p className="mt-3 text-sm leading-relaxed text-gray-300">{`${home.title} ${home.body}`}</p>
           <p className="mt-3 text-sm leading-relaxed text-gray-300">{home.proof}</p>
         </Card>
         <Card as="article">
-          <h3 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.howTitle}</h3>
+          <h2 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.howTitle}</h2>
           <ol className="mt-3 space-y-2 text-sm leading-relaxed text-gray-300">
             {t.brandPitch.howSteps.map((step, index) => (
               <li key={step} className="flex gap-3">
@@ -141,7 +144,7 @@ function BrandPitch() {
           </ol>
         </Card>
         <Card as="article" className="lg:col-span-2">
-          <h3 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.costTitle}</h3>
+          <h2 className="font-display text-xl font-bold tracking-tight text-white">{t.brandPitch.costTitle}</h2>
           <p className="mb-4 mt-2 text-sm text-gray-400">{fill(t.brandPitch.costIntro, { tier: tier === undefined ? pending : t.tiers[tier] })}</p>
           <Facts
             rows={[
