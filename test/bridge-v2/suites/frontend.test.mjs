@@ -2085,6 +2085,14 @@ await test(['LK9'], 'the contact address is written next to both mailto buttons 
 // ---------------------------------------------------------------------------
 
 /** What the home page said at 1acef6c (pages/landing.i18n.ts :150, :164, :168, :170): the "to players" row and three answers. */
+/** The Portuguese of /play's block that was already Portugal's: still word for word as at 1acef6c. */
+const PLAY_RULES_KEPT_PT = [
+  'Para os jogadores',
+  '85,7% do dinheiro dos bilhetes ao longo do tempo',
+  'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.',
+  'Quanto do dinheiro vai para os jogadores?',
+  'Está disponível no meu país?',
+];
 const PLAY_RULES = {
   en: [
     'To players',
@@ -2096,15 +2104,16 @@ const PLAY_RULES = {
     'Is this available in my country?',
     'Access depends on the rules of your own jurisdiction. It is your responsibility to check whether you are allowed to participate where you live.',
   ],
+  // Portugal's Portuguese since commit B (the owner's decision of 27/09/2026): same meaning, "ronda", "vencedores", no "você".
   pt: [
     'Para os jogadores',
     '85,7% do dinheiro dos bilhetes ao longo do tempo',
-    'O que eu preciso para jogar?',
+    'De que preciso para jogar?',
     'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.',
     'Quanto do dinheiro vai para os jogadores?',
-    'Cerca de 85,7% ao longo do tempo. Cada rodada paga 75% do seu pool aos três ganhadores e 12,5% ao desenvolvimento; os outros 12,5% entram na rodada seguinte, ou seja, voltam para os jogadores — menos a mesma fatia de desenvolvimento a cada reciclagem.',
+    'Cerca de 85,7% ao longo do tempo. Cada ronda paga 75% do seu pool aos três vencedores e 12,5% ao desenvolvimento; os outros 12,5% entram na ronda seguinte, ou seja, voltam para os jogadores — menos a mesma fatia de desenvolvimento a cada reciclagem.',
     'Está disponível no meu país?',
-    'O acesso depende das regras da sua própria jurisdição. É sua responsabilidade verificar se você tem permissão para participar no lugar onde vive.',
+    'O acesso depende das regras da sua própria jurisdição. É da sua responsabilidade verificar se tem permissão para participar no lugar onde vive.',
   ],
   es: [
     'Para los jugadores',
@@ -2118,7 +2127,7 @@ const PLAY_RULES = {
   ],
 };
 
-await test(['LK10'], 'what is needed to play, where the ticket money goes and the jurisdiction notice are on /play’s Overview in English, Portuguese and Spanish, word for word as the home page had them at 1acef6c, shown, not folded — and the home page does not get them back (checked in the source)', () => {
+await test(['LK10'], 'what is needed to play, where the ticket money goes and the jurisdiction notice are on /play’s Overview in English, Portuguese and Spanish, word for word as the home page had them at 1acef6c (the Portuguese in Portugal’s Portuguese since commit B), shown, not folded — and the home page does not get them back (checked in the source)', () => {
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   const before = git('show', '1acef6c:pages/landing.i18n.ts');
   const source = read('pages/app.i18n.ts');
@@ -2126,7 +2135,7 @@ await test(['LK10'], 'what is needed to play, where the ticket money goes and th
   const block = (index) => source.slice(starts[index], starts[index + 1] ?? undefined);
   ['en', 'pt', 'es'].forEach((lang, index) => {
     for (const text of PLAY_RULES[lang]) {
-      assert.ok(before.includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not the text of 1acef6c`);
+      if (lang !== 'pt' || PLAY_RULES_KEPT_PT.includes(text)) assert.ok(before.includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not the text of 1acef6c`);
       assert.ok(block(index).includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not on /play`);
       assert.ok(!read('pages/landing.i18n.ts').includes(text) && !read('pages/Landing.tsx').includes(text), `the home page has "${text.slice(0, 40)}…"`);
     }
@@ -2395,4 +2404,23 @@ await test(['LK17'], '/roadmap opens with the owner’s “Verified delivery”,
   assert.match(page, /useReadContract\(\{ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource' \}\)/);
   assert.match(page, /href=\{`\$\{ARBISCAN\}\$\{address\}`\}/);
   assert.match(page, /<HeaderAction to="\/orders" icon=\{ArrowRight\} label=\{t\.header\.enterApp\} \/>/);
+});
+
+await test(['LK18'], 'the home page in Portuguese (the module cards, the captions, the footer) and /play in Portuguese, “Antes de jogar” included, are Portugal’s Portuguese — “prémio”, “ronda”, “lotaria”, “vencedores”, “utilizador”, no “você” — in the site’s spelling (“transacção”, “actual”)', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  const { appTranslations } = await import('../../../pages/app.i18n.ts');
+  // Whole words, accents included (\b alone ends a word at "ê").
+  const BRAZIL = /(?<!\p{L})(?:você|vocês|rodadas?|prêmios?|ganhador(?:es)?|loteria|sacar|saque|sacado|usuário|registrar|registre|registrad[ao]s?|compartilhar|carregando|aguardando|fechando|processando|finalizando|sorteando|lendo|conectar|conecte|desconectar|atual|transação|apelido|suas? chances|rodam)(?!\p{L})/iu;
+  const home = translations.pt;
+  const homeWords = [...wordsOf(home.modules.items), ...wordsOf(home.film), ...wordsOf(home.footer)];
+  for (const [path, word] of homeWords) assert.ok(!BRAZIL.test(word), `home pt${path}: "${word}"`);
+  for (const [path, word] of wordsOf(appTranslations.pt)) assert.ok(!BRAZIL.test(word), `/play pt${path}: "${word}"`);
+  assert.match(home.modules.items[1].body, /prémios/);
+  assert.match(home.modules.items[1].body, /ronda/);
+  assert.equal(home.modules.items[1].cta, 'Abrir a lotaria');
+  assert.equal(appTranslations.pt.rules.title, 'Antes de jogar');
+  assert.equal(appTranslations.pt.proof.vrfTx, 'Transacção do VRF');
+  assert.equal(appTranslations.pt.raffle.currentPrizePool, 'Prémio actual');
+  // The owner's texts on the home page stay as the owner wrote them.
+  assert.equal(home.hero.ctaCustomers, 'Para clientes — Compre com uma garantia que pode conferir');
 });
