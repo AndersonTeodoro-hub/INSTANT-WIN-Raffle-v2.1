@@ -2275,3 +2275,40 @@ await test(['LK14'], 'the diagrams of chapters 02 to 04 tell their steps in orde
     ['Fianza', 'Reserva de riesgo', 'Pool'],
   ]);
 });
+
+await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its text, word for word — the on-chain proof against a chargeback, and card payments next with the company being incorporated — and the cards open with the owner’s “Verified delivery”, live, to /business, numbered first, the modules after it (checked in the source)', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  const owner = {
+    en: {
+      proof: 'Every delivery leaves an on-chain proof — evidence you can use against a chargeback.',
+      next: 'Next: your customers pay by card, as they always do — and delivery stays guaranteed. Company being incorporated to connect card payments.',
+      card: { name: 'Verified delivery', badge: 'LIVE', cta: 'For brands', body: "Payment waits in escrow until an independent oracle proves the delivery. If it is not proven, the customer is repaid from the brand's bond, the risk reserve and the pool." },
+    },
+    pt: {
+      proof: 'Cada entrega deixa uma prova on-chain — uma evidência que pode usar para contestar um chargeback.',
+      next: 'A seguir: os seus clientes pagam com cartão, como sempre — e a entrega continua garantida. Empresa em constituição para ligar os pagamentos com cartão.',
+      card: { name: 'Entrega verificada', badge: 'AO VIVO', cta: 'Para marcas', body: 'O pagamento espera num escrow até um oráculo independente provar a entrega. Se não for provada, o cliente é reembolsado pela caução da marca, pela reserva de risco e pelo pool.' },
+    },
+    es: {
+      proof: 'Cada entrega deja una prueba on-chain — una evidencia que puedes usar para disputar un contracargo.',
+      next: 'Próximamente: tus clientes pagan con tarjeta, como siempre — y la entrega sigue garantizada. Empresa en constitución para conectar los pagos con tarjeta.',
+      card: { name: 'Entrega verificada', badge: 'EN VIVO', cta: 'Para marcas', body: 'El pago espera en un escrow hasta que un oráculo independiente prueba la entrega. Si no se prueba, el cliente recupera su dinero de la fianza de la marca, la reserva de riesgo y el pool.' },
+    },
+  };
+  for (const [lang, o] of Object.entries(owner)) {
+    const t = translations[lang];
+    assert.equal(t.brands.proof, o.proof, `${lang} chapter 02, the proof`);
+    assert.equal(t.brands.next, o.next, `${lang} chapter 02, card payments`);
+    assert.deepEqual(t.modules.items[0], o.card, `${lang} the first card`);
+    assert.equal(t.modules.items.length, 4, `${lang}: four cards`);
+    // The modules keep their product names, which are not translated.
+    assert.ok(t.modules.items.slice(1).every((item) => item.name === undefined), `${lang}: a module's name translated`);
+  }
+  const page = codeOf('pages/Landing.tsx');
+  // Under chapter 02's text, before its link.
+  assert.match(page, /\{t\.brands\.body\}<\/p>\s*<p [^>]*>\{t\.brands\.proof\}<\/p>\s*<p [^>]*>\{t\.brands\.next\}<\/p>\s*<Link to="\/business"/);
+  // First, live, to /business; the others after it; the number follows the order.
+  assert.match(page, /const MODULES: [^=]+= \[\s*\{ to: '\/business', icon: PackageCheck, live: true \},\s*\{ name: 'INSTANT WIN', to: '\/play'/);
+  assert.match(page, /\{`0\$\{i \+ 1\}`\}/);
+  assert.match(page, /\{copy\.name \?\? m\.name\}<\/h3>/);
+});

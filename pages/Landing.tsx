@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
-import { ArrowRight, ExternalLink, Ticket, Gift, CalendarDays } from 'lucide-react';
+import { ArrowRight, ExternalLink, Ticket, Gift, CalendarDays, PackageCheck, type LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { useLang, translations, type Lang } from './landing.i18n';
@@ -28,20 +28,24 @@ const contractLinks = [
 ];
 
 /**
- * Os três módulos da Keptra. Emparelham posicionalmente com
- * `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade do
- * módulo: nome, rota, ícone e estado.
+ * Os cartões da grelha: a entrega verificada à frente (decisão do owner de
+ * 27/09/2026, commit B) e os três módulos da Keptra. Emparelham posicionalmente
+ * com `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade
+ * do cartão: nome, rota, ícone e estado. A entrega verificada não tem nome aqui:
+ * o seu traduz-se, e vem de `copy.modules.items[0].name`.
  *
  * `live` é a única autorização de verde nesta secção: verde significa
  * "verificável agora". Lido na cadeia a 25/09/2026: a RaffleManagerV3 não está
  * pausada e tem uma ronda aberta; a GiveawayManagerV2 (Giveaways e Event
- * Center) não está pausada e tem a campanha 2 liquidada.
+ * Center) não está pausada e tem a campanha 2 liquidada. A 27/09/2026: o
+ * KeptraEscrow não está pausado.
  */
-const MODULES = [
+const MODULES: readonly { name?: string; to: string; icon: LucideIcon; live: boolean }[] = [
+  { to: '/business', icon: PackageCheck, live: true },
   { name: 'INSTANT WIN', to: '/play', icon: Ticket, live: true },
   { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: true },
   { name: 'EVENT CENTER', to: '/events', icon: CalendarDays, live: true },
-] as const;
+];
 
 /**
  * Tornar-se provedor é um pedido, nunca um depósito: os provedores do pool são
@@ -73,10 +77,11 @@ const KEYS = {
 /*
  * A largura de cada diagrama no telemóvel, pela altura do ecrã: a mesma altura que
  * a forma que ele substitui tinha (Chapter.tsx — 100svh menos 27rem, ou menos 33rem
- * no capítulo denso), na proporção de cada desenho, com a lista de passos do 02.
+ * no capítulo denso), na proporção de cada desenho. O 02 tem mais texto (as duas
+ * frases do owner por baixo): o que sobra dele, 41rem, e nunca menos de 11rem.
  */
 const FIGURE_WIDTH = {
-  brands: 'max-w-[min(34rem,calc((100svh_-_27rem_-_60px)*1.6))] lg:max-w-[34rem]',
+  brands: 'max-w-[min(34rem,calc(max(11rem,100svh_-_41rem)*1.6))] lg:max-w-[34rem]',
   customers: 'max-w-[min(34rem,calc((100svh_-_27rem)*1.76))] lg:max-w-[34rem]',
   pool: 'max-w-[min(34rem,calc(max(11rem,100svh_-_33rem)*1.65))] lg:max-w-[34rem]',
 } as const;
@@ -200,6 +205,8 @@ export const Landing: React.FC = () => {
           <Chapter id="for-brands" keys={KEYS.brands} label={brandsWho} figure={brandFlow} figureClassName={FIGURE_WIDTH.brands}>
             <ChapterHead index={2} label={brandsWho} title={t.brands.title} sentence />
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.brands.body}</p>
+            <p className="mt-3 max-w-[46ch] text-sm sm:text-base leading-relaxed text-gray-300">{t.brands.proof}</p>
+            <p className="mt-3 max-w-[46ch] text-sm leading-relaxed text-gray-400">{t.brands.next}</p>
             <Link to="/business" className={clsx(QUIET_LINK, 'mt-4')}>
               {brandsWhat} <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
@@ -244,7 +251,7 @@ export const Landing: React.FC = () => {
           </Chapter>
 
           <section className="relative z-10 px-5 sm:px-6 pb-16 md:pb-24">
-            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {MODULES.map((m, i) => {
                 const copy = t.modules.items[i];
                 const Icon = m.icon;
@@ -262,7 +269,7 @@ export const Landing: React.FC = () => {
                       {m.live && <span className="iw-live" aria-hidden="true" />}
                       {copy.badge}
                     </span>
-                    <h3 className={clsx('font-display font-bold mb-3', m.live ? 'text-2xl sm:text-3xl text-white' : 'text-xl sm:text-2xl text-gray-200')}>{m.name}</h3>
+                    <h3 className={clsx('font-display font-bold mb-3', m.live ? 'text-2xl sm:text-3xl text-white' : 'text-xl sm:text-2xl text-gray-200')}>{copy.name ?? m.name}</h3>
                     <p className="text-gray-400 leading-relaxed flex-1">{copy.body}</p>
                     <span className={clsx('inline-flex items-center gap-2 min-h-[44px] mt-5 font-bold text-sm', m.live ? 'text-white' : 'text-gray-400 group-hover:text-white')}>
                       {copy.cta}

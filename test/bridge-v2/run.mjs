@@ -126,8 +126,8 @@ const REQUIREMENTS = [
   // Commit A4 (the owner's decisions after the audit of A3): LK12 — an amount is
   // read in the form of the page's language, anything else refused with how to
   // write it — and LK13 — the words the audit named, and /play's section title.
-  // Commit B (the owner's decisions after A4, feat/landing-keptra-b): LK14 on — the chapters' diagrams first.
-  ...Array.from({ length: 14 }, (_unused, index) => `LK${index + 1}`),
+  // Commit B (the owner's decisions after A4, feat/landing-keptra-b): LK14 on — the chapters' diagrams first, LK15 the home page's new texts and card.
+  ...Array.from({ length: 15 }, (_unused, index) => `LK${index + 1}`),
 ];
 
 for (const path of SUITES) {

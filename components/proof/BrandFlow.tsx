@@ -207,10 +207,11 @@ export function BrandFlow({ copy, proof, className }: { copy: BrandFlowCopy; pro
 
       {/*
         The five steps, in order: read by assistive technology, and lit as the drawing
-        reaches each. On a short screen they are only read — the drawing's own labels
-        say the same, and the chapter's text has to fit beside it.
+        reaches each. Below the side-by-side layout, or on a short screen, they are only
+        read — the drawing's own labels say the same, and the chapter's text has to fit
+        with it.
       */}
-      <ol className="mt-3 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-2 text-xs [@media(max-height:720px)]:sr-only">
+      <ol className="mt-3 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-2 text-xs max-lg:sr-only [@media(max-height:720px)]:sr-only">
         {copy.steps.map((step, index) => (
           <li
             key={step}

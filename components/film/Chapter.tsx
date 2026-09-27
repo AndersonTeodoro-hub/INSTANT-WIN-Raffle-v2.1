@@ -41,7 +41,9 @@ export function Chapter({
       <div
         className={clsx(
           'container mx-auto grid max-w-6xl gap-8 px-5 sm:px-6 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)] lg:items-center lg:gap-16',
-          live ? 'h-full content-center pb-16 pt-28 md:pt-24 lg:py-0' : 'py-16 sm:py-24',
+          // Below lg the header is two rows (117px): the chapter starts under it, and a
+          // chapter taller than the screen overflows at the foot, never under it.
+          live ? 'h-full [align-content:safe_center] pb-6 pt-[7.75rem] lg:py-0' : 'py-16 sm:py-24',
         )}
       >
         <div className="min-w-0 lg:order-2">

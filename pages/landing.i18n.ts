@@ -83,8 +83,12 @@ export interface LandingCopy {
       steps: [string, string, string];
     };
   };
-  /** 02 e 03 — o texto do owner; a primeira frase é o título, o resto o corpo. */
-  brands: { title: string; body: string };
+  /**
+   * 02 e 03 — o texto do owner; a primeira frase é o título, o resto o corpo. No
+   * 02, por baixo, as duas frases do owner de 27/09/2026 (commit B): a prova contra
+   * um chargeback, e o pagamento com cartão que vem a seguir.
+   */
+  brands: { title: string; body: string; proof: string; next: string };
   customers: { title: string; body: string };
   /** 04 — o pool, discreto, com prova: cada número é uma leitura on-chain. */
   pool: {
@@ -99,15 +103,17 @@ export interface LandingCopy {
     contract: string;
   };
   /**
-   * 05 — os três módulos da Keptra. A ordem dos `items` casa com `MODULES` em
-   * Landing.tsx, que é onde vivem o nome do módulo, a rota e o estado. Aqui fica
-   * só o que se traduz. `obligation` é a frase do owner.
+   * 05 — a grelha de cartões: a entrega verificada à frente (decisão do owner de
+   * 27/09/2026, commit B) e os três módulos da Keptra. A ordem dos `items` casa com
+   * `MODULES` em Landing.tsx, que é onde vivem o nome do módulo, a rota e o estado.
+   * Aqui fica só o que se traduz — e o nome, quando se traduz (a entrega
+   * verificada). `obligation` é a frase do owner.
    */
   modules: {
     eyebrow: string;
     title: string;
     obligation: string;
-    items: { badge: string; body: string; cta: string }[];
+    items: { name?: string; badge: string; body: string; cta: string }[];
   };
   /** 06 — o fecho: o convite a provedores. Título, texto e botão do owner. */
   providers: {
@@ -189,6 +195,8 @@ const en: LandingCopy = {
   brands: {
     title: 'The stores that can show proof stand apart.',
     body: 'Transparency your customers can verify is care they can feel — and Keptra makes it a checkbox at checkout, not a project.',
+    proof: 'Every delivery leaves an on-chain proof — evidence you can use against a chargeback.',
+    next: 'Next: your customers pay by card, as they always do — and delivery stays guaranteed. Company being incorporated to connect card payments.',
   },
   customers: {
     title: "Online or in store: if the delivery is not proven, you are paid back — first by the brand's bond, then by the risk reserve, then by the pool.",
@@ -209,6 +217,12 @@ const en: LandingCopy = {
     title: 'Three modules, one standard of proof.',
     obligation: 'Every order is a tokenized obligation — bond, coverage and settlement on-chain. Commerce as a real-world asset.',
     items: [
+      {
+        name: 'Verified delivery',
+        badge: 'LIVE',
+        body: "Payment waits in escrow until an independent oracle proves the delivery. If it is not proven, the customer is repaid from the brand's bond, the risk reserve and the pool.",
+        cta: 'For brands',
+      },
       {
         badge: 'LIVE',
         body: '3 winners every 30-minute round, tickets from 1 USDC. Immutable verified contract, Chainlink VRF, prizes claimed on-chain.',
@@ -303,6 +317,8 @@ const pt: LandingCopy = {
   brands: {
     title: 'As lojas que conseguem mostrar prova destacam-se.',
     body: 'Transparência que os seus clientes podem verificar é cuidado que eles sentem — e a Keptra torna isso numa opção no checkout, não num projecto.',
+    proof: 'Cada entrega deixa uma prova on-chain — uma evidência que pode usar para contestar um chargeback.',
+    next: 'A seguir: os seus clientes pagam com cartão, como sempre — e a entrega continua garantida. Empresa em constituição para ligar os pagamentos com cartão.',
   },
   customers: {
     title: 'Online ou na loja: se a entrega não for provada, o dinheiro volta — primeiro pela caução da marca, depois pela reserva de risco, depois pelo pool.',
@@ -323,6 +339,12 @@ const pt: LandingCopy = {
     title: 'Três módulos, um só padrão de prova.',
     obligation: 'Cada encomenda é uma obrigação tokenizada — caução, cobertura e liquidação on-chain. O comércio como activo do mundo real.',
     items: [
+      {
+        name: 'Entrega verificada',
+        badge: 'AO VIVO',
+        body: 'O pagamento espera num escrow até um oráculo independente provar a entrega. Se não for provada, o cliente é reembolsado pela caução da marca, pela reserva de risco e pelo pool.',
+        cta: 'Para marcas',
+      },
       {
         badge: 'AO VIVO',
         body: '3 ganhadores a cada rodada de 30 minutos, bilhetes a partir de 1 USDC. Contrato imutável e verificado, Chainlink VRF, prêmios resgatados on-chain.',
@@ -417,6 +439,8 @@ const es: LandingCopy = {
   brands: {
     title: 'Las tiendas que pueden mostrar prueba se distinguen.',
     body: 'La transparencia que tus clientes pueden verificar es cuidado que sienten — y Keptra la convierte en una opción en el checkout, no en un proyecto.',
+    proof: 'Cada entrega deja una prueba on-chain — una evidencia que puedes usar para disputar un contracargo.',
+    next: 'Próximamente: tus clientes pagan con tarjeta, como siempre — y la entrega sigue garantizada. Empresa en constitución para conectar los pagos con tarjeta.',
   },
   customers: {
     title: 'Online o en tienda: si la entrega no se prueba, recuperas tu dinero — primero por la fianza de la marca, luego por la reserva de riesgo, luego por el pool.',
@@ -437,6 +461,12 @@ const es: LandingCopy = {
     title: 'Tres módulos, un mismo estándar de prueba.',
     obligation: 'Cada pedido es una obligación tokenizada — fianza, cobertura y liquidación on-chain. El comercio como activo del mundo real.',
     items: [
+      {
+        name: 'Entrega verificada',
+        badge: 'EN VIVO',
+        body: 'El pago espera en un escrow hasta que un oráculo independiente prueba la entrega. Si no se prueba, el cliente recupera su dinero de la fianza de la marca, la reserva de riesgo y el pool.',
+        cta: 'Para marcas',
+      },
       {
         badge: 'EN VIVO',
         body: '3 ganadores por ronda de 30 minutos, boletos desde 1 USDC. Contrato inmutable y verificado, Chainlink VRF, premios reclamados on-chain.',
