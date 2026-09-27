@@ -10,6 +10,7 @@ import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../com
 import { SceneCaption } from '../components/film/Chapter';
 import { ProofMark } from '../components/proof/ProofMark';
 import { ProofSeal } from '../components/Proof';
+import { ContactEmail } from '../components/ContactEmail';
 import { useLatestDraw, type SettledDraw } from '../components/proof/useLatestDraw';
 import { shortProof } from '../lib/proof/mark';
 import { useLang, translations } from './landing.i18n';
@@ -330,7 +331,7 @@ function RoadmapClose({ c, caption }: { c: ReturnType<typeof useRoadmapCopy>; ca
   const live = useFilmMode() === 'live';
   return (
     <div className={clsx('container mx-auto flex max-w-3xl flex-col items-center px-4 sm:px-6 text-center', live ? 'h-full justify-center pt-24 pb-16' : 'py-16 sm:py-24')}>
-      <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(56vw,calc(100svh_-_30rem))] sm:max-w-[min(16rem,calc(100svh_-_30rem))]" />
+      <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(44vw,calc(100svh_-_34rem))] sm:max-w-[min(16rem,calc(100svh_-_30rem))]" />
       <SceneCaption text={caption} />
       <div data-film-panel className="mt-6 w-full">
         {/* Nota antes do CTA: sem datas, sem promessa de calendário. */}
@@ -338,10 +339,17 @@ function RoadmapClose({ c, caption }: { c: ReturnType<typeof useRoadmapCopy>; ca
         <div className="iw-surface mt-8 p-8 sm:p-10">
           <p className="font-display font-bold text-xl sm:text-2xl text-white mb-2">{c.outro.ctaLine1}</p>
           <p className="text-gray-400 leading-relaxed mb-8">{c.outro.ctaLine2}</p>
-          {/* O botão principal da página: âmbar, o único dela. Era branco cheio, fora do sistema. */}
-          <a href={`mailto:${INVESTOR_EMAIL}`} className="iw-btn iw-btn-primary w-full sm:w-auto px-10 h-14 sm:h-16 font-extrabold text-lg sm:text-xl">
-            {c.outro.ctaButton}
-          </a>
+          {/*
+            O botão principal da página: âmbar, o único dela. Ao lado, o endereço
+            escrito e "Copy", para quem não tem email no aparelho (decisão do owner
+            de 27/09/2026).
+          */}
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-6">
+            <a href={`mailto:${INVESTOR_EMAIL}`} className="iw-btn iw-btn-primary w-full sm:w-auto px-10 h-14 sm:h-16 font-extrabold text-lg sm:text-xl">
+              {c.outro.ctaButton}
+            </a>
+            <ContactEmail />
+          </div>
         </div>
       </div>
     </div>

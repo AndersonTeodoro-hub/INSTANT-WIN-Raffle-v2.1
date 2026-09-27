@@ -10,6 +10,7 @@ import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
 import { Chapter, ChapterHead, SceneCaption } from '../components/film/Chapter';
 import { EscrowFlow } from '../components/proof/EscrowFlow';
+import { ContactEmail } from '../components/ContactEmail';
 import { useLatestDraw } from '../components/proof/useLatestDraw';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
 
@@ -129,9 +130,10 @@ export const Landing: React.FC = () => {
   return (
     // overflow-x-clip e não hidden: hidden faz da raiz um contentor de scroll e os capítulos deixavam de fixar.
     <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
+      {/* A acção do cabeçalho: entrar na área do cliente da Keptra (decisão do owner de 27/09/2026). */}
       <SiteHeader
         nav={<PublicNavLinks />}
-        actions={<HeaderAction to="/play" icon={ArrowRight} label={t.header.enterApp} />}
+        actions={<HeaderAction to="/orders" icon={ArrowRight} label={t.header.enterApp} />}
       />
 
       <Film
@@ -371,15 +373,21 @@ function CloseChapter({ t }: { t: Copy }) {
   const live = useFilmMode() === 'live';
   return (
     <div className={clsx('container mx-auto flex max-w-3xl flex-col items-center px-6 text-center', live ? 'h-full justify-center pt-24 pb-16' : 'py-20 md:py-28')}>
-      <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(56vw,calc(100svh_-_32rem))] sm:max-w-[min(18rem,calc(100svh_-_32rem))]" />
+      <FilmAnchor keys={KEYS.close} className="aspect-square w-full max-w-[min(48vw,calc(100svh_-_34rem))] sm:max-w-[min(18rem,calc(100svh_-_32rem))]" />
       <SceneCaption text={t.film.captions.again} />
       <div data-film-panel className="mt-8">
         <ChapterHead index={6} label={t.providers.label} title={t.providers.title} center />
         <p className="mx-auto mt-5 max-w-[48ch] text-base leading-relaxed text-gray-300 sm:text-lg">{t.providers.body}</p>
-        {/* O botão principal deste ecrã: âmbar, o único dele. Abre um pedido, não um depósito. */}
-        <a href={PROVIDER_REQUEST} className="iw-btn iw-btn-primary mt-8 h-14 gap-3 px-10 text-lg font-extrabold">
-          {t.providers.cta} <ArrowRight className="h-5 w-5" aria-hidden="true" />
-        </a>
+        {/*
+          O botão principal deste ecrã: âmbar, o único dele. Abre um pedido, não um
+          depósito; ao lado, o endereço escrito, para quem não tem email no aparelho.
+        */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+          <a href={PROVIDER_REQUEST} className="iw-btn iw-btn-primary h-14 gap-3 px-10 text-lg font-extrabold">
+            {t.providers.cta} <ArrowRight className="h-5 w-5" aria-hidden="true" />
+          </a>
+          <ContactEmail />
+        </div>
         <p className="mx-auto mt-4 max-w-[44ch] text-balance text-xs leading-relaxed text-gray-400">{t.providers.note}</p>
       </div>
     </div>

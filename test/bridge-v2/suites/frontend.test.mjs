@@ -1948,3 +1948,44 @@ await test(['LK6'], 'becoming a provider is a request, never a deposit: the call
   assert.match(page, /<a href=\{PROVIDER_REQUEST\} className="iw-btn iw-btn-primary/);
   assert.ok(!/useWriteContract|writeContract|sendTransaction|signHash|runAction|deposit\(/.test(page), 'the home page can move funds');
 });
+
+// ---------------------------------------------------------------------------
+// The home page, Keptra first — commit A2: the owner's decisions of 27/09/2026
+// after approving commit A.
+// ---------------------------------------------------------------------------
+
+await test(['LK7'], 'the main module leads the public header and footer in the three languages — "Verified delivery", "Entrega verificada", "Entrega verificada" — with its link to "/", then Instant Win, Giveaways, Event Center and Roadmap; header and footer read the one list (checked in the source)', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => translations[lang].header.mainModule), ['Verified delivery', 'Entrega verificada', 'Entrega verificada']);
+  const nav = codeOf('components/PublicNav.tsx');
+  assert.match(nav, /return \[\{ to: '\/', label: translations\[lang\]\.header\.mainModule \}, \.\.\.PUBLIC_NAV\];/);
+  assert.match(nav, /export const PUBLIC_NAV = \[MODULES\.instantWin, MODULES\.giveaways, MODULES\.eventCenter, \{ to: '\/roadmap', label: 'Roadmap' \}\] as const;/);
+  assert.match(nav, /instantWin: \{ to: '\/play', label: 'Instant Win' \},\s*giveaways: \{ to: '\/giveaways', label: 'Giveaways' \},\s*eventCenter: \{ to: '\/events', label: 'Event Center' \},/);
+  // Both the header's links and the footer's are built from usePublicNav, never from a list of their own.
+  assert.equal((nav.match(/const items = usePublicNav\(\);/g) ?? []).length, 2);
+  assert.equal((nav.match(/\{items\.map\(/g) ?? []).length, 2);
+});
+
+await test(['LK8'], 'the home page’s "Enter App" / "Abrir app" leads to /orders, a route that already existed (checked in the source)', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => translations[lang].header.enterApp), ['Enter App', 'Abrir app', 'Abrir app']);
+  assert.match(codeOf('pages/Landing.tsx'), /actions=\{<HeaderAction to="\/orders" icon=\{ArrowRight\} label=\{t\.header\.enterApp\} \/>\}/);
+  assert.match(read('App.tsx'), /<Route path="\/orders" element=\{<OrdersPage \/>\} \/>/);
+});
+
+await test(['LK9'], 'the contact address is written next to both mailto buttons of the public site — the providers’ call on the home page and the call to talk on /roadmap — selectable, with a Copy button that writes it through navigator.clipboard, says "Copied" for 2 s, and selects it when the browser refuses; the words in the three languages (checked in the source)', async () => {
+  const { translations } = await import('../../../pages/landing.i18n.ts');
+  assert.deepEqual(['en', 'pt', 'es'].map((lang) => [translations[lang].contact.copy, translations[lang].contact.copied]), [['Copy', 'Copied'], ['Copiar', 'Copiado'], ['Copiar', 'Copiado']]);
+  for (const lang of ['en', 'pt', 'es']) assert.ok(translations[lang].contact.selected.length > 0, `${lang}: no word for a refused copy`);
+  const contact = codeOf('components/ContactEmail.tsx');
+  assert.match(contact, /import \{ INVESTOR_EMAIL \} from '\.\.\/constants';/);
+  assert.match(contact, /<span ref=\{address\} translate="no" className="[^"]*select-all[^"]*">\s*\{INVESTOR_EMAIL\}\s*<\/span>/);
+  assert.match(contact, /await navigator\.clipboard\.writeText\(INVESTOR_EMAIL\);\s*setState\('copied'\);/);
+  assert.match(contact, /export const COPIED_MS = 2000;/);
+  assert.match(contact, /window\.setTimeout\(\(\) => setState\('idle'\), COPIED_MS\)/);
+  assert.match(contact, /selection\.selectAllChildren\(address\.current\)/);
+  assert.match(contact, /aria-live="polite"/);
+  // The two contact points: the mailto: button stays, the address follows it in the same row.
+  assert.match(codeOf('pages/Landing.tsx'), /<a href=\{PROVIDER_REQUEST\}[^>]*>[\s\S]{0,200}?<\/a>\s*<ContactEmail \/>/);
+  assert.match(codeOf('pages/Roadmap.tsx'), /<a href=\{`mailto:\$\{INVESTOR_EMAIL\}`\}[^>]*>[\s\S]{0,120}?<\/a>\s*<ContactEmail \/>/);
+});

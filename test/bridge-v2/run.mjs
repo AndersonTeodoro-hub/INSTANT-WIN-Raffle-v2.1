@@ -119,7 +119,8 @@ const REQUIREMENTS = [
   // the order of the chapters, the owner's texts, the pool read on-chain, the
   // language switch on every Keptra screen, the first screen's diagram, the
   // providers' request. Tests in suites/frontend.test.mjs.
-  ...Array.from({ length: 6 }, (_unused, index) => `LK${index + 1}`),
+  // Commit A2 (the owner's decisions after approving A): LK7 to LK9.
+  ...Array.from({ length: 9 }, (_unused, index) => `LK${index + 1}`),
 ];
 
 for (const path of SUITES) {

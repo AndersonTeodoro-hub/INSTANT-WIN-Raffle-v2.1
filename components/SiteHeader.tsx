@@ -53,6 +53,11 @@ export const SiteHeader: React.FC<{
  * Event Center), o nome do módulo a seguir, na mesma linha de base. O traço
  * entre os dois tem a inclinação do braço de cima do K. `tag` é o rótulo de
  * área do Keptra (T0: "Business").
+ *
+ * Entre lg e xl o nome do módulo sai: a navegação pública (cinco entradas desde
+ * a entrega verificada) ocupa a mesma linha e espremia-o até nada; ali a entrada
+ * sublinhada da navegação já diz o módulo. Abaixo de lg a navegação desce para a
+ * segunda linha e o nome volta.
  */
 export const KeptraBrand: React.FC<{ module?: { to: string; label: string }; tag?: string }> = ({ module, tag }) => (
   <div className="flex min-w-0 items-baseline gap-x-2.5 sm:gap-x-3">
@@ -61,10 +66,10 @@ export const KeptraBrand: React.FC<{ module?: { to: string; label: string }; tag
     </Link>
     {module && (
       <>
-        <span aria-hidden="true" className="h-5 w-px shrink-0 self-center rotate-[17deg] bg-gray-500" />
+        <span aria-hidden="true" className="h-5 w-px shrink-0 self-center rotate-[17deg] bg-gray-500 lg:max-xl:hidden" />
         <Link
           to={module.to}
-          className="inline-flex min-h-[44px] min-w-0 items-center font-display text-[1.2rem] font-bold leading-none tracking-tight text-gray-300 transition-colors duration-200 hover:text-white sm:text-[1.4rem]"
+          className="inline-flex min-h-[44px] min-w-0 items-center lg:max-xl:hidden font-display text-[1.2rem] font-bold leading-none tracking-tight text-gray-300 transition-colors duration-200 hover:text-white sm:text-[1.4rem]"
         >
           <span className="truncate">{module.label}</span>
         </Link>

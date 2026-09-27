@@ -1,18 +1,21 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
+import { useLang, translations } from '../pages/landing.i18n';
 
 /**
- * Navegação das páginas públicas (/, /giveaways, /roadmap).
+ * Navegação das páginas públicas (/, /giveaways, /roadmap, o jogo e o Event
+ * Center).
  *
- * Um só array para header e rodapé das três páginas — antes desta reposição
- * havia uma entrada "Roadmap" copiada à mão em dois sítios da Landing, e com
- * três módulos passariam a ser seis cópias a divergir à primeira alteração.
+ * Um só array para header e rodapé de todas — antes desta reposição havia uma
+ * entrada "Roadmap" copiada à mão em dois sítios da Landing, e com três módulos
+ * passariam a ser seis cópias a divergir à primeira alteração.
  *
- * Os rótulos ficam em inglês nos três idiomas, pela mesma razão que "Roadmap"
- * já ficava: são os nomes dos módulos da Keptra (como Chainlink VRF), não
- * frases. O que muda por idioma é a descrição dos cartões na Landing, essa sim
- * traduzida.
+ * À frente vai o módulo principal, a entrega verificada da página inicial
+ * (decisão do owner de 27/09/2026): o único rótulo traduzido, porque o owner lhe
+ * deu nome nas três línguas. Os outros ficam em inglês nos três idiomas, pela
+ * mesma razão que "Roadmap" já ficava: são os nomes dos módulos da Keptra (como
+ * Chainlink VRF), não frases.
  *
  * `/play` é a lotaria, o Instant Win: a rota do jogo não muda.
  */
@@ -25,29 +28,56 @@ export const MODULES = {
 
 export const PUBLIC_NAV = [MODULES.instantWin, MODULES.giveaways, MODULES.eventCenter, { to: '/roadmap', label: 'Roadmap' }] as const;
 
+/** As entradas na língua da página: o módulo principal, com link para "/", e depois PUBLIC_NAV. */
+function usePublicNav(): readonly { to: string; label: string }[] {
+  const [lang] = useLang();
+  return [{ to: '/', label: translations[lang].header.mainModule }, ...PUBLIC_NAV];
+}
+
+const isCurrent = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
+
 /**
  * Entradas do header, visíveis em todos os tamanhos.
  *
  * Abaixo de lg passam para uma segunda linha do próprio header, a toda a
  * largura e centradas: na primeira linha vão a marca (com o nome do módulo), o
- * idioma e as acções, e as quatro entradas não cabem ao lado sem descer os
- * alvos abaixo dos 44px. Abaixo de sm juntam-se (sem intervalo, 6px de cada
- * lado) para caberem nos 343px úteis de um ecrã de 390px. Entre lg e xl, com
- * "Keptra / Event Center" e três acções na mesma linha, o mesmo aperto.
+ * idioma e as acções. Abaixo de sm as cinco entradas não cabem nos 343px úteis
+ * de um ecrã de 390px sem descer os alvos abaixo dos 44px, e duas linhas fariam
+ * o cabeçalho fixo tapar os capítulos do filme: a linha desliza na horizontal,
+ * de ponta a ponta do ecrã e esbatida nas pontas para se ver que continua, e a
+ * entrada da página onde se está é trazida à vista. Entre lg e xl, com três acções na mesma linha, as
+ * entradas apertam (e o nome do módulo sai da marca, SiteHeader.tsx) para a
+ * navegação não colar ao logo.
  *
  * O rodapé mantém as mesmas entradas: em páginas longas é mais perto do polegar
  * do que voltar ao topo.
  */
 export const PublicNavLinks: React.FC = () => {
   const { pathname } = useLocation();
+  const items = usePublicNav();
+  const ref = useRef<HTMLElement>(null);
+
+  // Só quando a linha desliza (abaixo de sm): a entrada da página ao centro, sem mexer no scroll da página.
+  useEffect(() => {
+    const nav = ref.current;
+    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !current || nav.scrollWidth <= nav.clientWidth) return;
+    nav.scrollLeft = current.offsetLeft - (nav.clientWidth - current.offsetWidth) / 2;
+  }, [pathname]);
 
   return (
     <nav
+      ref={ref}
       aria-label="Sections"
-      className="flex items-center justify-center gap-0 sm:gap-1 lg:justify-start"
+      className={clsx(
+        // Abaixo de sm: de ponta a ponta do ecrã, a deslizar, esbatida nas duas pontas — em repouso a primeira entrada alinha com o logo.
+        'relative -mx-4 flex w-[calc(100%+2rem)] shrink-0 items-center justify-start gap-0 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        'max-sm:[-webkit-mask-image:linear-gradient(to_right,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)] max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)]',
+        'sm:mx-0 sm:w-auto sm:shrink sm:justify-center sm:gap-1 sm:overflow-visible sm:px-0 lg:justify-start',
+      )}
     >
-      {PUBLIC_NAV.map((item) => {
-        const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
+      {items.map((item) => {
+        const isActive = isCurrent(pathname, item.to);
         return (
           <Link
             key={item.to}
@@ -55,8 +85,8 @@ export const PublicNavLinks: React.FC = () => {
             aria-current={isActive ? 'page' : undefined}
             className={clsx(
               // O sítio onde se está leva uma aresta clara por baixo: posição, não cor de estado.
-              'relative inline-flex items-center min-h-[44px] px-1.5 sm:px-3 lg:px-2 xl:px-3 whitespace-nowrap text-sm font-medium transition-colors duration-200',
-              'after:absolute after:inset-x-1.5 sm:after:inset-x-3 lg:after:inset-x-2 xl:after:inset-x-3 after:bottom-1.5 after:h-px after:origin-center after:bg-white/70 after:transition-transform after:duration-200',
+              'relative inline-flex shrink-0 items-center min-h-[44px] px-1.5 sm:px-3 lg:px-1.5 xl:px-3 whitespace-nowrap text-sm font-medium transition-colors duration-200',
+              'after:absolute after:inset-x-1.5 sm:after:inset-x-3 lg:after:inset-x-1.5 xl:after:inset-x-3 after:bottom-1.5 after:h-px after:origin-center after:bg-white/70 after:transition-transform after:duration-200',
               isActive ? 'text-white after:scale-x-100' : 'text-gray-400 hover:text-white after:scale-x-0',
             )}
           >
@@ -74,11 +104,12 @@ export const PublicNavLinks: React.FC = () => {
  */
 export const PublicFooterNav: React.FC = () => {
   const { pathname } = useLocation();
+  const items = usePublicNav();
 
   return (
     <nav aria-label="Sections" className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
-      {PUBLIC_NAV.map((item) => {
-        const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
+      {items.map((item) => {
+        const isActive = isCurrent(pathname, item.to);
         return (
           <Link
             key={item.to}

@@ -23,7 +23,18 @@ export type SceneCaptionKey = 'mark' | 'brand' | 'pool' | 'payout' | 'escrow' | 
 export interface LandingCopy {
   /** O título do separador da página inicial: o produto e a página. */
   metaTitle: string;
-  header: { enterApp: string; ariaLanguage: string };
+  header: {
+    enterApp: string;
+    ariaLanguage: string;
+    /** O módulo principal (decisão do owner de 27/09/2026): a primeira entrada do cabeçalho público, com link para "/". */
+    mainModule: string;
+  };
+  /**
+   * O endereço de contacto escrito ao lado dos botões mailto: (components/ContactEmail.tsx):
+   * copiar, a confirmação de 2 s, e o que se diz se o browser não deixar copiar (o endereço
+   * fica seleccionado).
+   */
+  contact: { copy: string; copied: string; selected: string };
   /** 01 — a primeira tela. Texto do owner. */
   hero: {
     title: string;
@@ -108,7 +119,8 @@ export interface LandingCopy {
 
 const en: LandingCopy = {
   metaTitle: 'Keptra — Verified delivery',
-  header: { enterApp: 'Enter App', ariaLanguage: 'Language' },
+  header: { enterApp: 'Enter App', ariaLanguage: 'Language', mainModule: 'Verified delivery' },
+  contact: { copy: 'Copy', copied: 'Copied', selected: 'Selected' },
   hero: {
     title: 'A brand that can prove it, cares.',
     sub: 'Keptra lets any store give its customers something no one else does: a delivery guarantee that is verified, not promised. Payment waits in escrow, an independent oracle confirms the delivery, and only then the store gets paid. No wallets, no crypto knowledge — for the store or the customer.',
@@ -202,7 +214,8 @@ const en: LandingCopy = {
 
 const pt: LandingCopy = {
   metaTitle: 'Keptra — Entrega verificada',
-  header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
+  header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma', mainModule: 'Entrega verificada' },
+  contact: { copy: 'Copiar', copied: 'Copiado', selected: 'Seleccionado' },
   hero: {
     title: 'Uma marca que consegue provar, cuida.',
     sub: 'A Keptra permite a qualquer loja dar aos seus clientes algo que mais ninguém dá: uma garantia de entrega verificada, não prometida. O pagamento espera num escrow, um oráculo independente confirma a entrega, e só então a loja recebe. Sem carteiras, sem saber de cripto — nem a loja, nem o cliente.',
@@ -296,7 +309,8 @@ const pt: LandingCopy = {
 
 const es: LandingCopy = {
   metaTitle: 'Keptra — Entrega verificada',
-  header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma' },
+  header: { enterApp: 'Abrir app', ariaLanguage: 'Idioma', mainModule: 'Entrega verificada' },
+  contact: { copy: 'Copiar', copied: 'Copiado', selected: 'Seleccionado' },
   hero: {
     title: 'Una marca que puede probarlo, cuida.',
     sub: 'Keptra permite a cualquier tienda dar a sus clientes algo que nadie más da: una garantía de entrega verificada, no prometida. El pago espera en un escrow, un oráculo independiente confirma la entrega, y solo entonces la tienda cobra. Sin wallets, sin saber de cripto — ni la tienda, ni el cliente.',
