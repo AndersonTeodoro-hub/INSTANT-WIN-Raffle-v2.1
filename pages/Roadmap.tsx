@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { PublicNavLinks, PublicFooterNav } from '../components/PublicNav';
 import { SiteHeader, HeaderAction } from '../components/SiteHeader';
-import { useRoadmapCopy } from './roadmap.i18n';
+import { useRoadmapCopy, type RoadmapCopy } from './roadmap.i18n';
 import { Film, FilmAnchor, FilmSection, useFilmMode, type KeySpec } from '../components/film/Film';
 import { SceneCaption } from '../components/film/Chapter';
 import { ProofMark } from '../components/proof/ProofMark';
@@ -18,6 +18,7 @@ import { useLang, translations } from './landing.i18n';
 import { useAppCopy } from './app.i18n';
 import { useEventsCopy } from './events.i18n';
 import { GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE } from '../lib/keptra/contracts';
+import { INK, NODE, RAIL } from '../components/proof/EscrowFlow';
 
 /*
  * A /roadmap é leitura: a cena abre a página e fecha-a, e sai de cena enquanto
@@ -52,9 +53,29 @@ const ONCHAIN_STEPS = 3;
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 
+/**
+ * A receita a que chega a barra de cada cenário, em dólares por ano, pela ordem de
+ * `copy.opportunity.charts` e, dentro de um gráfico, de `bars`: os números do owner
+ * (29/09/2026) — quota do mercado × o mercado × a taxa lida do contrato (1,5% por
+ * venda no KeptraEscrow, 12,5% de cada ronda no RaffleManagerV3). Estado visual,
+ * portanto fora do i18n; as palavras ao lado de cada barra são as do dicionário.
+ */
+const REVENUE = [
+  [103e6, 516e6, 2.06e9],
+  [24.3e6, 121e6, 243e6],
+] as const;
+
+/** Uma escala logarítmica para os dois gráficos, de 10 M$ (10^7) a 10 B$ (10^10): lêem-se um contra o outro. */
+const onScale = (dollars: number) => ((Math.log10(dollars) - 7) / 3) * 100;
+
+/** O título de um bloco da visão e o da oportunidade: acima dos títulos dos degraus, abaixo do h1. */
+const SECTION_TITLE = 'font-display font-bold text-3xl sm:text-4xl leading-tight tracking-tight text-white';
+/** Uma frase que fecha um grupo (por baixo do último degrau on-chain, por baixo dos gráficos): do tamanho de um título de degrau. */
+const STATEMENT = 'text-balance font-display font-bold text-2xl sm:text-3xl leading-tight tracking-tight text-white';
+
 /** How far the reader is through the steps, drawn on the rail's fill (a transform, once per frame). */
 function useRail() {
-  const list = useRef<HTMLOListElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const fill = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     let raf = 0;
@@ -95,6 +116,71 @@ function StepNode({ live, draw, label }: { live: boolean; draw: SettledDraw | nu
   return <ProofMark proof={null} size={56} label={label} className="bg-black" />;
 }
 
+/** Um bloco da visão: o título e o parágrafo, em prosa — os cartões ficam para os degraus. */
+function VisionBlock({ block }: { block: RoadmapCopy['story'][number] }) {
+  return (
+    <section>
+      <h2 className={clsx(SECTION_TITLE, 'mb-4')}>{block.title}</h2>
+      <p className="max-w-[62ch] text-base leading-relaxed text-gray-400 sm:text-lg">{block.body}</p>
+    </section>
+  );
+}
+
+/**
+ * Um gráfico da oportunidade: uma barra por cenário, todas na escala logarítmica
+ * comum (onScale), com o cenário, a quota e o valor escritos por cima de cada uma —
+ * nenhum número fica só no desenho, e o SVG está escondido das tecnologias de apoio.
+ * As décadas marcam-se na faixa de cada barra e escrevem-se uma vez, por baixo.
+ *
+ * Parado em todos os modos: a receita a crescer não se anima (são cenários, não uma
+ * previsão), por isso a redução de movimento e a pausa não têm nada a parar.
+ */
+function OpportunityChart({ chart, scenarios, ticks, revenue }: { chart: RoadmapCopy['opportunity']['charts'][number]; scenarios: string[]; ticks: string[]; revenue: readonly number[] }) {
+  const decade = (k: number) => `${(k / (ticks.length - 1)) * 100}%`;
+  return (
+    <figure className="iw-surface p-5 sm:p-8">
+      <figcaption>
+        <h3 className="text-balance font-display text-xl font-bold leading-snug text-white sm:text-2xl">{chart.title}</h3>
+      </figcaption>
+      <ol className="mt-6 space-y-5">
+        {chart.bars.map((bar, k) => (
+          <li key={scenarios[k]}>
+            <p className="flex items-baseline justify-between gap-4 text-sm">
+              <span className="min-w-0">
+                <span className="font-medium text-white">{scenarios[k]}</span> <span className="font-mono text-gray-400">{bar.share}</span>
+              </span>
+              <span className="shrink-0 font-mono text-gray-200">{bar.value}</span>
+            </p>
+            {/*
+              A barra sobre a sua régua: uma linha por década, só na faixa da barra (o texto por cima fica limpo),
+              a primeira mais forte — a base. Ponta arredondada, base direita: o rectângulo arredondado e um
+              quadrado sobre a base, num só grupo translúcido.
+            */}
+            <svg aria-hidden="true" className="mt-2 block h-3.5 w-full overflow-visible">
+              {ticks.map((tick, d) => (
+                <line key={tick} x1={decade(d)} x2={decade(d)} y1={-4} y2={18} stroke={d === 0 ? NODE : RAIL} strokeWidth={1} shapeRendering="crispEdges" />
+              ))}
+              <g fill={INK} opacity={0.8}>
+                <rect width={`${onScale(revenue[k])}%`} height="100%" rx={4} />
+                <rect width={4} height="100%" />
+              </g>
+            </svg>
+          </li>
+        ))}
+      </ol>
+      {/* 11px no telemóvel, como os endereços: "1.000 M$" e "10.000 M$" cabem lado a lado a 360px. */}
+      <div aria-hidden="true" className="relative mt-2 h-4 font-mono text-[11px] leading-4 text-gray-400 sm:text-xs">
+        {ticks.map((tick, k) => (
+          <span key={tick} className={clsx('absolute top-0 whitespace-nowrap', k === ticks.length - 1 ? '-translate-x-full' : k > 0 && '-translate-x-1/2')} style={{ left: decade(k) }}>
+            {tick}
+          </span>
+        ))}
+      </div>
+      <p className="mt-5 border-t border-dark-border pt-4 text-xs leading-relaxed text-gray-400">{chart.note}</p>
+    </figure>
+  );
+}
+
 export const Roadmap: React.FC = () => {
   const c = useRoadmapCopy();
   const [lang] = useLang();
@@ -131,13 +217,95 @@ export const Roadmap: React.FC = () => {
     const prevDesc = tag?.getAttribute('content') ?? '';
 
     document.title = c.meta.title;
-    tag?.setAttribute('content', c.meta.description);
+    tag?.setAttribute('content', c.hero.intro);
 
     return () => {
       document.title = prevTitle;
       tag?.setAttribute('content', prevDesc);
     };
   }, [c]);
+
+  /** Um degrau da lista: o seu nó no carril e, se está on-chain, os endereços a verificar. */
+  const stepItem = (step: RoadmapCopy['steps'][number], i: number) => {
+    const isLive = i < ONCHAIN_STEPS;
+    const draw = isLive ? (stepDraws[i] ?? null) : null;
+    const nodeLabel = draw ? `${draw.kind === 'round' ? app.proof.markRound : events.detail.proof.markCampaign} ${draw.id.toString()}` : step.status;
+    return (
+      <li key={step.num} className={clsx('relative p-6 sm:p-8', isLive ? 'iw-surface-raised' : 'iw-surface')}>
+        <span className="absolute -left-20 top-8 hidden sm:block">
+          <StepNode live={isLive} draw={draw} label={nodeLabel} />
+        </span>
+
+        <div className="flex items-center gap-4 mb-4">
+          <span className="font-display font-bold text-4xl sm:text-5xl leading-none text-gray-400">{step.num}</span>
+          <span className={clsx('inline-flex items-center gap-2 text-sm font-medium', isLive ? 'text-success' : 'text-gray-400')}>
+            {isLive && <span className="iw-live" aria-hidden="true" />}
+            {step.status}
+          </span>
+          <span className="ml-auto sm:hidden">
+            <StepNode live={isLive} draw={draw} label={nodeLabel} />
+          </span>
+        </div>
+
+        <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-4">{step.title}</h2>
+
+        <div className="space-y-4">
+          {step.body.map((para) => (
+            <p key={para.pre} className="text-gray-400 leading-relaxed">
+              {para.pre}
+              {para.strong && <strong className="font-semibold text-gray-200">{para.strong}</strong>}
+              {para.post}
+            </p>
+          ))}
+        </div>
+
+        {step.bulletsIntro && <p className="text-gray-400 leading-relaxed mt-5">{step.bulletsIntro}</p>}
+
+        {step.bullets && (
+          <ul className="mt-4 space-y-3">
+            {step.bullets.map((b) => (
+              <li key={b.lead} className="flex gap-3 text-gray-400 leading-relaxed">
+                <span className="text-gray-400 shrink-0" aria-hidden="true">&middot;</span>
+                <span>
+                  <strong className="font-semibold text-gray-200">{b.lead}</strong>
+                  {b.rest}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Prova verificável: o único link verde da página; um por contrato, com o nome quando o degrau tem vários. */}
+        {step.verify && (
+          <div className="mt-6">
+            <p className="text-xs text-gray-400 mb-2">{step.verify}</p>
+            <div className="space-y-2">
+              {verifyAddresses[i].map(
+                (address, k) =>
+                  address && (
+                    <a
+                      key={address}
+                      href={`${ARBISCAN}${address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
+                    >
+                      <span className="min-w-0">
+                        {step.contracts && <span className="block font-sans text-xs text-gray-400">{step.contracts[k]}</span>}
+                        <span className="break-all">{address}</span>
+                      </span>
+                      <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    </a>
+                  ),
+              )}
+            </div>
+          </div>
+        )}
+
+        {step.note && <p className="text-gray-400 text-sm leading-relaxed mt-6 pt-5 border-t border-dark-border">{step.note}</p>}
+      </li>
+    );
+  };
 
   return (
     <div className="iw-ground min-h-screen text-white font-sans flex flex-col overflow-x-clip">
@@ -157,12 +325,12 @@ export const Roadmap: React.FC = () => {
         playLabel={t.film.play}
       >
         <main className="iw-screen relative z-10 flex-1">
-          {/* Herói: a regra da página, e ao lado a forma do último sorteio liquidado. */}
+          {/* Herói: a visão numa frase, e ao lado a forma do último sorteio liquidado. */}
           <FilmSection id="rm-hero" pinned={false} label={c.hero.title}>
             <div className="container mx-auto max-w-5xl px-4 sm:px-6 pt-12 pb-10 sm:pt-20 sm:pb-16 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-center lg:gap-14">
               <div>
                 <p className="text-sm font-medium text-gray-400 mb-4">{c.hero.eyebrow}</p>
-                <h1 className="font-display font-bold text-[clamp(2.5rem,11vw,4.5rem)] leading-[1.02] tracking-tight mb-5">{c.hero.title}</h1>
+                <h1 className="font-display font-bold text-[clamp(2.5rem,10vw,4.25rem)] leading-[1.02] tracking-tight mb-5">{c.hero.title}</h1>
                 <p className="max-w-[56ch] text-gray-400 text-base sm:text-lg leading-relaxed">{c.hero.intro}</p>
               </div>
               <div className="mx-auto mt-10 w-full max-w-[20rem] lg:mt-0 lg:max-w-none">
@@ -187,9 +355,17 @@ export const Roadmap: React.FC = () => {
             </div>
           </FilmSection>
 
-          <FilmSection id="rm-reading" pinned={false} label={c.overview.onchainLabel}>
+          {/* A leitura, sem nome próprio: leva a visão, as fases, a oportunidade — cada bloco com o seu título. */}
+          <FilmSection id="rm-reading" pinned={false}>
             <FilmAnchor keys={KEYS.reading} ghost className="pointer-events-none absolute left-1/2 top-0 h-[40vh] w-[40vh] -translate-x-1/2" />
             <div className="container mx-auto px-4 sm:px-6 max-w-3xl">
+              {/* Antes das fases, o problema e o que construímos (o owner, 29/09/2026). */}
+              <div className="mb-16 space-y-12 sm:mb-24 sm:space-y-16">
+                {c.story.map((block) => (
+                  <VisionBlock key={block.title} block={block} />
+                ))}
+              </div>
+
               {/* Síntese das fases lado a lado — mesmo conteúdo da lista
                   abaixo, em formato de relance. Ícone + texto (não só cor) marcam
                   a distinção entre "verificado on-chain" e "pretendido nesta ordem",
@@ -237,92 +413,36 @@ export const Roadmap: React.FC = () => {
                 </div>
               </section>
 
-              {/* Os degraus, num carril que se preenche com a leitura. */}
-              <ol ref={rail.list} className="relative space-y-4 sm:space-y-6 pb-4 sm:pl-20">
+              {/* Os degraus, num carril que se preenche com a leitura: os que estão on-chain, a linha do owner por baixo do último deles, os pretendidos. */}
+              <div ref={rail.list} className="relative pb-4 sm:pl-20">
                 <span aria-hidden="true" className="absolute bottom-8 left-7 top-8 hidden w-px overflow-hidden bg-dark-line sm:block">
                   <span ref={rail.fill} className="block h-full w-full origin-top bg-success/70" style={{ transform: 'scaleY(0)' }} />
                 </span>
-                {c.steps.map((step, i) => {
-                  const isLive = i < ONCHAIN_STEPS;
-                  const draw = isLive ? (stepDraws[i] ?? null) : null;
-                  const nodeLabel = draw ? `${draw.kind === 'round' ? app.proof.markRound : events.detail.proof.markCampaign} ${draw.id.toString()}` : step.status;
-                  return (
-                    <li key={step.num} className={clsx('relative p-6 sm:p-8', isLive ? 'iw-surface-raised' : 'iw-surface')}>
-                      <span className="absolute -left-20 top-8 hidden sm:block">
-                        <StepNode live={isLive} draw={draw} label={nodeLabel} />
-                      </span>
+                <ol className="space-y-4 sm:space-y-6">{c.steps.slice(0, ONCHAIN_STEPS).map((step, i) => stepItem(step, i))}</ol>
+                <p className={clsx(STATEMENT, 'my-10 sm:my-14')}>{c.proofLine}</p>
+                <ol start={ONCHAIN_STEPS + 1} className="space-y-4 sm:space-y-6">
+                  {c.steps.slice(ONCHAIN_STEPS).map((step, k) => stepItem(step, ONCHAIN_STEPS + k))}
+                </ol>
+              </div>
 
-                      <div className="flex items-center gap-4 mb-4">
-                        <span className="font-display font-bold text-4xl sm:text-5xl leading-none text-gray-400">{step.num}</span>
-                        <span className={clsx('inline-flex items-center gap-2 text-sm font-medium', isLive ? 'text-success' : 'text-gray-400')}>
-                          {isLive && <span className="iw-live" aria-hidden="true" />}
-                          {step.status}
-                        </span>
-                        <span className="ml-auto sm:hidden">
-                          <StepNode live={isLive} draw={draw} label={nodeLabel} />
-                        </span>
-                      </div>
+              {/* A oportunidade: a entrega verificada e o Instant Win, na mesma escala. Nenhum número do Keptra Token, nenhum gráfico dos giveaways. */}
+              <section className="mt-20 sm:mt-28">
+                <h2 className={SECTION_TITLE}>{c.opportunity.title}</h2>
+                <div className="mt-8 space-y-4 sm:space-y-6">
+                  {c.opportunity.charts.map((chart, k) => (
+                    <OpportunityChart key={chart.title} chart={chart} scenarios={c.opportunity.scenarios} ticks={c.opportunity.ticks} revenue={REVENUE[k]} />
+                  ))}
+                </div>
+                <p className={clsx(STATEMENT, 'mt-10')}>{c.opportunity.line}</p>
+                <p className="mt-4 text-pretty text-xs leading-relaxed text-gray-400">{c.opportunity.disclaimer}</p>
+              </section>
 
-                      <h2 className="font-display font-bold text-2xl sm:text-3xl text-white mb-4">{step.title}</h2>
-
-                      <div className="space-y-4">
-                        {step.body.map((para) => (
-                          <p key={para.pre} className="text-gray-400 leading-relaxed">
-                            {para.pre}
-                            {para.strong && <strong className="font-semibold text-gray-200">{para.strong}</strong>}
-                            {para.post}
-                          </p>
-                        ))}
-                      </div>
-
-                      {step.bulletsIntro && <p className="text-gray-400 leading-relaxed mt-5">{step.bulletsIntro}</p>}
-
-                      {step.bullets && (
-                        <ul className="mt-4 space-y-3">
-                          {step.bullets.map((b) => (
-                            <li key={b.lead} className="flex gap-3 text-gray-400 leading-relaxed">
-                              <span className="text-gray-400 shrink-0" aria-hidden="true">&middot;</span>
-                              <span>
-                                <strong className="font-semibold text-gray-200">{b.lead}</strong>
-                                {b.rest}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      {/* Prova verificável: o único link verde da página; um por contrato, com o nome quando o degrau tem vários. */}
-                      {step.verify && (
-                        <div className="mt-6">
-                          <p className="text-xs text-gray-400 mb-2">{step.verify}</p>
-                          <div className="space-y-2">
-                            {verifyAddresses[i].map(
-                              (address, k) =>
-                                address && (
-                                  <a
-                                    key={address}
-                                    href={`${ARBISCAN}${address}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center justify-between gap-3 min-h-[44px] rounded-control border border-dark-border bg-black/40 px-4 py-3 font-mono text-[11px] sm:text-sm text-success hover:border-success/40 transition-colors duration-200"
-                                  >
-                                    <span className="min-w-0">
-                                      {step.contracts && <span className="block font-sans text-xs text-gray-400">{step.contracts[k]}</span>}
-                                      <span className="break-all">{address}</span>
-                                    </span>
-                                    <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
-                                  </a>
-                                ),
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {step.note && <p className="text-gray-400 text-sm leading-relaxed mt-6 pt-5 border-t border-dark-border">{step.note}</p>}
-                    </li>
-                  );
-                })}
-              </ol>
+              {/* Depois dos gráficos, antes da forma final: para onde isto vai, porquê agora. */}
+              <div className="mt-20 space-y-12 sm:mt-28 sm:space-y-16">
+                {c.ahead.map((block) => (
+                  <VisionBlock key={block.title} block={block} />
+                ))}
+              </div>
             </div>
           </FilmSection>
 
