@@ -2390,41 +2390,58 @@ await test(['LK16'], '/business without a session explains Keptra to a brand abo
   assert.ok(!contracts.ESCROW_READ_ABI.some((item) => item.name === 'feeBps'));
 });
 
-await test(['LK17'], '/roadmap opens with the owner’s “Verified delivery”, live now, with the escrow, guarantee and pool to verify on Arbiscan; “Card payments” sits between the regulated company and the platform instrument, intended, “after the company”; the steps are numbered 01 to 06 in the three languages; Enter App leads to /orders (checked in the source)', async () => {
+await test(['LK17'], '/roadmap keeps its six steps, numbered 01 to 06 — “Verified delivery”, live now, with the escrow, guarantee and pool to verify on Arbiscan; the lottery; “Giveaways & Event Center”; the regulated company; “Card payments”, labelled “Mass adoption”; “Keptra Token”, labelled “The last module” — each with the owner’s text of 29/09/2026, word for word, in the three languages; only the first three are on-chain; Enter App leads to /orders (checked in the source)', async () => {
   const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
   const owner = {
     en: {
-      titles: ['Verified delivery', 'Provably Fair Lottery', 'Event Center', 'Regulated company', 'Card payments', 'Platform instrument'],
-      delivery: "Payment waits in escrow; a Chainlink oracle reads the carrier's tracking and proves the delivery. The store is paid when the customer confirms or 5 days pass without a contest; a contest goes to an arbiter, with the money still in escrow. Prizes brands promise are backed by the brand's bond and, by tier, a risk reserve and the pool.",
-      after: 'After the company',
-      cards: 'Customers pay a brand by debit or credit card, as they do today, with the same delivery guarantee. It needs the company and a licensed payment partner first.',
+      titles: ['Verified delivery', 'Provably Fair Lottery', 'Giveaways & Event Center', 'Regulated company', 'Card payments', 'Keptra Token'],
+      statuses: ['Live now', 'Live now', 'Live now', 'Next', 'Mass adoption', 'The last module'],
+      bodies: [
+        "Free shipping made customers smile, easy returns made them loyal. Verified delivery is the next benefit every brand will offer. The customer's payment is held in escrow, a Chainlink oracle proves the delivery from the carrier's tracking, and every proven delivery leaves an on-chain record — evidence against a chargeback.",
+        'A lottery nobody can rig: 30-minute rounds, Chainlink VRF draws, every round closed by Chainlink CRE, prizes claimed straight from the contract.',
+        'Any brand, creator or community runs a prize campaign. Prize modules for ERC-20, ERC-721 and ERC-1155, so a campaign can distribute any tokenized asset. One verified person, one entry — no bot farms taking the prize.',
+        'To operate this at scale we intend to become a regulated company. The order is fixed and will not be skipped: a legal entity first, then licensing.',
+        "Next, customers pay by card, exactly as they do today, with the same guarantee. They never touch crypto — they just buy from a brand that offers Keptra. That's how Keptra reaches everyone: not by teaching the world crypto, but by making its guarantees invisible inside every checkout.",
+        "The network's own asset, connecting brands, customers and the providers who back the guarantee across every Keptra product. Launched inside the regulated company, never before it.",
+      ],
     },
     pt: {
-      titles: ['Entrega verificada', 'Lotaria Comprovadamente Justa', 'Event Center', 'Empresa regulada', 'Pagamento com cartão', 'Instrumento da plataforma'],
-      delivery: 'O pagamento espera num escrow; um oráculo Chainlink lê o tracking da transportadora e prova a entrega. A loja recebe quando o cliente confirma ou passam 5 dias sem contestação; uma contestação vai a um árbitro, com o dinheiro ainda no escrow. Os prémios que as marcas prometem são garantidos pela caução da marca e, conforme o escalão, por uma reserva de risco e pelo pool.',
-      after: 'Depois da empresa',
-      cards: 'O cliente paga à marca com cartão de débito ou crédito, como faz hoje, com a mesma garantia de entrega. Precisa primeiro da empresa e de um parceiro de pagamentos licenciado.',
+      titles: ['Entrega verificada', 'Lotaria Comprovadamente Justa', 'Giveaways e Event Center', 'Empresa regulada', 'Pagamento com cartão', 'Keptra Token'],
+      statuses: ['Ao vivo agora', 'Ao vivo agora', 'Ao vivo agora', 'A seguir', 'Adopção em massa', 'O último módulo'],
+      bodies: [
+        'Os portes grátis fizeram os clientes sorrir, as devoluções fáceis tornaram-nos fiéis. A entrega verificada é o próximo benefício que todas as marcas vão oferecer. O pagamento do cliente fica retido em escrow, um oráculo Chainlink prova a entrega a partir do tracking da transportadora, e cada entrega provada deixa um registo on-chain — evidência contra um chargeback.',
+        'Uma lotaria que ninguém consegue viciar: rondas de 30 minutos, sorteios pela Chainlink VRF, cada ronda fechada pela Chainlink CRE, prémios levantados directamente do contrato.',
+        'Qualquer marca, criador ou comunidade faz uma campanha de prémios. Módulos de prémio para ERC-20, ERC-721 e ERC-1155, para que uma campanha possa distribuir qualquer activo tokenizado. Uma pessoa verificada, uma participação — sem fazendas de bots a levar o prémio.',
+        'Para operar isto à escala, pretendemos tornar-nos uma empresa regulada. A ordem é fixa e não será saltada: primeiro uma entidade legal, depois o licenciamento.',
+        'A seguir, os clientes pagam com cartão, exactamente como fazem hoje, com a mesma garantia. Nunca tocam em cripto — simplesmente compram a uma marca que oferece a Keptra. É assim que a Keptra chega a toda a gente: não a ensinar cripto ao mundo, mas a tornar as suas garantias invisíveis dentro de cada checkout.',
+        'O activo da própria rede, que liga marcas, clientes e os provedores que sustentam a garantia em todos os produtos Keptra. Lançado dentro da empresa regulada, nunca antes dela.',
+      ],
     },
     es: {
-      titles: ['Entrega verificada', 'Lotería Demostrablemente Justa', 'Event Center', 'Empresa regulada', 'Pago con tarjeta', 'Instrumento de la plataforma'],
-      delivery: 'El pago espera en un escrow; un oráculo Chainlink lee el seguimiento del transportista y prueba la entrega. La tienda cobra cuando el cliente confirma o pasan 5 días sin impugnación; una impugnación va a un árbitro, con el dinero aún en el escrow. Los premios que prometen las marcas están garantizados por la fianza de la marca y, según el nivel, por una reserva de riesgo y el pool.',
-      after: 'Después de la empresa',
-      cards: 'El cliente paga a la marca con tarjeta de débito o crédito, como hoy, con la misma garantía de entrega. Primero necesita la empresa y un socio de pagos con licencia.',
+      titles: ['Entrega verificada', 'Lotería Demostrablemente Justa', 'Giveaways y Event Center', 'Empresa regulada', 'Pago con tarjeta', 'Keptra Token'],
+      statuses: ['En vivo ahora', 'En vivo ahora', 'En vivo ahora', 'Siguiente', 'Adopción masiva', 'El último módulo'],
+      bodies: [
+        'El envío gratis hizo sonreír a los clientes, las devoluciones fáciles los fidelizaron. La entrega verificada es el próximo beneficio que todas las marcas ofrecerán. El pago del cliente queda retenido en escrow, un oráculo de Chainlink prueba la entrega a partir del seguimiento del transportista, y cada entrega probada deja un registro on-chain — evidencia contra un contracargo.',
+        'Una lotería que nadie puede amañar: rondas de 30 minutos, sorteos con Chainlink VRF, cada ronda cerrada por Chainlink CRE, premios cobrados directamente del contrato.',
+        'Cualquier marca, creador o comunidad organiza una campaña de premios. Módulos de premio para ERC-20, ERC-721 y ERC-1155, para que una campaña pueda distribuir cualquier activo tokenizado. Una persona verificada, una participación — sin granjas de bots llevándose el premio.',
+        'Para operar esto a escala, tenemos la intención de convertirnos en una empresa regulada. El orden es fijo y no se saltará: primero una entidad legal, después la licencia.',
+        'Después, los clientes pagan con tarjeta, exactamente como hoy, con la misma garantía. Nunca tocan cripto — simplemente compran a una marca que ofrece Keptra. Así llega Keptra a todos: no enseñando cripto al mundo, sino haciendo invisibles sus garantías dentro de cada checkout.',
+        'El activo de la propia red, que conecta marcas, clientes y los proveedores que respaldan la garantía en todos los productos Keptra. Se lanza dentro de la empresa regulada, nunca antes.',
+      ],
     },
   };
   for (const [lang, o] of Object.entries(owner)) {
     const steps = r[lang].steps;
     assert.deepEqual(steps.map((step) => step.title), o.titles, `${lang} order`);
     assert.deepEqual(steps.map((step) => step.num), ['01', '02', '03', '04', '05', '06'], `${lang} numbers`);
-    // Live now, like the lottery, with its proof to verify: three contracts, named.
-    assert.equal(steps[0].status, steps[1].status, `${lang}: verified delivery is not "live now"`);
-    assert.deepEqual(steps[0].body, [{ pre: o.delivery }], `${lang} verified delivery`);
-    assert.equal(steps[0].verify, steps[1].verify, `${lang}: no "verify it yourself"`);
+    // The label is the same word in the step and in the synthesis above the steps (both read `status`).
+    assert.deepEqual(steps.map((step) => step.status), o.statuses, `${lang} labels`);
+    assert.deepEqual(steps.map((step) => step.body), o.bodies.map((pre) => [{ pre }]), `${lang} texts`);
+    // Live now, with their proof to verify: the delivery's three contracts, named.
+    assert.ok(steps.slice(0, 3).every((step) => step.verify === steps[0].verify && step.verify), `${lang}: a live step without "verify it yourself"`);
     assert.equal(steps[0].contracts.length, 3, `${lang}: escrow, guarantee, pool`);
-    // Card payments: after the regulated company, before the instrument, nothing to verify yet.
-    assert.equal(steps[4].status, o.after, `${lang} card payments' label`);
-    assert.deepEqual(steps[4].body, [{ pre: o.cards }], `${lang} card payments`);
-    assert.equal(steps[4].verify, undefined, `${lang}: card payments has nothing on-chain`);
+    // Nothing on-chain yet from the regulated company on.
+    assert.ok(steps.slice(3).every((step) => step.verify === undefined), `${lang}: an intended step with an address`);
   }
   const page = codeOf('pages/Roadmap.tsx');
   // The same visual state as the regulated company: only the first three are on-chain.
@@ -2486,4 +2503,160 @@ await test(['LK20'], 'a small phone (375×667) holds each pinned chapter of the 
   assert.ok(page.includes(`pool: '${live('(100svh_-_33.5rem)*1.65')} [.film-live_&]:max-lg:[@media(max-height:720px)]:hidden',`), 'chapter 04');
   // Chapter 03 ends with its link to /pool.
   assert.match(page, /\{t\.customers\.body\}<\/p>\s*<Link to="\/pool" className=\{clsx\(QUIET_LINK, 'mt-4'\)\}>\s*\{t\.hero\.seePool\}/);
+});
+
+await test(['LK21'], '/roadmap tells the owner’s vision of 29/09/2026 in its order — the top (“The trust layer for every promise.”), the problem nobody solved and what we built, the synthesis of the phases, the three steps on-chain, the line under them (“Not a demo…”), the three intended, the size of the opportunity, where this goes and why now, then the final shape and its call — word for word in the three languages; the close keeps its note without dates; the page’s description is the top’s introduction (checked in the source)', async () => {
+  const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
+  const owner = {
+    en: {
+      title: 'The trust layer for every promise.',
+      intro: 'Every day, people are made promises. Your order will arrive. This draw is fair. Your prize will be paid. Today, all of them run on one thing: “trust me.” Keptra replaces “trust me” with proof.',
+      story: [
+        ['The problem nobody solved', 'Tokenized assets are coming on-chain at scale. Robinhood Chain will issue them. Institutions will mint them. But the moment a promise touches the real world — a product has to arrive, a winner has to be drawn, a prize has to be paid — everything falls back to “trust me.” And the billions of people outside crypto stay outside.'],
+        ['What we built', 'Keptra is the layer that turns those promises into proof. One infrastructure on Arbitrum One, with Chainlink proving what happens in the real world — and the person on the other side never needs to know what a wallet is. They use their email. Under the hood each person gets a real wallet, created invisibly, signing their own actions. Web2 in, proof out.'],
+      ],
+      proofLine: "Not a demo. Not a testnet. Deployed, verified, running. Don't believe us. Go check.",
+      ahead: [
+        ['Where this goes', 'From there, Keptra becomes the default trust layer of commerce — every online store, every marketplace, every country. And every real-world asset that has to physically arrive gets a delivery the world can verify.'],
+        ['Why now', 'The rails for tokenized assets are being laid now. The trust layer between them and real people is not. We built it, it runs, and it works for people who have never heard of a wallet.'],
+      ],
+      close: ['Building the trust layer for every promise.', 'Mass adoption starts with card payments. Early conversations with investors and partners are open.'],
+      note: 'No dates. Each step depends on the one before it. What exists is published with the contract address next to it.',
+    },
+    pt: {
+      title: 'A camada de confiança para cada promessa.',
+      intro: 'Todos os dias, são feitas promessas às pessoas. A tua encomenda vai chegar. Este sorteio é justo. O teu prémio vai ser pago. Hoje, todas elas assentam numa única coisa: “confia em mim.” A Keptra substitui o “confia em mim” por prova.',
+      story: [
+        ['O problema que ninguém resolveu', 'Os activos tokenizados estão a chegar à blockchain em grande escala. A Robinhood Chain vai emiti-los. As instituições vão criá-los. Mas no momento em que uma promessa toca o mundo real — um produto tem de chegar, um vencedor tem de ser sorteado, um prémio tem de ser pago — tudo volta ao “confia em mim”. E os milhares de milhões de pessoas fora do cripto continuam de fora.'],
+        ['O que construímos', 'A Keptra é a camada que transforma essas promessas em prova. Uma infraestrutura na Arbitrum One, com a Chainlink a provar o que acontece no mundo real — e a pessoa do outro lado nunca precisa de saber o que é uma carteira. Usa o email. Por trás, cada pessoa recebe uma carteira real, criada de forma invisível, que assina as suas próprias acções. Entra web2, sai prova.'],
+      ],
+      proofLine: 'Não é uma demo. Não é uma testnet. Implantado, verificado, a funcionar. Não acredites em nós. Vai confirmar.',
+      ahead: [
+        ['Para onde isto vai', 'A partir daí, a Keptra torna-se a camada de confiança padrão do comércio — cada loja online, cada marketplace, cada país. E cada activo do mundo real que tenha de chegar fisicamente a algum lado ganha uma entrega que o mundo pode verificar.'],
+        ['Porquê agora', 'Os carris para os activos tokenizados estão a ser construídos agora. A camada de confiança entre eles e as pessoas reais não está. Nós construímo-la, funciona, e funciona para pessoas que nunca ouviram falar de uma carteira.'],
+      ],
+      close: ['A construir a camada de confiança para cada promessa.', 'A adopção em massa começa com os pagamentos com cartão. Estão abertas conversas iniciais com investidores e parceiros.'],
+      note: 'Sem datas. Cada passo depende do anterior. O que existe é publicado com o endereço do contrato ao lado.',
+    },
+    es: {
+      title: 'La capa de confianza para cada promesa.',
+      intro: 'Cada día, se hacen promesas a las personas. Tu pedido llegará. Este sorteo es justo. Tu premio se pagará. Hoy, todas se apoyan en una sola cosa: “confía en mí.” Keptra sustituye el “confía en mí” por pruebas.',
+      story: [
+        ['El problema que nadie resolvió', 'Los activos tokenizados están llegando on-chain a gran escala. Robinhood Chain los emitirá. Las instituciones los crearán. Pero en cuanto una promesa toca el mundo real — un producto tiene que llegar, un ganador tiene que ser sorteado, un premio tiene que pagarse — todo vuelve al “confía en mí”. Y los miles de millones de personas fuera de cripto siguen fuera.'],
+        ['Lo que construimos', 'Keptra es la capa que convierte esas promesas en pruebas. Una infraestructura en Arbitrum One, con Chainlink probando lo que ocurre en el mundo real — y la persona del otro lado nunca necesita saber qué es una wallet. Usa su email. Por dentro, cada persona recibe una wallet real, creada de forma invisible, que firma sus propias acciones. Entra web2, sale prueba.'],
+      ],
+      proofLine: 'No es una demo. No es una testnet. Desplegado, verificado, funcionando. No nos creas. Compruébalo.',
+      ahead: [
+        ['Hacia dónde va esto', 'A partir de ahí, Keptra se convierte en la capa de confianza por defecto del comercio — cada tienda online, cada marketplace, cada país. Y cada activo del mundo real que tenga que llegar físicamente obtiene una entrega que el mundo puede verificar.'],
+        ['Por qué ahora', 'Los raíles de los activos tokenizados se están construyendo ahora. La capa de confianza entre ellos y las personas reales, no. Nosotros la construimos, funciona, y funciona para personas que nunca han oído hablar de una wallet.'],
+      ],
+      close: ['Construyendo la capa de confianza para cada promesa.', 'La adopción masiva empieza con los pagos con tarjeta. Están abiertas las conversaciones iniciales con inversores y socios.'],
+      note: 'Sin fechas. Cada paso depende del anterior. Lo que existe se publica con la dirección del contrato al lado.',
+    },
+  };
+  const blocks = (list) => list.map(([title, body]) => ({ title, body }));
+  for (const [lang, o] of Object.entries(owner)) {
+    const c = r[lang];
+    assert.equal(c.hero.eyebrow, 'Roadmap', `${lang} eyebrow`);
+    assert.equal(c.hero.title, o.title, `${lang} title`);
+    assert.equal(c.hero.intro, o.intro, `${lang} introduction`);
+    assert.deepEqual(c.story, blocks(o.story), `${lang} the problem, what we built`);
+    assert.equal(c.proofLine, o.proofLine, `${lang} the line under 03`);
+    assert.deepEqual(c.ahead, blocks(o.ahead), `${lang} where this goes, why now`);
+    assert.deepEqual([c.outro.ctaLine1, c.outro.ctaLine2], o.close, `${lang} the close`);
+    assert.equal(c.outro.note, o.note, `${lang} the note without dates stays`);
+  }
+  const page = codeOf('pages/Roadmap.tsx');
+  // The page, top to bottom.
+  const order = [
+    '{c.hero.title}',
+    '{c.story.map(',
+    '{c.steps.map((step, i) => {',
+    '{c.steps.slice(0, ONCHAIN_STEPS).map((step, i) => stepItem(step, i))}',
+    '{c.proofLine}',
+    '{c.steps.slice(ONCHAIN_STEPS).map((step, k) => stepItem(step, ONCHAIN_STEPS + k))}',
+    '{c.opportunity.charts.map(',
+    '{c.ahead.map(',
+    '<RoadmapClose ',
+  ];
+  const at = order.map((mark) => page.indexOf(mark));
+  assert.ok(at.every((index) => index >= 0), `missing: ${order.filter((_mark, k) => at[k] < 0)}`);
+  assert.deepEqual([...at].sort((p, q) => p - q), at, 'out of order');
+  // Both lists of steps hang on the one rail; the intended ones go on counting from 04.
+  assert.match(page, /<div ref=\{rail\.list\} className="relative pb-4 sm:pl-20">/);
+  assert.match(page, /<ol start=\{ONCHAIN_STEPS \+ 1\} /);
+  // The close: its title and subtitle, the note without dates before them.
+  const close = page.slice(page.indexOf('function RoadmapClose('));
+  assert.ok(close.indexOf('{c.outro.note}') < close.indexOf('{c.outro.ctaLine1}') && close.indexOf('{c.outro.ctaLine1}') < close.indexOf('{c.outro.ctaLine2}'));
+  assert.match(page, /tag\?\.setAttribute\('content', c\.hero\.intro\);/);
+});
+
+await test(['LK22'], '/roadmap’s size of the opportunity is two SVG bar charts and no more — verified delivery by share of global e-commerce, Instant Win by share of the online lottery market; nothing for the Keptra Token or the giveaways — each bar with its scenario, its share and its value in the owner’s figures, in the three languages, the sources and the fees read on-chain (escrow 1.5% per sale, lottery 12.5% of every round) in the notes, the line on card payments and the notice under them; the bars on one logarithmic scale, $10M to $10B, drawn to the owner’s revenue, and still in every mode (checked in the source)', async () => {
+  const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
+  const owner = {
+    en: {
+      title: 'The size of the opportunity',
+      scenarios: ['Launch', 'Growth', 'Maturity'],
+      charts: [
+        ['Verified Delivery — revenue by share of global e-commerce', [['0.1%', '$103M/year'], ['0.5%', '$516M/year'], ['2%', '$2.06B/year']], 'Global retail e-commerce: $6.88T in 2026 (EMARKETER via Shopify). Keptra fee: 1.5% per sale, read from the contract.'],
+        ['Instant Win — revenue by share of the online lottery market', [['1%', '$24.3M/year'], ['5%', '$121M/year'], ['10%', '$243M/year']], 'Online lottery: $19.43B in 2029 (The Business Research Company). Platform share: 12.5% of every round, read from the contract.'],
+      ],
+      ticks: ['$10M', '$100M', '$1B', '$10B'],
+      line: 'Card payments are what moves Keptra from launch to maturity.',
+      disclaimer: 'Illustrative scenarios from public market data and on-chain fees — not a forecast or a financial promise.',
+    },
+    pt: {
+      title: 'O tamanho da oportunidade',
+      scenarios: ['Arranque', 'Crescimento', 'Maturidade'],
+      charts: [
+        ['Entrega verificada — receita por quota do e-commerce mundial', [['0,1%', '103 M$/ano'], ['0,5%', '516 M$/ano'], ['2%', '2,06 B$/ano']], 'E-commerce mundial a retalho: 6,88 biliões $ em 2026 (EMARKETER via Shopify). Taxa Keptra: 1,5% por venda, lida do contrato.'],
+        ['Instant Win — receita por quota do mercado de lotaria online', [['1%', '24,3 M$/ano'], ['5%', '121 M$/ano'], ['10%', '243 M$/ano']], 'Lotaria online: 19,43 mil milhões $ em 2029 (The Business Research Company). Parte da plataforma: 12,5% de cada ronda, lida do contrato.'],
+      ],
+      ticks: ['10 M$', '100 M$', '1 B$', '10 B$'],
+      line: 'Os pagamentos com cartão são o que leva a Keptra do arranque à maturidade.',
+      disclaimer: 'Cenários ilustrativos a partir de dados públicos de mercado e das taxas on-chain — não são uma previsão nem uma promessa financeira.',
+    },
+    es: {
+      title: 'El tamaño de la oportunidad',
+      scenarios: ['Arranque', 'Crecimiento', 'Madurez'],
+      charts: [
+        ['Entrega verificada — ingresos por cuota del e-commerce mundial', [['0,1%', '103 M$/año'], ['0,5%', '516 M$/año'], ['2%', '2.060 M$/año']], 'E-commerce minorista mundial: 6,88 billones $ en 2026 (EMARKETER vía Shopify). Comisión Keptra: 1,5% por venta, leída del contrato.'],
+        ['Instant Win — ingresos por cuota del mercado de lotería online', [['1%', '24,3 M$/año'], ['5%', '121 M$/año'], ['10%', '243 M$/año']], 'Lotería online: 19.430 millones $ en 2029 (The Business Research Company). Parte de la plataforma: 12,5% de cada ronda, leída del contrato.'],
+      ],
+      ticks: ['10 M$', '100 M$', '1.000 M$', '10.000 M$'],
+      line: 'Los pagos con tarjeta son lo que lleva a Keptra del arranque a la madurez.',
+      disclaimer: 'Escenarios ilustrativos a partir de datos públicos de mercado y de las comisiones on-chain — no son una previsión ni una promesa financiera.',
+    },
+  };
+  for (const [lang, o] of Object.entries(owner)) {
+    const c = r[lang].opportunity;
+    assert.equal(c.title, o.title, `${lang} title`);
+    assert.deepEqual(c.scenarios, o.scenarios, `${lang} scenarios`);
+    assert.deepEqual(
+      c.charts,
+      o.charts.map(([title, bars, note]) => ({ title, bars: bars.map(([share, value]) => ({ share, value })), note })),
+      `${lang} charts`,
+    );
+    assert.deepEqual(c.ticks, o.ticks, `${lang} scale`);
+    assert.equal(c.line, o.line, `${lang} line`);
+    assert.equal(c.disclaimer, o.disclaimer, `${lang} notice`);
+    // No figure for the token, no chart for the giveaways or the Event Center.
+    for (const [path, word] of wordsOf(c)) assert.ok(!/token|giveaway|event center/i.test(word), `${lang} opportunity${path}: "${word}"`);
+  }
+  // The owner's figures are the share × the market × the fee read on-chain, to three significant digits.
+  const three = (value) => Number(value.toPrecision(3));
+  assert.deepEqual([0.001, 0.005, 0.02].map((share) => three(6.88e12 * share * 0.015)), [103e6, 516e6, 2.06e9]);
+  assert.deepEqual([0.01, 0.05, 0.1].map((share) => three(19.43e9 * share * 0.125)), [24.3e6, 121e6, 243e6]);
+  const page = codeOf('pages/Roadmap.tsx');
+  // The bars are drawn to those figures, on one logarithmic scale for both charts: 10^7 to 10^10 dollars.
+  assert.match(page, /const REVENUE = \[\s*\[103e6, 516e6, 2\.06e9\],\s*\[24\.3e6, 121e6, 243e6\],\s*\] as const;/);
+  assert.match(page, /const onScale = \(dollars: number\) => \(\(Math\.log10\(dollars\) - 7\) \/ 3\) \* 100;/);
+  const chart = page.slice(page.indexOf('function OpportunityChart('), page.indexOf('export const Roadmap'));
+  assert.match(chart, /<rect width=\{`\$\{onScale\(revenue\[k\]\)\}%`\} height="100%" rx=\{4\} \/>/);
+  assert.match(chart, /<svg aria-hidden="true" className="mt-2 block h-3\.5 w-full overflow-visible">/);
+  // Every value is written beside its bar, the drawing hidden from assistive technology.
+  assert.match(chart, /\{scenarios\[k\]\}<\/span> <span className="font-mono text-gray-400">\{bar\.share\}<\/span>/);
+  assert.match(chart, /\{bar\.value\}/);
+  // Still in every mode: nothing for reduced motion or the pause to stop.
+  assert.doesNotMatch(chart, /useFilmTimeline|requestAnimationFrame|transition|animate/);
 });
