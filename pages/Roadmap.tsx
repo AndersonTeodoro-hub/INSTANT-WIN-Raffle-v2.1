@@ -366,9 +366,11 @@ export const Roadmap: React.FC = () => {
               {/* Síntese das fases lado a lado — mesmo conteúdo da lista
                   abaixo, em formato de relance. Ícone + texto (não só cor) marcam
                   a distinção entre "verificado on-chain" e "pretendido nesta ordem",
-                  para não depender de percepção de cor. */}
+                  para não depender de percepção de cor. Uma linha por grupo, cheia em
+                  qualquer largura: os dois degraus on-chain a meias, os três pretendidos
+                  a terços (grelha de 6) — enquanto forem dois e três. */}
               <section className="mb-12 sm:mb-16">
-                <ul role="list" className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                <ul role="list" className="grid grid-cols-6 gap-3 sm:gap-4">
                   {c.steps.map((step, i) => {
                     const onchain = i < ONCHAIN_STEPS;
                     return (
@@ -376,6 +378,7 @@ export const Roadmap: React.FC = () => {
                         key={step.num}
                         className={clsx(
                           'rounded-card border p-3 sm:p-4',
+                          onchain ? 'col-span-3' : 'col-span-2',
                           onchain ? 'border-success/40 bg-success/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' : 'border-dark-border border-dashed bg-dark-card',
                         )}
                       >

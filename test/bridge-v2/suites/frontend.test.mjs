@@ -944,9 +944,17 @@ const CLIENT_FILES = () => {
   return out;
 };
 
-await test(['U2', 'AT9', 'AU4'], 'T9 and U4: the app is Keptra at keptra.io — nothing in vercel.json sends instntwin.com there any more (the lottery moves to its own domain, the owner’s decision of 30/09/2026); no client file and no notice names the old domain; the title, the manifest and the previews say Keptra', () => {
+await test(['U2', 'AT9', 'AU4'], 'T9 and U4: the app is Keptra at keptra.io — the lottery lives at instntwin.com (the owner’s decision of 30/09/2026), and vercel.json names it only as the destination of the four permanent redirects of the old lottery paths; no client file and no notice names the old domain; the title, the manifest and the previews say Keptra', () => {
   const vercel = JSON.parse(read('vercel.json'));
-  assert.ok(!JSON.stringify(vercel).includes('instntwin'), 'vercel.json still handles instntwin.com');
+  const LOTTERY = [
+    ['/play', 'https://instntwin.com/play'],
+    ['/play/:path*', 'https://instntwin.com/play/:path*'],
+    ['/raffle', 'https://instntwin.com/play/raffle'],
+    ['/username', 'https://instntwin.com/play/identity'],
+  ];
+  const named = vercel.redirects.filter((r) => JSON.stringify(r).includes('instntwin'));
+  assert.deepEqual(named, LOTTERY.map(([source, destination]) => ({ source, destination, permanent: true })));
+  assert.ok(!JSON.stringify({ ...vercel, redirects: vercel.redirects.filter((r) => !named.includes(r)) }).includes('instntwin'), 'vercel.json names instntwin.com elsewhere');
   for (const path of CLIENT_FILES()) assert.ok(!read(path).includes('instntwin.com'), `${path} still names instntwin.com`);
   assert.ok(!codeOf('lib/bridge-v2/mail.ts').includes('instntwin'), 'a notice still links to the old domain');
   assert.match(read('index.html'), /<title>Keptra — /);

@@ -251,8 +251,9 @@ export const Landing: React.FC = () => {
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.modules.obligation}</p>
           </Chapter>
 
+          {/* Três cartões sem órfão: uma coluna no telemóvel; entre md e lg a entrega verificada ocupa a linha e os dois módulos seguem lado a lado; de lg em diante, três colunas. */}
           <section className="relative z-10 px-5 sm:px-6 pb-16 md:pb-24">
-            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {MODULES.map((m, i) => {
                 const copy = t.modules.items[i];
                 const Icon = m.icon;
@@ -260,7 +261,7 @@ export const Landing: React.FC = () => {
                   <Link
                     key={m.to}
                     to={m.to}
-                    className={clsx('group flex flex-col p-6 sm:p-8', m.live ? 'iw-surface-raised' : 'iw-surface !bg-dark-bg/60')}
+                    className={clsx('group flex flex-col p-6 sm:p-8', i === 0 && 'md:col-span-2 lg:col-span-1', m.live ? 'iw-surface-raised' : 'iw-surface !bg-dark-bg/60')}
                   >
                     <div className="flex items-center justify-between mb-6">
                       <Icon className={clsx('w-5 h-5', m.live ? 'text-gray-200' : 'text-gray-400')} aria-hidden="true" />

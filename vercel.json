@@ -1,6 +1,10 @@
 {
   "redirects": [
-    { "source": "/:path(.*)", "has": [{ "type": "host", "value": "www.keptra.io" }], "destination": "https://keptra.io/:path", "permanent": true }
+    { "source": "/:path(.*)", "has": [{ "type": "host", "value": "www.keptra.io" }], "destination": "https://keptra.io/:path", "permanent": true },
+    { "source": "/play", "destination": "https://instntwin.com/play", "permanent": true },
+    { "source": "/play/:path*", "destination": "https://instntwin.com/play/:path*", "permanent": true },
+    { "source": "/raffle", "destination": "https://instntwin.com/play/raffle", "permanent": true },
+    { "source": "/username", "destination": "https://instntwin.com/play/identity", "permanent": true }
   ],
   "rewrites": [
     {

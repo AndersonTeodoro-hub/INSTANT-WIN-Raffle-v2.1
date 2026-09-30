@@ -6,7 +6,7 @@ import type { Lang } from './landing.i18n.js';
 //
 // Fonte do texto: a visão que o owner escreveu a 29/09/2026, nas três línguas,
 // palavra por palavra (o topo, os blocos, os degraus, os gráficos, o fecho). O
-// ROADMAP.md na raiz ficou para trás: não é a fonte desta página.
+// ROADMAP.md na raiz repete o topo e os degraus em inglês: não é a fonte desta página.
 //
 // Interpolação: frases partidas em pre/strong/post à volta da parte em destaque,
 // como a landing já faz em `transparency`. Nada de HTML dentro das strings.

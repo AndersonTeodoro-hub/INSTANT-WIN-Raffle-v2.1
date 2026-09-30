@@ -136,8 +136,9 @@ export async function sendCodeEmail(
  *
  * SPEC-BLOCO-03 T9: the whole app is served at keptra.io — the domain the
  * passkeys are bound to (A13, C9) — so every link a notice carries is keptra.io.
- * instntwin.com redirects its pages there and keeps serving /api, so a link sent
- * before the move still lands. instantwin.finance was never this product's domain.
+ * instntwin.com is no longer this app's: since 30/09/2026 it is the lottery's own
+ * domain, and keptra.io only sends its old lottery paths there, so no notice may
+ * name it. instantwin.finance was never this product's domain.
  */
 const PUBLIC_BASE = KEPTRA_BASE;
 
