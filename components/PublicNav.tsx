@@ -97,13 +97,15 @@ export const PublicNavLinks: React.FC = () => {
 /**
  * Mesmas entradas no rodapé, em mono e caixa alta como o resto do rodapé.
  * Aqui aparecem em todos os tamanhos: é a única navegação em telemóvel.
+ * Abaixo de sm, duas colunas (2 + 2); a partir de sm as quatro cabem numa linha.
+ * Nunca uma entrada sozinha.
  */
 export const PublicFooterNav: React.FC = () => {
   const { pathname } = useLocation();
   const items = usePublicNav();
 
   return (
-    <nav aria-label="Sections" className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
+    <nav aria-label="Sections" className="grid grid-cols-[auto_auto] justify-center justify-items-center gap-x-6 gap-y-1 sm:flex sm:flex-wrap sm:items-center">
       {items.map((item) => {
         const isActive = isCurrent(pathname, item.to);
         return (
