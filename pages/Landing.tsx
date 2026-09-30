@@ -38,6 +38,23 @@ const contractLinks = (pool: `0x${string}` | undefined, reputation: `0x${string}
   ].filter((link): link is { label: string; address: `0x${string}` } => link.address !== undefined && link.address.toLowerCase() !== ZERO);
 
 /**
+ * The footer's contracts in groups that never break across lines — pairs, and a
+ * trio first when the count is odd — so no line ever holds a contract alone.
+ * The trio goes first because the opening names are the shortest: stacked, it
+ * fits a 360-px phone.
+ * ponytail: under ~330 px the trio wraps inside itself (2 + 1); fine until the list grows.
+ */
+function inGroups<T>(items: readonly T[]): T[][] {
+  const groups: T[][] = [];
+  for (let i = 0; i < items.length; ) {
+    const size = i === 0 && items.length % 2 === 1 ? 3 : 2;
+    groups.push(items.slice(i, i + size));
+    i += size;
+  }
+  return groups;
+}
+
+/**
  * Os cartões da grelha: a entrega verificada à frente (decisão do owner de
  * 27/09/2026, commit B) e os módulos de sorteios da Keptra. Emparelham posicionalmente
  * com `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade
@@ -308,17 +325,21 @@ export const Landing: React.FC = () => {
         <div className="container mx-auto px-6 space-y-6">
           <div>
             <p className="text-center text-xs text-gray-400 font-medium mb-4">{t.footer.contractsLabel}</p>
-            <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-xs font-mono text-gray-400">
-              {contractLinks(pool.pool, reputation.data).map((link) => (
-                <a
-                  key={link.address}
-                  href={`${ARBISCAN}${link.address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 min-h-[44px] hover:text-success transition-colors"
-                >
-                  <span className="font-sans font-medium text-gray-400">{link.label}:</span> {short(link.address)}
-                </a>
+            <div className="flex flex-wrap justify-center gap-x-4 md:gap-x-8 gap-y-2 text-xs font-mono text-gray-400">
+              {inGroups(contractLinks(pool.pool, reputation.data)).map((group) => (
+                <div key={group[0].address} className="flex flex-wrap justify-center gap-x-4 md:gap-x-8 gap-y-2">
+                  {group.map((link) => (
+                    <a
+                      key={link.address}
+                      href={`${ARBISCAN}${link.address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex flex-col md:flex-row items-center justify-center md:gap-1 min-h-[44px] hover:text-success transition-colors"
+                    >
+                      <span className="font-sans font-medium text-gray-400">{link.label}:</span> {short(link.address)}
+                    </a>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
