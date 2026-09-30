@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
-import { ArrowRight, ExternalLink, Ticket, Gift, CalendarDays, PackageCheck, type LucideIcon } from 'lucide-react';
+import { ArrowRight, ExternalLink, Gift, CalendarDays, PackageCheck, type LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { useLang, translations, type Lang } from './landing.i18n';
@@ -14,7 +14,7 @@ import { BrandFlow } from '../components/proof/BrandFlow';
 import { PurchaseFlow } from '../components/proof/PurchaseFlow';
 import { PoolFlow } from '../components/proof/PoolFlow';
 import { ContactEmail } from '../components/ContactEmail';
-import { useLatestDraw } from '../components/proof/useLatestDraw';
+import { useLatestCampaignDraw } from '../components/proof/useLatestDraw';
 import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
@@ -22,27 +22,23 @@ const ARBISCAN = 'https://arbiscan.io/address/';
 // Public landing: only these contracts may be surfaced (regulatory).
 // Do not add internal-only registries here. Names stay as on-chain identifiers.
 const contractLinks = [
-  { label: 'Raffle Manager', address: CONTRACTS.RAFFLE_MANAGER },
-  { label: 'Username Registry', address: CONTRACTS.USERNAME_REGISTRY },
   { label: 'USDC', address: CONTRACTS.USDC },
 ];
 
 /**
  * Os cartões da grelha: a entrega verificada à frente (decisão do owner de
- * 27/09/2026, commit B) e os três módulos da Keptra. Emparelham posicionalmente
+ * 27/09/2026, commit B) e os módulos de sorteios da Keptra. Emparelham posicionalmente
  * com `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade
  * do cartão: nome, rota, ícone e estado. A entrega verificada não tem nome aqui:
  * o seu traduz-se, e vem de `copy.modules.items[0].name`.
  *
  * `live` é a única autorização de verde nesta secção: verde significa
- * "verificável agora". Lido na cadeia a 25/09/2026: a RaffleManagerV3 não está
- * pausada e tem uma ronda aberta; a GiveawayManagerV2 (Giveaways e Event
- * Center) não está pausada e tem a campanha 2 liquidada. A 27/09/2026: o
+ * "verificável agora". Lido na cadeia a 25/09/2026: a GiveawayManagerV2 (Giveaways
+ * e Event Center) não está pausada e tem a campanha 2 liquidada. A 27/09/2026: o
  * KeptraEscrow não está pausado.
  */
 const MODULES: readonly { name?: string; to: string; icon: LucideIcon; live: boolean }[] = [
   { to: '/business', icon: PackageCheck, live: true },
-  { name: 'INSTANT WIN', to: '/play', icon: Ticket, live: true },
   { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: true },
   { name: 'EVENT CENTER', to: '/events', icon: CalendarDays, live: true },
 ];
@@ -134,11 +130,11 @@ export const Landing: React.FC = () => {
   const [lang] = useLang();
   const t = translations[lang];
   const pool = usePoolFigures();
-  const { latest, round: lotteryDraw, campaign, loading } = useLatestDraw();
+  const { draw: latest, loading } = useLatestCampaignDraw();
 
   // A forma (a assinatura) desenha-se da prova do último sorteio liquidado; sem
-  // nenhum, do endereço do contrato da lotaria.
-  const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER);
+  // nenhum, do endereço do contrato das campanhas.
+  const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.GIVEAWAY_MANAGER_V2);
   const [brandsWho, brandsWhat] = t.hero.ctaBrands.split(' — ');
   const [customersWho] = t.hero.ctaCustomers.split(' — ');
   // Os diagramas dos capítulos 02 a 04 (commit B): cliente, loja, escrow e oráculo vêm do diagrama da primeira tela.
@@ -171,10 +167,9 @@ export const Landing: React.FC = () => {
 
       <Film
         proof={proof}
-        fallback={CONTRACTS.RAFFLE_MANAGER}
+        fallback={CONTRACTS.GIVEAWAY_MANAGER_V2}
         winners={latest?.winnersCount ?? 3}
-        lottery={lotteryDraw?.proof ?? null}
-        campaign={campaign?.proof ?? null}
+        campaign={latest?.proof ?? null}
         pauseLabel={t.film.pause}
         playLabel={t.film.play}
       >
@@ -318,7 +313,6 @@ export const Landing: React.FC = () => {
           <PublicFooterNav />
 
           <div className="border-t border-dark-border/60 pt-6 max-w-2xl mx-auto text-center space-y-2">
-            <p className="text-xs text-gray-400 font-medium">{t.footer.responsible}</p>
             <p className="text-xs text-gray-400">{t.footer.disclaimer}</p>
           </div>
         </div>

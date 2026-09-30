@@ -257,15 +257,15 @@ function ringsAt(center: Vec, radius: number, count: number): Strand[] {
 }
 
 /**
- * Keptra's three modules — Instant Win, Giveaways, the Event Center: a module
- * carries a mark only if it has a settled draw of its own; otherwise rings. All
- * three are live, so all three are green. Giveaways and the Event Center run on
- * the one GiveawayManagerV2, so their latest draw, and their mark, is the same.
+ * Keptra's two draw modules — Giveaways and the Event Center: a module carries a
+ * mark only if it has a settled draw of its own; otherwise rings. Both are live,
+ * so both are green. They run on the one GiveawayManagerV2, so their latest draw,
+ * and their mark, is the same.
  */
-function modules(lottery: MarkParams | null, campaign: MarkParams | null): Strand[] {
+function modules(campaign: MarkParams | null): Strand[] {
   const at = (params: MarkParams | null, x: number) =>
-    params ? rosetteStrands(params, 16, 0.36, [x, 0, 0], 0.5, 1) : ringsAt([x, 0, 0], 0.34, 16).map((s) => ({ ...s, accent: 1 }));
-  return [...at(lottery, -0.92), ...at(campaign, 0), ...at(campaign, 0.92)];
+    params ? rosetteStrands(params, 24, 0.36, [x, 0, 0], 0.5, 1) : ringsAt([x, 0, 0], 0.34, 24).map((s) => ({ ...s, accent: 1 }));
+  return [...at(campaign, -0.46), ...at(campaign, 0.46)];
 }
 
 function pack(strands: Strand[]): Float32Array {
@@ -282,10 +282,10 @@ function pack(strands: Strand[]): Float32Array {
 
 /**
  * Every shape for one proof, packed for the GPU. `winners`: how many strands light
- * up in the reveal; `lottery` and `campaign`: each module's own latest settled
- * draw, for the modules (null: rings).
+ * up in the reveal; `campaign`: the modules' latest settled draw, for the modules
+ * (null: rings).
  */
-export function buildShapes(bytes: Uint8Array, data: { winners: number; lottery: Uint8Array | null; campaign: Uint8Array | null }): Record<ShapeId, Float32Array> {
+export function buildShapes(bytes: Uint8Array, data: { winners: number; campaign: Uint8Array | null }): Record<ShapeId, Float32Array> {
   const params = markParams(bytes);
   return {
     chaos: pack(chaos(bytes)),
@@ -295,7 +295,7 @@ export function buildShapes(bytes: Uint8Array, data: { winners: number; lottery:
     reveal: pack(reveal(params, data.winners)),
     payout: pack(payout(params)),
     escrow: pack(escrow()),
-    modules: pack(modules(data.lottery ? markParams(data.lottery) : null, data.campaign ? markParams(data.campaign) : null)),
+    modules: pack(modules(data.campaign ? markParams(data.campaign) : null)),
     rings: pack(ringsAt([0, 0, 0], 0.9, STRANDS)),
   };
 }

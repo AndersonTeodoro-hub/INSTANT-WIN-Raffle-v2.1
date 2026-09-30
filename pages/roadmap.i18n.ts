@@ -25,7 +25,7 @@ interface Block {
 }
 
 interface Step {
-  /** '01'…'06'. O estado "live" é posicional (ONCHAIN_STEPS em Roadmap.tsx). */
+  /** '01'…'05'. O estado "live" é posicional (ONCHAIN_STEPS em Roadmap.tsx). */
   num: string;
   status: string;
   title: string;
@@ -67,10 +67,10 @@ export interface RoadmapCopy {
   proofLine: string;
   opportunity: {
     title: string;
-    /** Arranque, crescimento, maturidade: o nome de cada barra, nos dois gráficos. */
+    /** Arranque, crescimento, maturidade: o nome de cada barra. */
     scenarios: string[];
     charts: Chart[];
-    /** A escala comum aos dois gráficos (logarítmica, 10 M$ a 10 B$), uma marca por década. */
+    /** A escala (logarítmica, 10 M$ a 10 B$), uma marca por década. */
     ticks: string[];
     line: string;
     disclaimer: string;
@@ -119,17 +119,6 @@ const en: RoadmapCopy = {
     {
       num: '02',
       status: 'Live now',
-      title: 'Provably Fair Lottery',
-      body: [
-        {
-          pre: 'A lottery nobody can rig: 30-minute rounds, Chainlink VRF draws, every round closed by Chainlink CRE, prizes claimed straight from the contract.',
-        },
-      ],
-      verify: 'Verify it yourself',
-    },
-    {
-      num: '03',
-      status: 'Live now',
       title: 'Giveaways & Event Center',
       body: [
         {
@@ -139,7 +128,7 @@ const en: RoadmapCopy = {
       verify: 'Verify it yourself',
     },
     {
-      num: '04',
+      num: '03',
       status: 'Next',
       title: 'Regulated company',
       body: [
@@ -149,7 +138,7 @@ const en: RoadmapCopy = {
       ],
     },
     {
-      num: '05',
+      num: '04',
       status: 'Mass adoption',
       title: 'Card payments',
       body: [
@@ -159,7 +148,7 @@ const en: RoadmapCopy = {
       ],
     },
     {
-      num: '06',
+      num: '05',
       status: 'The last module',
       title: 'Keptra Token',
       body: [
@@ -182,15 +171,6 @@ const en: RoadmapCopy = {
           { share: '2%', value: '$2.06B/year' },
         ],
         note: 'Global retail e-commerce: $6.88T in 2026 (EMARKETER via Shopify). Keptra fee: 1.5% per sale, read from the contract.',
-      },
-      {
-        title: 'Instant Win — revenue by share of the online lottery market',
-        bars: [
-          { share: '1%', value: '$24.3M/year' },
-          { share: '5%', value: '$121M/year' },
-          { share: '10%', value: '$243M/year' },
-        ],
-        note: 'Online lottery: $19.43B in 2029 (The Business Research Company). Platform share: 12.5% of every round, read from the contract.',
       },
     ],
     ticks: ['$10M', '$100M', '$1B', '$10B'],
@@ -268,17 +248,6 @@ const pt: RoadmapCopy = {
     {
       num: '02',
       status: 'Ao vivo agora',
-      title: 'Lotaria Comprovadamente Justa',
-      body: [
-        {
-          pre: 'Uma lotaria que ninguém consegue viciar: rondas de 30 minutos, sorteios pela Chainlink VRF, cada ronda fechada pela Chainlink CRE, prémios levantados directamente do contrato.',
-        },
-      ],
-      verify: 'Verifique por si mesmo',
-    },
-    {
-      num: '03',
-      status: 'Ao vivo agora',
       title: 'Giveaways e Event Center',
       body: [
         {
@@ -288,7 +257,7 @@ const pt: RoadmapCopy = {
       verify: 'Verifique por si mesmo',
     },
     {
-      num: '04',
+      num: '03',
       status: 'A seguir',
       title: 'Empresa regulada',
       body: [
@@ -298,7 +267,7 @@ const pt: RoadmapCopy = {
       ],
     },
     {
-      num: '05',
+      num: '04',
       status: 'Adopção em massa',
       title: 'Pagamento com cartão',
       body: [
@@ -308,7 +277,7 @@ const pt: RoadmapCopy = {
       ],
     },
     {
-      num: '06',
+      num: '05',
       status: 'O último módulo',
       title: 'Keptra Token',
       body: [
@@ -331,15 +300,6 @@ const pt: RoadmapCopy = {
           { share: '2%', value: '2,06 B$/ano' },
         ],
         note: 'E-commerce mundial a retalho: 6,88 biliões $ em 2026 (EMARKETER via Shopify). Taxa Keptra: 1,5% por venda, lida do contrato.',
-      },
-      {
-        title: 'Instant Win — receita por quota do mercado de lotaria online',
-        bars: [
-          { share: '1%', value: '24,3 M$/ano' },
-          { share: '5%', value: '121 M$/ano' },
-          { share: '10%', value: '243 M$/ano' },
-        ],
-        note: 'Lotaria online: 19,43 mil milhões $ em 2029 (The Business Research Company). Parte da plataforma: 12,5% de cada ronda, lida do contrato.',
       },
     ],
     ticks: ['10 M$', '100 M$', '1 B$', '10 B$'],
@@ -404,17 +364,6 @@ const es: RoadmapCopy = {
     {
       num: '02',
       status: 'En vivo ahora',
-      title: 'Lotería Demostrablemente Justa',
-      body: [
-        {
-          pre: 'Una lotería que nadie puede amañar: rondas de 30 minutos, sorteos con Chainlink VRF, cada ronda cerrada por Chainlink CRE, premios cobrados directamente del contrato.',
-        },
-      ],
-      verify: 'Verifícalo tú mismo',
-    },
-    {
-      num: '03',
-      status: 'En vivo ahora',
       title: 'Giveaways y Event Center',
       body: [
         {
@@ -424,7 +373,7 @@ const es: RoadmapCopy = {
       verify: 'Verifícalo tú mismo',
     },
     {
-      num: '04',
+      num: '03',
       status: 'Siguiente',
       title: 'Empresa regulada',
       body: [
@@ -434,7 +383,7 @@ const es: RoadmapCopy = {
       ],
     },
     {
-      num: '05',
+      num: '04',
       status: 'Adopción masiva',
       title: 'Pago con tarjeta',
       body: [
@@ -444,7 +393,7 @@ const es: RoadmapCopy = {
       ],
     },
     {
-      num: '06',
+      num: '05',
       status: 'El último módulo',
       title: 'Keptra Token',
       body: [
@@ -464,19 +413,10 @@ const es: RoadmapCopy = {
         bars: [
           { share: '0,1%', value: '103 M$/año' },
           { share: '0,5%', value: '516 M$/año' },
-          // Em milhões, como a nota da lotaria: em espanhol "billón" é 10^12.
+          // Em milhões: em espanhol "billón" é 10^12.
           { share: '2%', value: '2.060 M$/año' },
         ],
         note: 'E-commerce minorista mundial: 6,88 billones $ en 2026 (EMARKETER vía Shopify). Comisión Keptra: 1,5% por venta, leída del contrato.',
-      },
-      {
-        title: 'Instant Win — ingresos por cuota del mercado de lotería online',
-        bars: [
-          { share: '1%', value: '24,3 M$/año' },
-          { share: '5%', value: '121 M$/año' },
-          { share: '10%', value: '243 M$/año' },
-        ],
-        note: 'Lotería online: 19.430 millones $ en 2029 (The Business Research Company). Parte de la plataforma: 12,5% de cada ronda, leída del contrato.',
       },
     ],
     ticks: ['10 M$', '100 M$', '1.000 M$', '10.000 M$'],

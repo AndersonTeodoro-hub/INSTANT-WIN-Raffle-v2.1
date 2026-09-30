@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-// i18n da landing. As strings do jogo (/play/*) vivem em ./app.i18n.ts e
+// i18n da landing. Os outros dicionários (./app.i18n.ts, ./events.i18n.ts, …)
 // partilham o `Lang`, o `useLang` e o localStorage daqui — mudar o idioma num
 // lado muda no outro. No i18n library: um objecto de lookup por idioma mais um
 // hook minúsculo chegam para três idiomas.
@@ -111,7 +111,7 @@ export interface LandingCopy {
   };
   /**
    * 05 — a grelha de cartões: a entrega verificada à frente (decisão do owner de
-   * 27/09/2026, commit B) e os três módulos da Keptra. A ordem dos `items` casa com
+   * 27/09/2026, commit B) e os módulos de sorteios da Keptra. A ordem dos `items` casa com
    * `MODULES` em Landing.tsx, que é onde vivem o nome do módulo, a rota e o estado.
    * Aqui fica só o que se traduz — e o nome, quando se traduz (a entrega
    * verificada). `obligation` é a frase do owner.
@@ -136,8 +136,7 @@ export interface LandingCopy {
     /** Botão que pára o movimento contínuo da cena e dos diagramas (WCAG 2.2.2). */
     pause: string;
     play: string;
-    /** Legenda da forma: "<markOfRound> 42" / "<markOfCampaign> 2" (a /giveaways e a /roadmap). */
-    markOfRound: string;
+    /** Legenda da forma: "<markOfCampaign> 2" (a /giveaways e a /roadmap). */
     markOfCampaign: string;
     markPending: string;
     /**
@@ -149,9 +148,6 @@ export interface LandingCopy {
   };
   footer: {
     contractsLabel: string;
-    responsible: string;
-    /** Versão curta para o rodapé das páginas do jogo (/play/*). */
-    responsibleShort: string;
     disclaimer: string;
   };
 }
@@ -237,11 +233,6 @@ const en: LandingCopy = {
       },
       {
         badge: 'LIVE',
-        body: '3 winners every 30-minute round, tickets from 1 USDC. Immutable verified contract, Chainlink VRF, prizes claimed on-chain.',
-        cta: 'Open the lottery',
-      },
-      {
-        badge: 'LIVE',
         body: 'Free entry for participants, any ERC-20 as the prize, winners drawn by Chainlink VRF. For brands, communities and creators.',
         cta: 'See the giveaway flow',
       },
@@ -262,13 +253,12 @@ const en: LandingCopy = {
   film: {
     pause: 'Pause motion',
     play: 'Play motion',
-    markOfRound: 'Drawn from the VRF transaction of round',
     markOfCampaign: 'Drawn from the VRF seed of campaign',
     markPending: 'Waiting for the first settled draw.',
     captions: {
       mark: 'This shape is drawn from the proof of the latest draw. Every draw has its own, and no one can fake it.',
       payout: 'The prize, in amber, goes from the contract to the winner\'s wallet.',
-      modules: 'The three modules, each drawn from its latest draw. Giveaways and the Event Center run on one contract, so they share a shape. Green is live.',
+      modules: 'The two modules, each drawn from its latest draw. Giveaways and the Event Center run on one contract, so they share a shape. Green is live.',
       again: 'The shape of the latest draw, once more: the proof, drawn.',
       entry: 'An entry. The participant pays nothing for it.',
       prize: 'A coin: the prize, in any token, held by the contract until the draw.',
@@ -277,8 +267,6 @@ const en: LandingCopy = {
   },
   footer: {
     contractsLabel: 'Verified Contracts · Arbitrum One',
-    responsible: "18+. Play responsibly. This is a game of chance — never play with funds you can't afford to lose.",
-    responsibleShort: 'Play responsibly. 18+',
     disclaimer: 'Nothing on this page is financial advice. This site is an open-source interface to on-chain smart contracts.',
   },
 };
@@ -364,11 +352,6 @@ const pt: LandingCopy = {
       },
       {
         badge: 'AO VIVO',
-        body: '3 vencedores em cada ronda de 30 minutos, bilhetes a partir de 1 USDC. Contrato imutável e verificado, Chainlink VRF, prémios levantados on-chain.',
-        cta: 'Abrir a lotaria',
-      },
-      {
-        badge: 'AO VIVO',
         body: 'Entrada gratuita para os participantes, qualquer ERC-20 como prémio, vencedores sorteados pelo Chainlink VRF. Para marcas, comunidades e criadores.',
         cta: 'Ver o fluxo de criação',
       },
@@ -389,13 +372,12 @@ const pt: LandingCopy = {
   film: {
     pause: 'Pausar movimento',
     play: 'Retomar movimento',
-    markOfRound: 'Desenhada a partir da transacção do VRF da ronda',
     markOfCampaign: 'Desenhada a partir da semente do VRF da campanha',
     markPending: 'À espera do primeiro sorteio liquidado.',
     captions: {
       mark: 'Esta forma é desenhada a partir da prova do último sorteio. Cada sorteio tem a sua, e ninguém consegue falsificá-la.',
       payout: 'O prémio, em âmbar, sai do contrato para a wallet de quem ganhou.',
-      modules: 'Os três módulos, cada um desenhado a partir do seu último sorteio. Os Giveaways e o Event Center funcionam no mesmo contrato, por isso têm a mesma forma. Verde é o que está no ar.',
+      modules: 'Os dois módulos, cada um desenhado a partir do seu último sorteio. Os Giveaways e o Event Center funcionam no mesmo contrato, por isso têm a mesma forma. Verde é o que está no ar.',
       again: 'A forma do último sorteio, outra vez: a prova, desenhada.',
       entry: 'Uma inscrição. Quem participa não paga nada por ela.',
       prize: 'Uma moeda: o prémio, em qualquer token, guardado pelo contrato até ao sorteio.',
@@ -404,8 +386,6 @@ const pt: LandingCopy = {
   },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
-    responsible: '18+. Jogue com responsabilidade. Este é um jogo de azar — nunca jogue com dinheiro que não pode perder.',
-    responsibleShort: 'Jogue com responsabilidade. 18+',
     disclaimer: 'Nada nesta página constitui aconselhamento financeiro. Este site é uma interface open-source para smart contracts on-chain.',
   },
 };
@@ -491,11 +471,6 @@ const es: LandingCopy = {
       },
       {
         badge: 'EN VIVO',
-        body: '3 ganadores por ronda de 30 minutos, boletos desde 1 USDC. Contrato inmutable y verificado, Chainlink VRF, premios reclamados on-chain.',
-        cta: 'Abrir la lotería',
-      },
-      {
-        badge: 'EN VIVO',
         body: 'Entrada gratuita para los participantes, cualquier ERC-20 como premio, ganadores sorteados con Chainlink VRF. Para marcas, comunidades y creadores.',
         cta: 'Ver el flujo de creación',
       },
@@ -516,13 +491,12 @@ const es: LandingCopy = {
   film: {
     pause: 'Pausar movimiento',
     play: 'Reanudar movimiento',
-    markOfRound: 'Dibujada a partir de la transacción del VRF de la ronda',
     markOfCampaign: 'Dibujada a partir de la semilla del VRF de la campaña',
     markPending: 'Esperando el primer sorteo liquidado.',
     captions: {
       mark: 'Esta forma se dibuja a partir de la prueba del último sorteo. Cada sorteo tiene la suya, y nadie puede falsificarla.',
       payout: 'El premio, en ámbar, sale del contrato hacia la wallet de quien ganó.',
-      modules: 'Los tres módulos, cada uno dibujado a partir de su último sorteo. Los Giveaways y el Event Center funcionan en el mismo contrato, por eso comparten la forma. El verde es lo que está en marcha.',
+      modules: 'Los dos módulos, cada uno dibujado a partir de su último sorteo. Los Giveaways y el Event Center funcionan en el mismo contrato, por eso comparten la forma. El verde es lo que está en marcha.',
       again: 'La forma del último sorteo, otra vez: la prueba, dibujada.',
       entry: 'Una participación. Quien participa no paga nada por ella.',
       prize: 'Una moneda: el premio, en cualquier token, guardado por el contrato hasta el sorteo.',
@@ -531,8 +505,6 @@ const es: LandingCopy = {
   },
   footer: {
     contractsLabel: 'Contratos verificados · Arbitrum One',
-    responsible: 'Solo 18+. Juega con responsabilidad. Este es un juego de azar — nunca juegues con dinero que no puedas permitirte perder.',
-    responsibleShort: 'Juega con responsabilidad. 18+',
     disclaimer: 'Nada en esta página constituye asesoramiento financiero. Este sitio es una interfaz open-source hacia smart contracts on-chain.',
   },
 };

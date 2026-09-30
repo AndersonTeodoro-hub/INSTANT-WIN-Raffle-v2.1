@@ -1,7 +1,5 @@
 {
   "redirects": [
-    { "source": "/:path((?!api/).*)", "has": [{ "type": "host", "value": "instntwin.com" }], "destination": "https://keptra.io/:path", "permanent": true },
-    { "source": "/:path((?!api/).*)", "has": [{ "type": "host", "value": "www.instntwin.com" }], "destination": "https://keptra.io/:path", "permanent": true },
     { "source": "/:path(.*)", "has": [{ "type": "host", "value": "www.keptra.io" }], "destination": "https://keptra.io/:path", "permanent": true }
   ],
   "rewrites": [

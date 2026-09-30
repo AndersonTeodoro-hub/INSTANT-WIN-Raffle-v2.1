@@ -944,15 +944,9 @@ const CLIENT_FILES = () => {
   return out;
 };
 
-await test(['U2', 'AT9', 'AU4'], 'T9 and U4: the app is Keptra at keptra.io — the pages of instntwin.com redirect there and its /api stays; no client file and no notice names the old domain; the title, the manifest and the previews say Keptra', () => {
+await test(['U2', 'AT9', 'AU4'], 'T9 and U4: the app is Keptra at keptra.io — nothing in vercel.json sends instntwin.com there any more (the lottery moves to its own domain, the owner’s decision of 30/09/2026); no client file and no notice names the old domain; the title, the manifest and the previews say Keptra', () => {
   const vercel = JSON.parse(read('vercel.json'));
-  for (const host of ['instntwin.com', 'www.instntwin.com']) {
-    const rule = vercel.redirects.find((r) => r.has?.[0]?.value === host);
-    assert.ok(rule, `${host} does not redirect`);
-    assert.equal(rule.destination, 'https://keptra.io/:path');
-    assert.equal(rule.permanent, true);
-    assert.match(rule.source, /\(\?!api\/\)/, `${host} redirects /api too`);
-  }
+  assert.ok(!JSON.stringify(vercel).includes('instntwin'), 'vercel.json still handles instntwin.com');
   for (const path of CLIENT_FILES()) assert.ok(!read(path).includes('instntwin.com'), `${path} still names instntwin.com`);
   assert.ok(!codeOf('lib/bridge-v2/mail.ts').includes('instntwin'), 'a notice still links to the old domain');
   assert.match(read('index.html'), /<title>Keptra — /);
@@ -1000,7 +994,7 @@ await test(['AT17', 'AU3'], 'T17 as the owner revised it on 27/09/2026, and U3: 
   }
   // Every page and component reads the dictionary, and writes none of its sentences itself.
   const sentences = en.filter(([path, word]) => !path.startsWith('.errors.') && /\s/.test(word) && word.length > 16 && !word.includes('{')).map(([, word]) => word);
-  const NAMES = /^(?:Keptra|USDC|Event Center|Instant Win)$/;
+  const NAMES = /^(?:Keptra|USDC|Event Center)$/;
   for (const path of [...KEPTRA_PAGES, ...KEPTRA_PARTS]) {
     const code = codeOf(path);
     assert.match(code, /useKeptraCopy\(\)/, `${path} does not read the dictionary`);
@@ -1957,7 +1951,7 @@ const OWNER_TEXTS = {
   },
 };
 
-await test(['LK1'], 'Keptra first (27/09): the home page tells 01 Keptra, 02 for brands, 03 for customers, 04 the guarantee pool, 05 the modules, 06 the invitation to providers, with no lottery chapter left; the first screen calls brands to /business and customers to chapter 03; every route of the app is the one of 1acef6c (checked in the source)', () => {
+await test(['LK1'], 'Keptra first (27/09): the home page tells 01 Keptra, 02 for brands, 03 for customers, 04 the guarantee pool, 05 the modules, 06 the invitation to providers, with no lottery chapter left; the first screen calls brands to /business and customers to chapter 03; every route of the app is the one of 1acef6c but the lottery’s, which left keptra.io on 30/09/2026 (checked in the source)', () => {
   const page = codeOf('pages/Landing.tsx');
   const ids = [...page.matchAll(/<(?:FilmSection|Chapter) id="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(ids, ['film-hero', 'for-brands', 'for-customers', 'film-pool', 'film-modules', 'film-close']);
@@ -1968,8 +1962,9 @@ await test(['LK1'], 'Keptra first (27/09): the home page tells 01 Keptra, 02 for
   assert.match(page, /<EscrowFlow copy=\{t\.flow\}/);
   const routes = (text) => [...text.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]);
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
-  assert.deepEqual(routes(read('App.tsx')), routes(git('show', '1acef6c:App.tsx')));
-  assert.ok(routes(read('App.tsx')).includes('/play'), '/play is gone');
+  const LOTTERY = ['/play', 'raffle', 'identity', '/raffle', '/username'];
+  assert.deepEqual(routes(read('App.tsx')), routes(git('show', '1acef6c:App.tsx')).filter((route) => !LOTTERY.includes(route)));
+  assert.ok(!/GameLayout|\/play/.test(read('App.tsx')), '/play is still routed');
 });
 
 await test(['LK2'], 'the owner’s texts of 27/09 are on the home page word for word, in English, Portuguese and Spanish — title, subtitle, the two calls, the band, the sentence under the first screen’s diagram, chapters 02, 03 and 05 (chapter 05’s title too), and chapter 06’s title, text and call', async () => {
@@ -2056,13 +2051,13 @@ await test(['LK6'], 'becoming a provider is a request, never a deposit: the call
 // after approving commit A.
 // ---------------------------------------------------------------------------
 
-await test(['LK7'], 'the main module leads the public header and footer in the three languages — "Verified delivery", "Entrega verificada", "Entrega verificada" — with its link to "/", then Instant Win, Giveaways, Event Center and Roadmap; header and footer read the one list (checked in the source)', async () => {
+await test(['LK7'], 'the main module leads the public header and footer in the three languages — "Verified delivery", "Entrega verificada", "Entrega verificada" — with its link to "/", then Giveaways, Event Center and Roadmap; header and footer read the one list (checked in the source)', async () => {
   const { translations } = await import('../../../pages/landing.i18n.ts');
   assert.deepEqual(['en', 'pt', 'es'].map((lang) => translations[lang].header.mainModule), ['Verified delivery', 'Entrega verificada', 'Entrega verificada']);
   const nav = codeOf('components/PublicNav.tsx');
   assert.match(nav, /return \[\{ to: '\/', label: translations\[lang\]\.header\.mainModule \}, \.\.\.PUBLIC_NAV\];/);
-  assert.match(nav, /export const PUBLIC_NAV = \[MODULES\.instantWin, MODULES\.giveaways, MODULES\.eventCenter, \{ to: '\/roadmap', label: 'Roadmap' \}\] as const;/);
-  assert.match(nav, /instantWin: \{ to: '\/play', label: 'Instant Win' \},\s*giveaways: \{ to: '\/giveaways', label: 'Giveaways' \},\s*eventCenter: \{ to: '\/events', label: 'Event Center' \},/);
+  assert.match(nav, /export const PUBLIC_NAV = \[MODULES\.giveaways, MODULES\.eventCenter, \{ to: '\/roadmap', label: 'Roadmap' \}\] as const;/);
+  assert.match(nav, /export const MODULES = \{\s*giveaways: \{ to: '\/giveaways', label: 'Giveaways' \},\s*eventCenter: \{ to: '\/events', label: 'Event Center' \},\s*\} as const;/);
   // Both the header's links and the footer's are built from usePublicNav, never from a list of their own.
   assert.equal((nav.match(/const items = usePublicNav\(\);/g) ?? []).length, 2);
   assert.equal((nav.match(/\{items\.map\(/g) ?? []).length, 2);
@@ -2096,70 +2091,7 @@ await test(['LK9'], 'the contact address is written next to both mailto buttons 
 // Commit A3 — the owner's decisions of 27/09/2026 after the audit of A and A2.
 // ---------------------------------------------------------------------------
 
-/** What the home page said at 1acef6c (pages/landing.i18n.ts :150, :164, :168, :170): the "to players" row and three answers. */
-/** The Portuguese of /play's block that was already Portugal's: still word for word as at 1acef6c. */
-const PLAY_RULES_KEPT_PT = [
-  'Para os jogadores',
-  '85,7% do dinheiro dos bilhetes ao longo do tempo',
-  'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.',
-  'Quanto do dinheiro vai para os jogadores?',
-  'Está disponível no meu país?',
-];
-const PLAY_RULES = {
-  en: [
-    'To players',
-    '85.7% of ticket money over time',
-    'What do I need to play?',
-    'An Arbitrum One wallet (such as MetaMask) with some USDC for tickets and a little ETH for gas.',
-    'How much of the money goes to players?',
-    'About 85.7% over time. Each round pays 75% of its pool to the three winners and 12.5% to development; the other 12.5% rolls into the next round, so it comes back to players — minus the same development share each time it recycles.',
-    'Is this available in my country?',
-    'Access depends on the rules of your own jurisdiction. It is your responsibility to check whether you are allowed to participate where you live.',
-  ],
-  // Portugal's Portuguese since commit B (the owner's decision of 27/09/2026): same meaning, "ronda", "vencedores", no "você".
-  pt: [
-    'Para os jogadores',
-    '85,7% do dinheiro dos bilhetes ao longo do tempo',
-    'De que preciso para jogar?',
-    'Uma wallet na Arbitrum One (como a MetaMask) com um pouco de USDC para os bilhetes e um pouco de ETH para o gas.',
-    'Quanto do dinheiro vai para os jogadores?',
-    'Cerca de 85,7% ao longo do tempo. Cada ronda paga 75% do seu pool aos três vencedores e 12,5% ao desenvolvimento; os outros 12,5% entram na ronda seguinte, ou seja, voltam para os jogadores — menos a mesma fatia de desenvolvimento a cada reciclagem.',
-    'Está disponível no meu país?',
-    'O acesso depende das regras da sua própria jurisdição. É da sua responsabilidade verificar se tem permissão para participar no lugar onde vive.',
-  ],
-  es: [
-    'Para los jugadores',
-    '85,7% del dinero de los boletos con el tiempo',
-    '¿Qué necesito para jugar?',
-    'Una wallet en Arbitrum One (como MetaMask) con algo de USDC para los boletos y un poco de ETH para el gas.',
-    '¿Cuánto dinero va a los jugadores?',
-    'Alrededor del 85,7% con el tiempo. Cada ronda paga el 75% de su pool a los tres ganadores y el 12,5% al desarrollo; el otro 12,5% pasa a la ronda siguiente, o sea vuelve a los jugadores — menos la misma parte de desarrollo cada vez que se recicla.',
-    '¿Está disponible en mi país?',
-    'El acceso depende de las normas de tu propia jurisdicción. Es tu responsabilidad verificar si tienes permiso para participar en el lugar donde vives.',
-  ],
-};
-
-await test(['LK10'], 'what is needed to play, where the ticket money goes and the jurisdiction notice are on /play’s Overview in English, Portuguese and Spanish, word for word as the home page had them at 1acef6c (the Portuguese in Portugal’s Portuguese since commit B), shown, not folded — and the home page does not get them back (checked in the source)', () => {
-  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
-  const before = git('show', '1acef6c:pages/landing.i18n.ts');
-  const source = read('pages/app.i18n.ts');
-  const starts = ['en', 'pt', 'es'].map((lang) => source.indexOf(`const ${lang}: AppCopy = {`));
-  const block = (index) => source.slice(starts[index], starts[index + 1] ?? undefined);
-  ['en', 'pt', 'es'].forEach((lang, index) => {
-    for (const text of PLAY_RULES[lang]) {
-      if (lang !== 'pt' || PLAY_RULES_KEPT_PT.includes(text)) assert.ok(before.includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not the text of 1acef6c`);
-      assert.ok(block(index).includes(`'${text}'`), `${lang}: "${text.slice(0, 40)}…" is not on /play`);
-      assert.ok(!read('pages/landing.i18n.ts').includes(text) && !read('pages/Landing.tsx').includes(text), `the home page has "${text.slice(0, 40)}…"`);
-    }
-  });
-  const dashboard = codeOf('pages/Dashboard.tsx');
-  assert.match(read('App.tsx'), /<Route path="\/play" element=\{<GameLayout \/>\}>\s*<Route index element=\{<Dashboard \/>\} \/>/);
-  for (const key of ['title', 'toPlayersLabel', 'toPlayers']) assert.match(dashboard, new RegExp(`\\{c\\.rules\\.${key}\\}`), key);
-  assert.match(dashboard, /\{c\.rules\.items\.map\(\(item\) => \(/);
-  assert.ok(!/<details/.test(dashboard), 'the Overview folds them away');
-});
-
-await test(['LK11'], 'no translation key is left unused: every word of the Keptra dictionary is read by a Keptra page or component, and its `errors` are sentences this app writes, word for word; every order state and summary word by its module; every word of /play’s new block by the Overview (checked in the source)', async () => {
+await test(['LK11'], 'no translation key is left unused: every word of the Keptra dictionary is read by a Keptra page or component, and its `errors` are sentences this app writes, word for word; every order state and summary word by its module (checked in the source)', async () => {
   const { keptraTranslations: k } = await import('../../../pages/keptra.i18n.ts');
   const sources = [...KEPTRA_PAGES, ...KEPTRA_PARTS].map(codeOf).join('\n');
   for (const [section, value] of Object.entries(k.en)) {
@@ -2176,10 +2108,6 @@ await test(['LK11'], 'no translation key is left unused: every word of the Keptr
   for (const key of Object.keys(clientOrders.STATUS_WORDS.en)) assert.match(orders, new RegExp(`words\\.${key}\\b|\\.${key}\\.replace\\(`), `STATUS_WORDS.${key} is not used`);
   const formatCode = codeOf('lib/keptra/format.ts');
   for (const key of Object.keys(format.SUMMARY_WORDS.en)) assert.match(formatCode, new RegExp(`(?:words|SUMMARY_WORDS\\[lang\\])\\.${key}\\b`), `SUMMARY_WORDS.${key} is not used`);
-  const dashboard = codeOf('pages/Dashboard.tsx');
-  const rulesKeys = [...read('pages/app.i18n.ts').match(/ {2}rules: \{\n([\s\S]*?)\n {2}\};/)[1].matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]);
-  assert.deepEqual(rulesKeys, ['title', 'toPlayersLabel', 'toPlayers', 'items']);
-  for (const key of rulesKeys) assert.match(dashboard, new RegExp(`c\\.rules\\.${key}\\b`), `rules.${key} is not used`);
 });
 
 // ---------------------------------------------------------------------------
@@ -2220,7 +2148,7 @@ await test(['LK12'], 'an amount a person types is read in the form of the page�
   }
 });
 
-await test(['LK13'], 'the words the audit of A3 named: the countries in Portugal’s Portuguese, one minute and one day in the singular, “Verifique”, “Encomendas por cumprir”, “das participações”, and /play’s section titled “Before you play” in the three languages (the voucher page and /play’s copy checked in the source)', async () => {
+await test(['LK13'], 'the words the audit of A3 named: the countries in Portugal’s Portuguese, one minute and one day in the singular, “Verifique”, “Encomendas por cumprir”, “das participações” (the voucher page checked in the source)', async () => {
   assert.deepEqual(['IR', 'VN', 'PL', 'KE'].map((c) => format.countryName(c, 'pt')), ['Irão', 'Vietname', 'Polónia', 'Quénia']);
   assert.deepEqual(['IR', 'PL'].map((c) => format.countryName(c, 'en')), ['Iran', 'Poland']);
   assert.deepEqual(['IR', 'PL'].map((c) => format.countryName(c, 'es')), ['Irán', 'Polonia']);
@@ -2235,11 +2163,6 @@ await test(['LK13'], 'the words the audit of A3 named: the countries in Portugal
   assert.match(k.pt.sheet.intro, /^Verifique o que esta transacção faz\./);
   assert.equal(k.pt.business.ordersTitle, 'Encomendas por cumprir');
   assert.equal(k.pt.pool.providerShare, '{pct} das participações');
-  // /play's copy, one block per language (as LK10 reads it).
-  const source = read('pages/app.i18n.ts');
-  const starts = ['en', 'pt', 'es'].map((lang) => source.indexOf(`const ${lang}: AppCopy = {`));
-  const titles = starts.map((start, index) => source.slice(start, starts[index + 1] ?? undefined).match(/ {2}rules: \{\n {4}title: '([^']*)',/)?.[1]);
-  assert.deepEqual(titles, ['Before you play', 'Antes de jogar', 'Antes de jugar']);
 });
 
 // ---------------------------------------------------------------------------
@@ -2336,7 +2259,7 @@ await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its t
     assert.equal(t.brands.proof, o.proof, `${lang} chapter 02, the proof`);
     assert.equal(t.brands.next, o.next, `${lang} chapter 02, card payments`);
     assert.deepEqual(t.modules.items[0], o.card, `${lang} the first card`);
-    assert.equal(t.modules.items.length, 4, `${lang}: four cards`);
+    assert.equal(t.modules.items.length, 3, `${lang}: three cards`);
     // The modules keep their product names, which are not translated.
     assert.ok(t.modules.items.slice(1).every((item) => item.name === undefined), `${lang}: a module's name translated`);
   }
@@ -2344,7 +2267,7 @@ await test(['LK15'], 'chapter 02 carries the owner’s two sentences under its t
   // Under chapter 02's text, before its link.
   assert.match(page, /\{t\.brands\.body\}<\/p>\s*<p [^>]*>\{t\.brands\.proof\}<\/p>\s*<p [^>]*>\{t\.brands\.next\}<\/p>\s*<Link to="\/business"/);
   // First, live, to /business; the others after it; the number follows the order.
-  assert.match(page, /const MODULES: [^=]+= \[\s*\{ to: '\/business', icon: PackageCheck, live: true \},\s*\{ name: 'INSTANT WIN', to: '\/play'/);
+  assert.match(page, /const MODULES: [^=]+= \[\s*\{ to: '\/business', icon: PackageCheck, live: true \},\s*\{ name: 'GIVEAWAYS', to: '\/giveaways'/);
   assert.match(page, /\{`0\$\{i \+ 1\}`\}/);
   assert.match(page, /\{copy\.name \?\? m\.name\}<\/h3>/);
 });
@@ -2390,15 +2313,14 @@ await test(['LK16'], '/business without a session explains Keptra to a brand abo
   assert.ok(!contracts.ESCROW_READ_ABI.some((item) => item.name === 'feeBps'));
 });
 
-await test(['LK17'], '/roadmap keeps its six steps, numbered 01 to 06 — “Verified delivery”, live now, with the escrow, guarantee and pool to verify on Arbiscan; the lottery; “Giveaways & Event Center”; the regulated company; “Card payments”, labelled “Mass adoption”; “Keptra Token”, labelled “The last module” — each with the owner’s text of 29/09/2026, word for word, in the three languages; only the first three are on-chain; Enter App leads to /orders (checked in the source)', async () => {
+await test(['LK17'], '/roadmap keeps five steps, numbered 01 to 05 — “Verified delivery”, live now, with the escrow, guarantee and pool to verify on Arbiscan; “Giveaways & Event Center”; the regulated company; “Card payments”, labelled “Mass adoption”; “Keptra Token”, labelled “The last module” — each with the owner’s text of 29/09/2026, word for word, in the three languages; the lottery’s step left with it (30/09/2026); only the first two are on-chain; Enter App leads to /orders (checked in the source)', async () => {
   const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
   const owner = {
     en: {
-      titles: ['Verified delivery', 'Provably Fair Lottery', 'Giveaways & Event Center', 'Regulated company', 'Card payments', 'Keptra Token'],
-      statuses: ['Live now', 'Live now', 'Live now', 'Next', 'Mass adoption', 'The last module'],
+      titles: ['Verified delivery', 'Giveaways & Event Center', 'Regulated company', 'Card payments', 'Keptra Token'],
+      statuses: ['Live now', 'Live now', 'Next', 'Mass adoption', 'The last module'],
       bodies: [
         "Free shipping made customers smile, easy returns made them loyal. Verified delivery is the next benefit every brand will offer. The customer's payment is held in escrow, a Chainlink oracle proves the delivery from the carrier's tracking, and every proven delivery leaves an on-chain record — evidence against a chargeback.",
-        'A lottery nobody can rig: 30-minute rounds, Chainlink VRF draws, every round closed by Chainlink CRE, prizes claimed straight from the contract.',
         'Any brand, creator or community runs a prize campaign. Prize modules for ERC-20, ERC-721 and ERC-1155, so a campaign can distribute any tokenized asset. One verified person, one entry — no bot farms taking the prize.',
         'To operate this at scale we intend to become a regulated company. The order is fixed and will not be skipped: a legal entity first, then licensing.',
         "Next, customers pay by card, exactly as they do today, with the same guarantee. They never touch crypto — they just buy from a brand that offers Keptra. That's how Keptra reaches everyone: not by teaching the world crypto, but by making its guarantees invisible inside every checkout.",
@@ -2406,11 +2328,10 @@ await test(['LK17'], '/roadmap keeps its six steps, numbered 01 to 06 — “Ver
       ],
     },
     pt: {
-      titles: ['Entrega verificada', 'Lotaria Comprovadamente Justa', 'Giveaways e Event Center', 'Empresa regulada', 'Pagamento com cartão', 'Keptra Token'],
-      statuses: ['Ao vivo agora', 'Ao vivo agora', 'Ao vivo agora', 'A seguir', 'Adopção em massa', 'O último módulo'],
+      titles: ['Entrega verificada', 'Giveaways e Event Center', 'Empresa regulada', 'Pagamento com cartão', 'Keptra Token'],
+      statuses: ['Ao vivo agora', 'Ao vivo agora', 'A seguir', 'Adopção em massa', 'O último módulo'],
       bodies: [
         'Os portes grátis fizeram os clientes sorrir, as devoluções fáceis tornaram-nos fiéis. A entrega verificada é o próximo benefício que todas as marcas vão oferecer. O pagamento do cliente fica retido em escrow, um oráculo Chainlink prova a entrega a partir do tracking da transportadora, e cada entrega provada deixa um registo on-chain — evidência contra um chargeback.',
-        'Uma lotaria que ninguém consegue viciar: rondas de 30 minutos, sorteios pela Chainlink VRF, cada ronda fechada pela Chainlink CRE, prémios levantados directamente do contrato.',
         'Qualquer marca, criador ou comunidade faz uma campanha de prémios. Módulos de prémio para ERC-20, ERC-721 e ERC-1155, para que uma campanha possa distribuir qualquer activo tokenizado. Uma pessoa verificada, uma participação — sem fazendas de bots a levar o prémio.',
         'Para operar isto à escala, pretendemos tornar-nos uma empresa regulada. A ordem é fixa e não será saltada: primeiro uma entidade legal, depois o licenciamento.',
         'A seguir, os clientes pagam com cartão, exactamente como fazem hoje, com a mesma garantia. Nunca tocam em cripto — simplesmente compram a uma marca que oferece a Keptra. É assim que a Keptra chega a toda a gente: não a ensinar cripto ao mundo, mas a tornar as suas garantias invisíveis dentro de cada checkout.',
@@ -2418,11 +2339,10 @@ await test(['LK17'], '/roadmap keeps its six steps, numbered 01 to 06 — “Ver
       ],
     },
     es: {
-      titles: ['Entrega verificada', 'Lotería Demostrablemente Justa', 'Giveaways y Event Center', 'Empresa regulada', 'Pago con tarjeta', 'Keptra Token'],
-      statuses: ['En vivo ahora', 'En vivo ahora', 'En vivo ahora', 'Siguiente', 'Adopción masiva', 'El último módulo'],
+      titles: ['Entrega verificada', 'Giveaways y Event Center', 'Empresa regulada', 'Pago con tarjeta', 'Keptra Token'],
+      statuses: ['En vivo ahora', 'En vivo ahora', 'Siguiente', 'Adopción masiva', 'El último módulo'],
       bodies: [
         'El envío gratis hizo sonreír a los clientes, las devoluciones fáciles los fidelizaron. La entrega verificada es el próximo beneficio que todas las marcas ofrecerán. El pago del cliente queda retenido en escrow, un oráculo de Chainlink prueba la entrega a partir del seguimiento del transportista, y cada entrega probada deja un registro on-chain — evidencia contra un contracargo.',
-        'Una lotería que nadie puede amañar: rondas de 30 minutos, sorteos con Chainlink VRF, cada ronda cerrada por Chainlink CRE, premios cobrados directamente del contrato.',
         'Cualquier marca, creador o comunidad organiza una campaña de premios. Módulos de premio para ERC-20, ERC-721 y ERC-1155, para que una campaña pueda distribuir cualquier activo tokenizado. Una persona verificada, una participación — sin granjas de bots llevándose el premio.',
         'Para operar esto a escala, tenemos la intención de convertirnos en una empresa regulada. El orden es fijo y no se saltará: primero una entidad legal, después la licencia.',
         'Después, los clientes pagan con tarjeta, exactamente como hoy, con la misma garantía. Nunca tocan cripto — simplemente compran a una marca que ofrece Keptra. Así llega Keptra a todos: no enseñando cripto al mundo, sino haciendo invisibles sus garantías dentro de cada checkout.',
@@ -2433,27 +2353,27 @@ await test(['LK17'], '/roadmap keeps its six steps, numbered 01 to 06 — “Ver
   for (const [lang, o] of Object.entries(owner)) {
     const steps = r[lang].steps;
     assert.deepEqual(steps.map((step) => step.title), o.titles, `${lang} order`);
-    assert.deepEqual(steps.map((step) => step.num), ['01', '02', '03', '04', '05', '06'], `${lang} numbers`);
+    assert.deepEqual(steps.map((step) => step.num), ['01', '02', '03', '04', '05'], `${lang} numbers`);
     // The label is the same word in the step and in the synthesis above the steps (both read `status`).
     assert.deepEqual(steps.map((step) => step.status), o.statuses, `${lang} labels`);
     assert.deepEqual(steps.map((step) => step.body), o.bodies.map((pre) => [{ pre }]), `${lang} texts`);
     // Live now, with their proof to verify: the delivery's three contracts, named.
-    assert.ok(steps.slice(0, 3).every((step) => step.verify === steps[0].verify && step.verify), `${lang}: a live step without "verify it yourself"`);
+    assert.ok(steps.slice(0, 2).every((step) => step.verify === steps[0].verify && step.verify), `${lang}: a live step without "verify it yourself"`);
     assert.equal(steps[0].contracts.length, 3, `${lang}: escrow, guarantee, pool`);
     // Nothing on-chain yet from the regulated company on.
-    assert.ok(steps.slice(3).every((step) => step.verify === undefined), `${lang}: an intended step with an address`);
+    assert.ok(steps.slice(2).every((step) => step.verify === undefined), `${lang}: an intended step with an address`);
   }
   const page = codeOf('pages/Roadmap.tsx');
-  // The same visual state as the regulated company: only the first three are on-chain.
-  assert.match(page, /const ONCHAIN_STEPS = 3;/);
-  assert.match(page, /\[KEPTRA_ESCROW, KEPTRA_GUARANTEE, pool\],\s*\[CONTRACTS\.RAFFLE_MANAGER\],\s*\[CONTRACTS\.GIVEAWAY_MANAGER_V2\],/);
+  // Only the first two are on-chain.
+  assert.match(page, /const ONCHAIN_STEPS = 2;/);
+  assert.match(page, /\[KEPTRA_ESCROW, KEPTRA_GUARANTEE, pool\],\s*\[CONTRACTS\.GIVEAWAY_MANAGER_V2\],\s*\];/);
   // The pool is the one the guarantee names, read on-chain; never a literal.
   assert.match(page, /useReadContract\(\{ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource' \}\)/);
   assert.match(page, /href=\{`\$\{ARBISCAN\}\$\{address\}`\}/);
   assert.match(page, /<HeaderAction to="\/orders" icon=\{ArrowRight\} label=\{t\.header\.enterApp\} \/>/);
 });
 
-await test(['LK18'], 'the home page in Portuguese (the module cards, the captions, the footer) and /play in Portuguese, “Antes de jogar” included, are Portugal’s Portuguese — “prémio”, “ronda”, “lotaria”, “vencedores”, “utilizador”, no “você” — in the site’s spelling (“transacção”, “actual”)', async () => {
+await test(['LK18'], 'the home page in Portuguese (the module cards, the captions, the footer) and the app dictionary in Portuguese are Portugal’s Portuguese — “prémio”, “vencedores”, “utilizador”, no “você” — in the site’s spelling (“transacção”, “actual”)', async () => {
   const { translations } = await import('../../../pages/landing.i18n.ts');
   const { appTranslations } = await import('../../../pages/app.i18n.ts');
   // Whole words, accents included (\b alone ends a word at "ê").
@@ -2461,13 +2381,7 @@ await test(['LK18'], 'the home page in Portuguese (the module cards, the caption
   const home = translations.pt;
   const homeWords = [...wordsOf(home.modules.items), ...wordsOf(home.film), ...wordsOf(home.footer)];
   for (const [path, word] of homeWords) assert.ok(!BRAZIL.test(word), `home pt${path}: "${word}"`);
-  for (const [path, word] of wordsOf(appTranslations.pt)) assert.ok(!BRAZIL.test(word), `/play pt${path}: "${word}"`);
-  assert.match(home.modules.items[1].body, /prémios/);
-  assert.match(home.modules.items[1].body, /ronda/);
-  assert.equal(home.modules.items[1].cta, 'Abrir a lotaria');
-  assert.equal(appTranslations.pt.rules.title, 'Antes de jogar');
-  assert.equal(appTranslations.pt.proof.vrfTx, 'Transacção do VRF');
-  assert.equal(appTranslations.pt.raffle.currentPrizePool, 'Prémio actual');
+  for (const [path, word] of wordsOf(appTranslations.pt)) assert.ok(!BRAZIL.test(word), `app pt${path}: "${word}"`);
   // The owner's texts on the home page stay as the owner wrote them.
   assert.equal(home.hero.ctaCustomers, 'Para clientes — Compre com uma garantia que pode conferir');
 });
@@ -2505,7 +2419,7 @@ await test(['LK20'], 'a small phone (375×667) holds each pinned chapter of the 
   assert.match(page, /\{t\.customers\.body\}<\/p>\s*<Link to="\/pool" className=\{clsx\(QUIET_LINK, 'mt-4'\)\}>\s*\{t\.hero\.seePool\}/);
 });
 
-await test(['LK21'], '/roadmap tells the owner’s vision of 29/09/2026 in its order — the top (“The trust layer for every promise.”), the problem nobody solved and what we built, the synthesis of the phases, the three steps on-chain, the line under them (“Not a demo…”), the three intended, the size of the opportunity, where this goes and why now, then the final shape and its call — word for word in the three languages; the close keeps its note without dates; the page’s description is the top’s introduction (checked in the source)', async () => {
+await test(['LK21'], '/roadmap tells the owner’s vision of 29/09/2026 in its order — the top (“The trust layer for every promise.”), the problem nobody solved and what we built, the synthesis of the phases, the two steps on-chain, the line under them (“Not a demo…”), the three intended, the size of the opportunity, where this goes and why now, then the final shape and its call — word for word in the three languages; the close keeps its note without dates; the page’s description is the top’s introduction (checked in the source)', async () => {
   const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
   const owner = {
     en: {
@@ -2561,7 +2475,7 @@ await test(['LK21'], '/roadmap tells the owner’s vision of 29/09/2026 in its o
     assert.equal(c.hero.title, o.title, `${lang} title`);
     assert.equal(c.hero.intro, o.intro, `${lang} introduction`);
     assert.deepEqual(c.story, blocks(o.story), `${lang} the problem, what we built`);
-    assert.equal(c.proofLine, o.proofLine, `${lang} the line under 03`);
+    assert.equal(c.proofLine, o.proofLine, `${lang} the line under the steps on-chain`);
     assert.deepEqual(c.ahead, blocks(o.ahead), `${lang} where this goes, why now`);
     assert.deepEqual([c.outro.ctaLine1, c.outro.ctaLine2], o.close, `${lang} the close`);
     assert.equal(c.outro.note, o.note, `${lang} the note without dates stays`);
@@ -2582,7 +2496,7 @@ await test(['LK21'], '/roadmap tells the owner’s vision of 29/09/2026 in its o
   const at = order.map((mark) => page.indexOf(mark));
   assert.ok(at.every((index) => index >= 0), `missing: ${order.filter((_mark, k) => at[k] < 0)}`);
   assert.deepEqual([...at].sort((p, q) => p - q), at, 'out of order');
-  // Both lists of steps hang on the one rail; the intended ones go on counting from 04.
+  // Both lists of steps hang on the one rail; the intended ones go on counting from 03.
   assert.match(page, /<div ref=\{rail\.list\} className="relative pb-4 sm:pl-20">/);
   assert.match(page, /<ol start=\{ONCHAIN_STEPS \+ 1\} /);
   // The close: its title and subtitle, the note without dates before them.
@@ -2591,7 +2505,7 @@ await test(['LK21'], '/roadmap tells the owner’s vision of 29/09/2026 in its o
   assert.match(page, /tag\?\.setAttribute\('content', c\.hero\.intro\);/);
 });
 
-await test(['LK22'], '/roadmap’s size of the opportunity is two SVG bar charts and no more — verified delivery by share of global e-commerce, Instant Win by share of the online lottery market; nothing for the Keptra Token or the giveaways — each bar with its scenario, its share and its value in the owner’s figures, in the three languages, the sources and the fees read on-chain (escrow 1.5% per sale, lottery 12.5% of every round) in the notes, the line on card payments and the notice under them; the bars on one logarithmic scale, $10M to $10B, drawn to the owner’s revenue, and still in every mode (checked in the source)', async () => {
+await test(['LK22'], '/roadmap’s size of the opportunity is one SVG bar chart and no more — verified delivery by share of global e-commerce (the lottery’s chart left with it, 30/09/2026); nothing for the Keptra Token or the giveaways — each bar with its scenario, its share and its value in the owner’s figures, in the three languages, the source and the fee read on-chain (escrow 1.5% per sale) in the note, the line on card payments and the notice under it; the bars on a logarithmic scale, $10M to $10B, drawn to the owner’s revenue, and still in every mode (checked in the source)', async () => {
   const { roadmapTranslations: r } = await import('../../../pages/roadmap.i18n.ts');
   const owner = {
     en: {
@@ -2599,7 +2513,6 @@ await test(['LK22'], '/roadmap’s size of the opportunity is two SVG bar charts
       scenarios: ['Launch', 'Growth', 'Maturity'],
       charts: [
         ['Verified Delivery — revenue by share of global e-commerce', [['0.1%', '$103M/year'], ['0.5%', '$516M/year'], ['2%', '$2.06B/year']], 'Global retail e-commerce: $6.88T in 2026 (EMARKETER via Shopify). Keptra fee: 1.5% per sale, read from the contract.'],
-        ['Instant Win — revenue by share of the online lottery market', [['1%', '$24.3M/year'], ['5%', '$121M/year'], ['10%', '$243M/year']], 'Online lottery: $19.43B in 2029 (The Business Research Company). Platform share: 12.5% of every round, read from the contract.'],
       ],
       ticks: ['$10M', '$100M', '$1B', '$10B'],
       line: 'Card payments are what moves Keptra from launch to maturity.',
@@ -2610,7 +2523,6 @@ await test(['LK22'], '/roadmap’s size of the opportunity is two SVG bar charts
       scenarios: ['Arranque', 'Crescimento', 'Maturidade'],
       charts: [
         ['Entrega verificada — receita por quota do e-commerce mundial', [['0,1%', '103 M$/ano'], ['0,5%', '516 M$/ano'], ['2%', '2,06 B$/ano']], 'E-commerce mundial a retalho: 6,88 biliões $ em 2026 (EMARKETER via Shopify). Taxa Keptra: 1,5% por venda, lida do contrato.'],
-        ['Instant Win — receita por quota do mercado de lotaria online', [['1%', '24,3 M$/ano'], ['5%', '121 M$/ano'], ['10%', '243 M$/ano']], 'Lotaria online: 19,43 mil milhões $ em 2029 (The Business Research Company). Parte da plataforma: 12,5% de cada ronda, lida do contrato.'],
       ],
       ticks: ['10 M$', '100 M$', '1 B$', '10 B$'],
       line: 'Os pagamentos com cartão são o que leva a Keptra do arranque à maturidade.',
@@ -2621,7 +2533,6 @@ await test(['LK22'], '/roadmap’s size of the opportunity is two SVG bar charts
       scenarios: ['Arranque', 'Crecimiento', 'Madurez'],
       charts: [
         ['Entrega verificada — ingresos por cuota del e-commerce mundial', [['0,1%', '103 M$/año'], ['0,5%', '516 M$/año'], ['2%', '2.060 M$/año']], 'E-commerce minorista mundial: 6,88 billones $ en 2026 (EMARKETER vía Shopify). Comisión Keptra: 1,5% por venta, leída del contrato.'],
-        ['Instant Win — ingresos por cuota del mercado de lotería online', [['1%', '24,3 M$/año'], ['5%', '121 M$/año'], ['10%', '243 M$/año']], 'Lotería online: 19.430 millones $ en 2029 (The Business Research Company). Parte de la plataforma: 12,5% de cada ronda, leída del contrato.'],
       ],
       ticks: ['10 M$', '100 M$', '1.000 M$', '10.000 M$'],
       line: 'Los pagos con tarjeta son lo que lleva a Keptra del arranque a la madurez.',
@@ -2646,10 +2557,9 @@ await test(['LK22'], '/roadmap’s size of the opportunity is two SVG bar charts
   // The owner's figures are the share × the market × the fee read on-chain, to three significant digits.
   const three = (value) => Number(value.toPrecision(3));
   assert.deepEqual([0.001, 0.005, 0.02].map((share) => three(6.88e12 * share * 0.015)), [103e6, 516e6, 2.06e9]);
-  assert.deepEqual([0.01, 0.05, 0.1].map((share) => three(19.43e9 * share * 0.125)), [24.3e6, 121e6, 243e6]);
   const page = codeOf('pages/Roadmap.tsx');
-  // The bars are drawn to those figures, on one logarithmic scale for both charts: 10^7 to 10^10 dollars.
-  assert.match(page, /const REVENUE = \[\s*\[103e6, 516e6, 2\.06e9\],\s*\[24\.3e6, 121e6, 243e6\],\s*\] as const;/);
+  // The bars are drawn to those figures, on a logarithmic scale: 10^7 to 10^10 dollars.
+  assert.match(page, /const REVENUE = \[\s*\[103e6, 516e6, 2\.06e9\],\s*\] as const;/);
   assert.match(page, /const onScale = \(dollars: number\) => \(\(Math\.log10\(dollars\) - 7\) \/ 3\) \* 100;/);
   const chart = page.slice(page.indexOf('function OpportunityChart('), page.indexOf('export const Roadmap'));
   assert.match(chart, /<rect width=\{`\$\{onScale\(revenue\[k\]\)\}%`\} height="100%" rx=\{4\} \/>/);

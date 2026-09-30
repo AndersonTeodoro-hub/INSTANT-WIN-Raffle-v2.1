@@ -3,34 +3,28 @@ import { useReadContract, useReadContracts } from 'wagmi';
 import { CONTRACTS } from '../../constants';
 import { GIVEAWAY_MANAGER_V2_ABI, GiveawayV2Status } from '../../lib/giveaway-v2-abi';
 import { uintHex } from '../../lib/proof/mark';
-import { useRecentWinners } from '../RecentWinners';
 
 /**
- * The latest settled draw on the platform, with the proof its mark is drawn from.
+ * The latest settled draw on the platform — a GiveawayManagerV2 campaign (Giveaways
+ * and the Event Center) — with the proof its mark is drawn from: the campaign's
+ * Chainlink VRF seed.
  *
- * No new kind of chain read: the lottery side is useRecentWinners (the same query
- * and cache as the "Recent winners" panel — PrizeAwarded logs, whose transaction
- * is the Chainlink VRF fulfilment that settled the round); the Event Center side
- * is lastGiveawayId, getGiveaway and getWinners, the reads the Event Center pages
- * make, over the last few campaigns only.
+ * No new kind of chain read: lastGiveawayId, getGiveaway and getWinners, the reads
+ * the Event Center pages make, over the last few campaigns only.
  */
 
 export interface DrawWinner {
   readonly address: `0x${string}`;
   readonly rank: number;
-  readonly amount?: bigint;
 }
 
 export interface SettledDraw {
-  readonly kind: 'round' | 'campaign';
   readonly id: bigint;
-  /** The VRF fulfilment transaction (round) or the VRF seed (campaign), as 32-byte hex. */
+  /** The campaign's VRF seed, as 32-byte hex. */
   readonly proof: `0x${string}`;
   readonly winners: readonly DrawWinner[];
   /** How many winners the draw had (a campaign's list is capped below). */
   readonly winnersCount: number;
-  /** Seconds, when the chain said. */
-  readonly settledAt?: number;
 }
 
 /** Campaigns looked at, newest first, to find the latest settled one. */
@@ -57,8 +51,8 @@ export function useLatestCampaignDraw(enabled = true): { draw: SettledDraw | nul
   const settled = useMemo(() => {
     if (!campaigns) return null;
     for (let i = 0; i < ids.length; i++) {
-      const g = campaigns[i]?.result as { status: number; seed: bigint; winnersCount: number; settledAt: bigint } | undefined;
-      if (g && g.status === GiveawayV2Status.SETTLED) return { id: ids[i], seed: g.seed, winnersCount: Number(g.winnersCount), settledAt: Number(g.settledAt) };
+      const g = campaigns[i]?.result as { status: number; seed: bigint; winnersCount: number } | undefined;
+      if (g && g.status === GiveawayV2Status.SETTLED) return { id: ids[i], seed: g.seed, winnersCount: Number(g.winnersCount) };
     }
     return null;
   }, [campaigns, ids]);
@@ -73,46 +67,13 @@ export function useLatestCampaignDraw(enabled = true): { draw: SettledDraw | nul
   const draw = useMemo((): SettledDraw | null => {
     if (!settled) return null;
     return {
-      kind: 'campaign',
       id: settled.id,
       proof: uintHex(settled.seed),
       winners: ((winners as readonly `0x${string}`[] | undefined) ?? []).map((address, index) => ({ address, rank: index + 1 })),
       winnersCount: settled.winnersCount,
-      settledAt: settled.settledAt || undefined,
     };
   }, [settled, winners]);
 
   const loading = enabled && (idLoading || campaignsLoading || (settled !== null && winnersLoading));
   return { draw, loading };
-}
-
-export function useLatestRoundDraw(): { draw: SettledDraw | null; loading: boolean } {
-  const { data, isLoading } = useRecentWinners();
-  const draw = useMemo((): SettledDraw | null => {
-    const first = data?.[0];
-    if (!first) return null;
-    const round = data!.filter((w) => w.roundId === first.roundId).sort((a, b) => a.rank - b.rank);
-    return {
-      kind: 'round',
-      id: first.roundId,
-      proof: first.txHash,
-      winners: round.map((w) => ({ address: w.winner, rank: w.rank, amount: w.amount })),
-      winnersCount: round.length,
-      settledAt: first.timestamp,
-    };
-  }, [data]);
-  return { draw, loading: isLoading };
-}
-
-/** The newest of the two, and each side on its own (the landing shows both modules). */
-export function useLatestDraw() {
-  const round = useLatestRoundDraw();
-  const campaign = useLatestCampaignDraw();
-  const latest =
-    round.draw && campaign.draw
-      ? (campaign.draw.settledAt ?? 0) > (round.draw.settledAt ?? 0)
-        ? campaign.draw
-        : round.draw
-      : (round.draw ?? campaign.draw);
-  return { latest, round: round.draw, campaign: campaign.draw, loading: round.loading || campaign.loading };
 }

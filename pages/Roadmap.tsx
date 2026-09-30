@@ -12,7 +12,7 @@ import { SceneCaption } from '../components/film/Chapter';
 import { ProofMark } from '../components/proof/ProofMark';
 import { ProofSeal } from '../components/Proof';
 import { ContactEmail } from '../components/ContactEmail';
-import { useLatestDraw, type SettledDraw } from '../components/proof/useLatestDraw';
+import { useLatestCampaignDraw, type SettledDraw } from '../components/proof/useLatestDraw';
 import { shortProof } from '../lib/proof/mark';
 import { useLang, translations } from './landing.i18n';
 import { useAppCopy } from './app.i18n';
@@ -39,7 +39,7 @@ const ARBISCAN = 'https://arbiscan.io/address/';
 
 /**
  * Quantos degraus iniciais entram no grupo "ao vivo / verificado on-chain"
- * (Entrega verificada + Lotaria + Event Center: todos têm contratos implementados,
+ * (Entrega verificada + Event Center: todos têm contratos implementados,
  * verificados e despausados; o KeptraEscrow lido não pausado a 27/09/2026). Emparelha posicionalmente com `copy.steps`. Governa tanto a
  * síntese (Check verde vs. seta cinzenta) como o estado "live" de cada cartão
  * na lista detalhada — é estado visual, portanto fora do i18n (mesma
@@ -49,7 +49,7 @@ const ARBISCAN = 'https://arbiscan.io/address/';
  * Arbiscan logo abaixo: verde aqui significa "verificável agora", não decoração.
  * Âmbar não aparece em lado nenhum — nesta página não há valores de prémio.
  */
-const ONCHAIN_STEPS = 3;
+const ONCHAIN_STEPS = 2;
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -57,15 +57,14 @@ const ZERO = '0x0000000000000000000000000000000000000000';
  * A receita a que chega a barra de cada cenário, em dólares por ano, pela ordem de
  * `copy.opportunity.charts` e, dentro de um gráfico, de `bars`: os números do owner
  * (29/09/2026) — quota do mercado × o mercado × a taxa lida do contrato (1,5% por
- * venda no KeptraEscrow, 12,5% de cada ronda no RaffleManagerV3). Estado visual,
- * portanto fora do i18n; as palavras ao lado de cada barra são as do dicionário.
+ * venda no KeptraEscrow). Estado visual, portanto fora do i18n; as palavras ao lado
+ * de cada barra são as do dicionário.
  */
 const REVENUE = [
   [103e6, 516e6, 2.06e9],
-  [24.3e6, 121e6, 243e6],
 ] as const;
 
-/** Uma escala logarítmica para os dois gráficos, de 10 M$ (10^7) a 10 B$ (10^10): lêem-se um contra o outro. */
+/** Uma escala logarítmica, de 10 M$ (10^7) a 10 B$ (10^10). */
 const onScale = (dollars: number) => ((Math.log10(dollars) - 7) / 3) * 100;
 
 /** O título de um bloco da visão e o da oportunidade: acima dos títulos dos degraus, abaixo do h1. */
@@ -187,10 +186,10 @@ export const Roadmap: React.FC = () => {
   const t = translations[lang];
   const app = useAppCopy();
   const events = useEventsCopy();
-  const { latest, round, campaign, loading } = useLatestDraw();
+  const { draw: latest, loading } = useLatestCampaignDraw();
   const rail = useRail();
-  /** A prova de cada degrau vivo, pela ordem de `copy.steps`: a entrega verificada não tem sorteio; a lotaria, o Event Center. */
-  const stepDraws = [null, round, campaign];
+  /** A prova de cada degrau vivo, pela ordem de `copy.steps`: a entrega verificada não tem sorteio; o Event Center. */
+  const stepDraws = [null, latest];
   // O pool que a garantia nomeia (defaultSource) — a mesma leitura da página inicial e da /pool:
   // o endereço do pool não está escrito no código. Enquanto não for lido, não se mostra.
   const source = useReadContract({ address: KEPTRA_GUARANTEE, abi: GUARANTEE_READ_ABI, functionName: 'defaultSource' });
@@ -198,7 +197,6 @@ export const Roadmap: React.FC = () => {
   /** Os endereços a verificar de cada degrau vivo, posicionais com `copy.steps` e, dentro de um degrau, com `step.contracts`. */
   const verifyAddresses: readonly (readonly (`0x${string}` | null)[])[] = [
     [KEPTRA_ESCROW, KEPTRA_GUARANTEE, pool],
-    [CONTRACTS.RAFFLE_MANAGER],
     [CONTRACTS.GIVEAWAY_MANAGER_V2],
   ];
 
@@ -229,7 +227,7 @@ export const Roadmap: React.FC = () => {
   const stepItem = (step: RoadmapCopy['steps'][number], i: number) => {
     const isLive = i < ONCHAIN_STEPS;
     const draw = isLive ? (stepDraws[i] ?? null) : null;
-    const nodeLabel = draw ? `${draw.kind === 'round' ? app.proof.markRound : events.detail.proof.markCampaign} ${draw.id.toString()}` : step.status;
+    const nodeLabel = draw ? `${events.detail.proof.markCampaign} ${draw.id.toString()}` : step.status;
     return (
       <li key={step.num} className={clsx('relative p-6 sm:p-8', isLive ? 'iw-surface-raised' : 'iw-surface')}>
         <span className="absolute -left-20 top-8 hidden sm:block">
@@ -316,11 +314,10 @@ export const Roadmap: React.FC = () => {
       />
 
       <Film
-        proof={latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER)}
-        fallback={CONTRACTS.RAFFLE_MANAGER}
+        proof={latest?.proof ?? (loading ? undefined : CONTRACTS.GIVEAWAY_MANAGER_V2)}
+        fallback={CONTRACTS.GIVEAWAY_MANAGER_V2}
         winners={latest?.winnersCount ?? 3}
-        lottery={round?.proof ?? null}
-        campaign={campaign?.proof ?? null}
+        campaign={latest?.proof ?? null}
         pauseLabel={t.film.pause}
         playLabel={t.film.play}
       >
@@ -341,7 +338,7 @@ export const Roadmap: React.FC = () => {
                     <>
                       <ProofSeal className="h-3.5 w-3.5 text-success" />
                       <span>
-                        {latest.kind === 'round' ? t.film.markOfRound : t.film.markOfCampaign} <span className="font-mono text-gray-300">{latest.id.toString()}</span>
+                        {t.film.markOfCampaign} <span className="font-mono text-gray-300">{latest.id.toString()}</span>
                       </span>
                       <span className="font-mono text-success">{shortProof(latest.proof)}</span>
                     </>
@@ -425,7 +422,7 @@ export const Roadmap: React.FC = () => {
                 </ol>
               </div>
 
-              {/* A oportunidade: a entrega verificada e o Instant Win, na mesma escala. Nenhum número do Keptra Token, nenhum gráfico dos giveaways. */}
+              {/* A oportunidade: a entrega verificada. Nenhum número do Keptra Token, nenhum gráfico dos giveaways. */}
               <section className="mt-20 sm:mt-28">
                 <h2 className={SECTION_TITLE}>{c.opportunity.title}</h2>
                 <div className="mt-8 space-y-4 sm:space-y-6">

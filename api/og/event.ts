@@ -54,12 +54,12 @@ const oneLine = (value: string, max: number) => {
 /** index.html's head, tag for tag. */
 const FALLBACK_TAGS = [
   '<title>Keptra — Provably fair events</title>',
-  '<meta name="description" content="Keptra runs provably fair draws on Arbitrum One: the Instant Win lottery, Giveaways and the Event Center. Every winner is drawn by Chainlink VRF and every prize is claimed straight from the contract.">',
+  '<meta name="description" content="Keptra on Arbitrum One: Verified Delivery, with the payment held in escrow until a Chainlink oracle proves the delivery, and Giveaways &amp; Event Center, where every winner is drawn by Chainlink VRF and every prize is claimed straight from the contract.">',
   '<meta property="og:type" content="website">',
   '<meta property="og:site_name" content="Keptra">',
   '<meta property="og:url" content="https://keptra.io/">',
   '<meta property="og:title" content="Keptra — Provably fair events">',
-  '<meta property="og:description" content="The Instant Win lottery, Giveaways and the Event Center on Arbitrum One. Every winner drawn by Chainlink VRF, every prize claimed from the contract.">',
+  '<meta property="og:description" content="Verified Delivery and Giveaways &amp; Event Center on Arbitrum One. The payment held in escrow until the delivery is proven; every winner drawn by Chainlink VRF, every prize claimed from the contract.">',
   '<meta property="og:image" content="https://keptra.io/og-image-keptra.png">',
   '<meta property="og:image:type" content="image/png">',
   '<meta property="og:image:width" content="1200">',

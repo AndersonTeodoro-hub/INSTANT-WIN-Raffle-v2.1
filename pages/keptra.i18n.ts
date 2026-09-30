@@ -14,7 +14,7 @@ import { useLang, type Lang } from './landing.i18n.js';
  *       entrega provada · loja · marca
  *   ES  escrow · fianza · reserva de riesgo · pool · proveedor · garantía · pedido ·
  *       entrega probada · tienda · marca
- * Não se traduzem: Keptra, Instant Win, Giveaways, Event Center, Roadmap, USDC,
+ * Não se traduzem: Keptra, Giveaways, Event Center, Roadmap, USDC,
  * Arbitrum One, Arbiscan, passkey, on-chain. Endereços, hashes e números não
  * mudam; os números seguem a língua (lib/keptra/format.ts).
  *

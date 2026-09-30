@@ -4,8 +4,7 @@ import { clsx } from 'clsx';
 import { useLang, translations } from '../pages/landing.i18n';
 
 /**
- * Navegação das páginas públicas (/, /giveaways, /roadmap, o jogo e o Event
- * Center).
+ * Navegação das páginas públicas (/, /giveaways, /roadmap e o Event Center).
  *
  * Um só array para header e rodapé de todas — antes desta reposição havia uma
  * entrada "Roadmap" copiada à mão em dois sítios da Landing, e com três módulos
@@ -16,17 +15,14 @@ import { useLang, translations } from '../pages/landing.i18n';
  * deu nome nas três línguas. Os outros ficam em inglês nos três idiomas, pela
  * mesma razão que "Roadmap" já ficava: são os nomes dos módulos da Keptra (como
  * Chainlink VRF), não frases.
- *
- * `/play` é a lotaria, o Instant Win: a rota do jogo não muda.
  */
 /** Os módulos da Keptra. O cabeçalho da área de cada um mostra-o a seguir à marca (KeptraBrand). */
 export const MODULES = {
-  instantWin: { to: '/play', label: 'Instant Win' },
   giveaways: { to: '/giveaways', label: 'Giveaways' },
   eventCenter: { to: '/events', label: 'Event Center' },
 } as const;
 
-export const PUBLIC_NAV = [MODULES.instantWin, MODULES.giveaways, MODULES.eventCenter, { to: '/roadmap', label: 'Roadmap' }] as const;
+export const PUBLIC_NAV = [MODULES.giveaways, MODULES.eventCenter, { to: '/roadmap', label: 'Roadmap' }] as const;
 
 /** As entradas na língua da página: o módulo principal, com link para "/", e depois PUBLIC_NAV. */
 function usePublicNav(): readonly { to: string; label: string }[] {
@@ -41,7 +37,7 @@ const isCurrent = (pathname: string, to: string) => pathname === to || pathname.
  *
  * Abaixo de lg passam para uma segunda linha do próprio header, a toda a
  * largura e centradas: na primeira linha vão a marca (com o nome do módulo), o
- * idioma e as acções. Abaixo de sm as cinco entradas não cabem nos 343px úteis
+ * idioma e as acções. Abaixo de sm as quatro entradas não cabem nos 343px úteis
  * de um ecrã de 390px sem descer os alvos abaixo dos 44px, e duas linhas fariam
  * o cabeçalho fixo tapar os capítulos do filme: a linha desliza na horizontal,
  * de ponta a ponta do ecrã e esbatida nas pontas para se ver que continua, e a

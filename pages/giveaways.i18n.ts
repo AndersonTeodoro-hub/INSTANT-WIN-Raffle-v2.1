@@ -150,7 +150,7 @@ const en: GiveawaysCopy = {
       },
       {
         lead: 'Prizes claimed from the contract',
-        rest: ' — pull-payment, exactly like the lottery. Claims are never pausable and nothing can be trapped.',
+        rest: ' — pull-payment. Claims are never pausable and nothing can be trapped.',
       },
       {
         lead: 'For brands, communities and creators',
@@ -301,7 +301,7 @@ const pt: GiveawaysCopy = {
       },
       {
         lead: 'Prémios levantados do contrato',
-        rest: ' — pull-payment, exatamente como na lotaria. Os levantamentos nunca podem ser pausados e nada pode ficar preso.',
+        rest: ' — pull-payment. Os levantamentos nunca podem ser pausados e nada pode ficar preso.',
       },
       {
         lead: 'Para marcas, comunidades e criadores',
@@ -444,7 +444,7 @@ const es: GiveawaysCopy = {
       },
       {
         lead: 'Premios reclamados del contrato',
-        rest: ' — pull-payment, exactamente como en la lotería. Los retiros nunca pueden pausarse y nada puede quedar atrapado.',
+        rest: ' — pull-payment. Los retiros nunca pueden pausarse y nada puede quedar atrapado.',
       },
       {
         lead: 'Para marcas, comunidades y creadores',

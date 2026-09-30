@@ -21,13 +21,12 @@ interface NavItem {
   readonly end?: boolean;
 }
 
-// The modules' names (Event Center, Instant Win) are not translated.
+// The module's name (Event Center) is not translated.
 const customerLinks = (t: KeptraCopy): readonly NavItem[] => [
   { to: '/orders', label: t.shell.myOrders },
   { to: '/account', label: t.shell.account },
   { to: '/pool', label: t.shell.pool },
   { to: '/events', label: 'Event Center' },
-  { to: '/play', label: 'Instant Win' },
 ];
 
 const businessLinks = (t: KeptraCopy): readonly NavItem[] => [

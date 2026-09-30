@@ -49,12 +49,12 @@ export const SiteHeader: React.FC<{
 );
 
 /**
- * A marca: o logo da Keptra e, na área de um módulo (Instant Win, Giveaways,
- * Event Center), o nome do módulo a seguir, na mesma linha de base. O traço
+ * A marca: o logo da Keptra e, na área de um módulo (Giveaways, Event
+ * Center), o nome do módulo a seguir, na mesma linha de base. O traço
  * entre os dois tem a inclinação do braço de cima do K. `tag` é o rótulo de
  * área do Keptra (T0: "Business").
  *
- * Entre lg e xl o nome do módulo sai: a navegação pública (cinco entradas desde
+ * Entre lg e xl o nome do módulo sai: a navegação pública (quatro entradas desde
  * a entrega verificada) ocupa a mesma linha e espremia-o até nada; ali a entrada
  * sublinhada da navegação já diz o módulo. Abaixo de lg a navegação desce para a
  * segunda linha e o nome volta.
