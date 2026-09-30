@@ -15,15 +15,27 @@ import { PurchaseFlow } from '../components/proof/PurchaseFlow';
 import { PoolFlow } from '../components/proof/PoolFlow';
 import { ContactEmail } from '../components/ContactEmail';
 import { useLatestCampaignDraw } from '../components/proof/useLatestDraw';
-import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
+import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_VOUCHER, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
 
-// Public landing: only these contracts may be surfaced (regulatory).
-// Do not add internal-only registries here. Names stay as on-chain identifiers.
-const contractLinks = [
-  { label: 'USDC', address: CONTRACTS.USDC },
-];
+/**
+ * The footer's "Verified Contracts": Keptra's contracts as the README lists them,
+ * then USDC — and nothing else (no internal registry, no account of the bridge).
+ * Names stay as on-chain identifiers. The pool and the reputation are not written
+ * in the code: they are the ones the guarantee (defaultSource) and the escrow
+ * (reputation) name, read like /pool and /business read them, and shown once read.
+ */
+const contractLinks = (pool: `0x${string}` | undefined, reputation: `0x${string}` | undefined) =>
+  [
+    { label: 'KeptraEscrow', address: KEPTRA_ESCROW },
+    { label: 'KeptraGuarantee', address: KEPTRA_GUARANTEE },
+    { label: 'KeptraPool', address: pool },
+    { label: 'KeptraReputation', address: reputation },
+    { label: 'KeptraVoucher', address: KEPTRA_VOUCHER },
+    { label: 'GiveawayManagerV2', address: CONTRACTS.GIVEAWAY_MANAGER_V2 },
+    { label: 'USDC', address: CONTRACTS.USDC },
+  ].filter((link): link is { label: string; address: `0x${string}` } => link.address !== undefined && link.address.toLowerCase() !== ZERO);
 
 /**
  * Os cartões da grelha: a entrega verificada à frente (decisão do owner de
@@ -130,6 +142,7 @@ export const Landing: React.FC = () => {
   const [lang] = useLang();
   const t = translations[lang];
   const pool = usePoolFigures();
+  const reputation = useReadContract({ address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'reputation', query: { enabled: keptraConfigured() } });
   const { draw: latest, loading } = useLatestCampaignDraw();
 
   // A forma (a assinatura) desenha-se da prova do último sorteio liquidado; sem
@@ -296,7 +309,7 @@ export const Landing: React.FC = () => {
           <div>
             <p className="text-center text-xs text-gray-400 font-medium mb-4">{t.footer.contractsLabel}</p>
             <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-xs font-mono text-gray-400">
-              {contractLinks.map((link) => (
+              {contractLinks(pool.pool, reputation.data).map((link) => (
                 <a
                   key={link.address}
                   href={`${ARBISCAN}${link.address}`}

@@ -372,7 +372,7 @@ export interface MessageParts {
  */
 export function identityMessage(parts: MessageParts): string {
   return [
-    'Instant Win — campaign identity',
+    'Keptra — campaign identity',
     '',
     `Publish this name, message and images for campaign #${parts.giveawayId}.`,
     'Only the wallet that created the campaign can do this.',

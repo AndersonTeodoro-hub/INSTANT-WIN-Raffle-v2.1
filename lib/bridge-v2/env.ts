@@ -125,7 +125,8 @@ export type OptionalEnvName = (typeof OPTIONAL_ENV)[number];
 
 /**
  * SPEC-BLOCO-03 piece 5 — required by the orders and by nothing else, so a
- * deployment without them keeps the lottery and the accounts running (I9) while
+ * deployment without them keeps the Event Center, the giveaways and the accounts
+ * running (I9; the lottery it also named left this app on 30/09/2026) while
  * every order route and step refuses with "configuration incomplete".
  */
 export const KEPTRA_ENV = [

@@ -48,7 +48,7 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
  * Contagem decrescente até um instante que já foi lido da cadeia.
  *
  * Não lê nada: recebe o `effectiveEndTime` que a página já tem e conta no
- * cliente, como o relógio da lotaria. Serve as duas chaves de i18n que existiam
+ * cliente, de segundo a segundo. Serve as duas chaves de i18n que existiam
  * desde o início e nunca tinham chegado ao ecrã — a página não dizia a ninguém
  * quanto tempo faltava para as entradas fecharem.
  */
@@ -155,7 +155,7 @@ function AccountPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'instant-win-event-center-data.json';
+    a.download = 'keptra-event-center-data.json';
     a.click();
     URL.revokeObjectURL(url);
     setNotice(c.exportDone);
