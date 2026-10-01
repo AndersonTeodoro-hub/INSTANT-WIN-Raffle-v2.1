@@ -30,7 +30,7 @@ Ferramentas: `cast` e `forge` (Foundry), com a chave do owner num keystore local
 5. Autorizar a loja e a marca reais (2.2.6, P5): `cast send <ESCROW> "setStore(address,bool)" <CONTA_DE_CRIADOR_DA_LOJA> true --account <owner> --rpc-url $RPC`.
 6. Base de dados: aplicar as migrations `0012`, `0013`, `0014` e `0015`, por esta ordem (Q6, U7). Sem elas, o apagamento a pedido falha.
 7. Variáveis da bridge, só pelo nome: `BRIDGE_V2_GUARDIAN_KEY`, `BRIDGE_V2_KEEPER_KEY`, `BRIDGE_V2_ROLE_KEY`, `BRIDGE_V2_SHIP24_KEY`, `BRIDGE_V2_ORACLE_TOKEN` e `BRIDGE_V2_ARBITER_EMAIL`.
-8. As tarefas da U7: o texto da página de privacidade (T14), o RPC do browser, `keptra.io` e `www.keptra.io` no projecto Vercel (mantendo `instntwin.com`), e `keptra.io` no WalletConnect.
+8. As tarefas da U7: o texto da página de privacidade (T14), o RPC do browser, `keptra.io` e `www.keptra.io` no projecto Vercel da Keptra, e `keptra.io` no WalletConnect. `keptra.io` é a Keptra; `instntwin.com` é da lotaria, noutro projecto Vercel e noutro repositório (30/09/2026). Este projecto só manda para lá os caminhos antigos da lotaria (`vercel.json`), por isso `instntwin.com` sai deste projecto antes do deploy que os leva: enquanto estiver ligado aqui, `instntwin.com/play` redireccionaria para si próprio.
 
 ## 3. Operação corrente
 

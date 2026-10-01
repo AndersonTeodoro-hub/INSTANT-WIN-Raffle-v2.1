@@ -286,7 +286,7 @@ input::-webkit-inner-spin-button {
     animation-delay: calc(var(--i, 0) * 55ms);
   }
 
-  /* Um medidor que enche até ao seu valor — o pool, o tempo de uma ronda. */
+  /* Um medidor que enche até ao seu valor — o pool, as entradas de uma campanha. */
   .iw-meter {
     transform-origin: left center;
     transition: transform var(--dur-focal) var(--ease-out);
@@ -389,39 +389,6 @@ input::-webkit-inner-spin-button {
 /* Feito on-chain (Keptra): um anel sai do selo, uma vez. */
 .iw-done-ring {
   animation: iw-ping 1100ms var(--ease-out) 350ms 1 both;
-}
-
-/* A tensão do fim da ronda: cada segundo cai no seu mostrador; a ponta da linha bate. */
-.iw-tick {
-  animation: iw-tick 260ms var(--ease-out) both;
-}
-.iw-clock[data-tension='2'] .iw-tick {
-  animation: iw-tick-strong 320ms var(--ease-out) both;
-}
-@keyframes iw-tick {
-  from {
-    transform: translateY(-18%);
-    opacity: 0.4;
-  }
-}
-@keyframes iw-tick-strong {
-  from {
-    transform: translateY(-24%) scale(1.08);
-    opacity: 0.3;
-  }
-}
-.iw-meter-tip {
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
-  animation: iw-beat 700ms var(--ease-out) both;
-}
-.iw-meter-tip[data-tension='2'] {
-  animation-duration: 480ms;
-}
-@keyframes iw-beat {
-  from {
-    scale: 2.1;
-    opacity: 0.2;
-  }
 }
 
 /*
@@ -535,53 +502,10 @@ input::-webkit-inner-spin-button {
 }
 
 /*
- * Picotado do bilhete da lotaria.
- *
- * Uma linha tracejada com duas meias-luas a morder as margens — o rasgão de um
- * talão a sério. Feito só em CSS porque um bilhete desenhado em imagem não
- * escala com o texto nem acompanha o tema, e porque não vale uma dependência.
- *
- * As meias-luas são preenchidas com o preto da página (`--tear-ground`), por
- * isso o elemento só funciona sobre o fundo da página: é para isso que existe.
- */
-.ticket-tear {
-  position: relative;
-  height: 1px;
-  background-image: repeating-linear-gradient(
-    to right,
-    #2a2a31 0 6px,
-    transparent 6px 13px
-  );
-}
-
-.ticket-tear::before,
-.ticket-tear::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 18px;
-  height: 18px;
-  border-radius: 9999px;
-  background-color: #000000;
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-  transform: translateY(-50%);
-}
-
-.ticket-tear::before {
-  left: -9px;
-  clip-path: inset(0 0 0 50%);
-}
-
-.ticket-tear::after {
-  right: -9px;
-  clip-path: inset(0 50% 0 0);
-}
-
-/*
  * Menos movimento, não nenhum. Quem o pede no sistema operativo não leva
  * deslocações, anéis a pulsar nem cascatas; fica com as mudanças de opacidade
  * que dizem que algo mudou (a folha de assinatura a aparecer, o visto do selo
- * já desenhado). O relógio da lotaria continua a contar — isso é informação.
+ * já desenhado).
  */
 @media (prefers-reduced-motion: reduce) {
   *,

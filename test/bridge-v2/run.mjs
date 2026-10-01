@@ -128,7 +128,8 @@ const REQUIREMENTS = [
   // write it — and LK13 — the words the audit named, and /play's section title.
   // Commit B (the owner's decisions after A4, feat/landing-keptra-b): LK14 on — the chapters' diagrams first, LK15 the home page's new texts and card, LK16 /business for brands without a session, LK17 /roadmap, LK18 Portugal's Portuguese, LK19 the voucher's three layers, LK20 small phones.
   // The owner's vision on /roadmap (29/09/2026, feat/roadmap-vision): LK17 rewritten for the steps' new texts, LK21 the new blocks and the page's order, LK22 the two charts of the opportunity.
-  ...Array.from({ length: 22 }, (_unused, index) => `LK${index + 1}`),
+  // The lottery leaves keptra.io (30/09/2026, remove/instant-win): LK10 went with /play's Overview; LK1, LK7, LK15, LK17, LK18 and LK22 say the site without it.
+  ...Array.from({ length: 22 }, (_unused, index) => `LK${index + 1}`).filter((requirement) => requirement !== 'LK10'),
 ];
 
 for (const path of SUITES) {

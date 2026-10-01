@@ -12,8 +12,6 @@ email — no wallet needed.
   verified delivery is the next benefit every brand will offer. Payment held in escrow,
   delivery proven by a Chainlink oracle from the carrier's tracking, an on-chain record
   behind every order. (`/business`, `/pool`)
-- **Instant Win** — a lottery nobody can rig: 30-minute rounds, Chainlink VRF draws, every
-  round closed by Chainlink CRE, prizes claimed from the contract. (`/play`)
 - **Giveaways & Event Center** — prize campaigns with ERC-20, ERC-721 and ERC-1155 prizes
   held in a verified contract until claimed. One verified person, one entry.
   (`/giveaways`, `/events`)
@@ -26,7 +24,6 @@ email — no wallet needed.
 | KeptraPool | [0x5A6318A163c32bCDf545A6E32B73327EA5779cA7](https://arbiscan.io/address/0x5A6318A163c32bCDf545A6E32B73327EA5779cA7) |
 | KeptraReputation | [0xcF3f8110263f66952d059796BFadF5Ac52D87b22](https://arbiscan.io/address/0xcF3f8110263f66952d059796BFadF5Ac52D87b22) |
 | KeptraVoucher | [0x3075FA512203e9dC6250Feb4eBA36c55BD2A7a22](https://arbiscan.io/address/0x3075FA512203e9dC6250Feb4eBA36c55BD2A7a22) |
-| Instant Win (RaffleManagerV3) | [0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a](https://arbiscan.io/address/0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a) |
 | Event Center (GiveawayManagerV2) | [0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739](https://arbiscan.io/address/0xEA91eb545FBB7e82f0085ff30555ed06C1Baf739) |
 
 Every contract's source is verified on Arbiscan and Sourcify — read it there.
@@ -38,7 +35,7 @@ endpoint the Chainlink CRE delivery oracle reads. Smart contracts and the CRE wo
 live in separate repositories.
 
 ## Where this goes
-Live: Verified Delivery, Instant Win, Giveaways & Event Center. Next: card payments, for
+Live: Verified Delivery, Giveaways & Event Center. Next: card payments, for
 mass adoption — customers pay the way they always do, with the same guarantee. Last
 module: the Keptra Token, launched inside the regulated company, never before it.
 Full vision: https://keptra.io/roadmap

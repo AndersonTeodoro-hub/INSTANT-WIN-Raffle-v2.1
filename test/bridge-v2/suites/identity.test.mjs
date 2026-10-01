@@ -701,7 +701,7 @@ await test(['L7'], 'the browser reads identities through the route, never throug
 
 const og = (query, userAgent = 'facebookexternalhit/1.1') =>
   ogEvent.GET(
-    new Request(`https://instntwin.com/api/og/event${query}`, {
+    new Request(`https://keptra.io/api/og/event${query}`, {
       headers: { 'user-agent': userAgent, 'x-forwarded-for': '198.51.100.7' },
     }),
   );

@@ -3,9 +3,8 @@
  *
  * A guilloché rosette — the engraving banknotes and certificates carry because it
  * cannot be copied by hand — whose every parameter is read from the 32 bytes of
- * the draw's proof: the hash of the Chainlink VRF fulfilment transaction that
- * settled a lottery round (PrizeAwarded is emitted inside rawFulfillRandomWords),
- * or the VRF seed an Event Center campaign stores on-chain. The same proof always
+ * the draw's proof: the Chainlink VRF seed a GiveawayManagerV2 campaign stores
+ * on-chain (or, before any draw, the contract's address). The same proof always
  * draws the same shape; any other proof draws another. Nothing here is random:
  * the only generator is seeded by the proof.
  *

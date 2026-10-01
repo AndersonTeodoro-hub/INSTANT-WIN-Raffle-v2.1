@@ -15,14 +15,14 @@ if (!PROJECT_ID) {
  *
  * `url` TEM de ser o domínio a sério do site. Estava `instantwin.finance`, que
  * não é o domínio deste produto (hoje é keptra.io, SPEC-BLOCO-03 T9 — o mesmo
- * do og:image, do ShareButton e do WinCard), e o WalletConnect avisava em toda a sessão:
+ * do og:image e do ShareButton), e o WalletConnect avisava em toda a sessão:
  * "the configured metadata.url differs from the actual page url". Em produção
  * era isso que aparecia a quem estava a assinar.
  */
 const metadata = {
-  // SPEC-BLOCO-03 T9: the app is Keptra, served at keptra.io; Instant Win is its raffle.
+  // SPEC-BLOCO-03 T9: the app is Keptra, served at keptra.io.
   name: 'Keptra',
-  description: 'Provably fair draws on Arbitrum One: the Instant Win lottery, giveaways and the Event Center',
+  description: 'Verified delivery, giveaways and the Event Center on Arbitrum One',
   url: 'https://keptra.io',
   // The Keptra K the wallet shows beside the request (it was Arbitrum's logo).
   icons: ['https://keptra.io/favicon-512.png']
@@ -53,10 +53,6 @@ export const INVESTOR_EMAIL = 'instantwin.official@gmail.com';
 
 export const CONTRACTS = {
   USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  USERNAME_REGISTRY: '0x2fC8676386D799844F32173f8226a6E85FF19685',
-  // RaffleManagerV3 — Arbitrum One, verificado (Sourcify + Arbiscan).
-  // Não há SHARES_REGISTRY: o V3 eliminou a camada de investidores.
-  RAFFLE_MANAGER: '0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a',
   // GiveawayManager V1 — Arbitrum One, verificado (Exact Match). Nenhuma página
   // o usa: as campanhas criam-se no Event Center, no V2 abaixo.
   GIVEAWAY_MANAGER: '0x1F2aE94Fd04Ce15cb2A3a09B7b81eb9e16781cB0',
@@ -91,18 +87,6 @@ export const GIVEAWAY_LIMITS = {
   MAX_PARTICIPANTS: 100_000,
 } as const;
 
-/** Bloco de deploy da RaffleManagerV3 — piso para queries de eventos. */
-export const RAFFLE_DEPLOY_BLOCK = 492021006n;
-
-/** RaffleManagerV3.State — tem de bater com o enum do contrato. */
-export const RoundState = {
-  NONE: 0,
-  OPEN: 1,
-  DRAWING: 2,
-  SETTLED: 3,
-  CANCELLED: 4,
-} as const;
-
 // --- ABIS ---
 
 export const USDC_ABI = [
@@ -127,219 +111,4 @@ export const USDC_ABI = [
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
-] as const;
-
-// =============================================================================
-// USERNAME ABI - CORRIGIDO para corresponder ao contrato deployado
-// =============================================================================
-export const USERNAME_ABI = [
-  // registerUsername - registar um username
-  {
-    name: 'registerUsername',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'username', type: 'string' }],
-    outputs: [],
-  },
-  // isUsernameAvailable - verificar se username está disponível (NÃO isAvailable!)
-  {
-    name: 'isUsernameAvailable',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'username', type: 'string' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  // usernameToWallet - obter wallet de um username (NÃO usernameToAddress!)
-  {
-    name: 'usernameToWallet',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'username', type: 'string' }],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  // walletToUsername - obter username de uma wallet (NÃO addressToUsername!)
-  {
-    name: 'walletToUsername',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'wallet', type: 'address' }],
-    outputs: [{ name: '', type: 'string' }],
-  },
-  // hasUsername - verificar se wallet já tem username
-  {
-    name: 'hasUsername',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'addr', type: 'address' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  // getUsername - obter username de uma wallet
-  {
-    name: 'getUsername',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'wallet', type: 'address' }],
-    outputs: [{ name: '', type: 'string' }],
-  },
-  // getWallet - obter wallet de um username
-  {
-    name: 'getWallet',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'username', type: 'string' }],
-    outputs: [{ name: '', type: 'address' }],
-  },
-] as const;
-
-/** Único sítio onde vive a assinatura do evento — reutilizado no ABI e no getLogs. */
-export const PRIZE_AWARDED_EVENT = {
-  type: 'event',
-  name: 'PrizeAwarded',
-  inputs: [
-    { name: 'roundId', type: 'uint256', indexed: true },
-    { name: 'winner', type: 'address', indexed: true },
-    { name: 'rank', type: 'uint8', indexed: true },
-    { name: 'amount', type: 'uint256', indexed: false },
-  ],
-  anonymous: false,
-} as const;
-
-// =============================================================================
-// RAFFLE ABI — RaffleManagerV3
-// Extraído do artefacto compilado que produziu o bytecode deployado
-// (instant-win-audit/v2/out/RaffleManagerV3.sol/RaffleManagerV3.json), não
-// escrito à mão. Alterar apenas re-extraindo do artefacto.
-// =============================================================================
-export const RAFFLE_ABI = [
-  {
-    type: 'function',
-    name: 'getCurrentRound',
-    inputs: [],
-    outputs: [
-      { name: 'roundId', type: 'uint256' },
-      { name: 'state', type: 'uint8' },
-      { name: 'endTime', type: 'uint256' },
-      // V3 renomeou este campo de `participantCount` para `buyers` (posição [3]
-      // inalterada; a UI lê por índice, não por nome).
-      { name: 'buyers', type: 'uint256' },
-      { name: 'totalTickets', type: 'uint256' },
-      { name: 'pool', type: 'uint256' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'buyTickets',
-    inputs: [{ name: 'ticketCount', type: 'uint256' }],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'claim',
-    inputs: [],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'claimable',
-    inputs: [{ name: '', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'claimRefund',
-    inputs: [{ name: 'roundId', type: 'uint256' }],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'ticketsOf',
-    inputs: [
-      { name: '', type: 'uint256' },
-      { name: '', type: 'address' },
-    ],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'refunded',
-    inputs: [
-      { name: '', type: 'uint256' },
-      { name: '', type: 'address' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'rounds',
-    inputs: [{ name: '', type: 'uint256' }],
-    outputs: [
-      { name: 'state', type: 'uint8' },
-      { name: 'endTime', type: 'uint40' },
-      { name: 'requestedAt', type: 'uint40' },
-      { name: 'totalTickets', type: 'uint256' },
-      { name: 'pool', type: 'uint256' },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'TICKET_PRICE',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'MAX_TICKETS_PER_WALLET',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'MIN_PARTICIPANTS',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'currentRoundId',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'paused',
-    inputs: [],
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'view',
-  },
-  // --- novas no V3 ---
-  {
-    type: 'function',
-    name: 'winOddsBps',
-    inputs: [
-      { name: 'roundId', type: 'uint256' },
-      { name: 'account', type: 'address' },
-    ],
-    outputs: [{ name: 'bps', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'pendingCarry',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  PRIZE_AWARDED_EVENT,
 ] as const;

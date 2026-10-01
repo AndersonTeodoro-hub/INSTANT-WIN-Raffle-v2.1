@@ -3,6 +3,7 @@
 **Estado:** Fase 1, investigação e proposta. Documento de decisão.
 **Data:** 2026-08-07
 **Contrato:** RaffleManagerV3 `0xB1935f2d6D0A8dEb7cfB074b17f179fd842d324a`, Arbitrum One.
+**Nota de 30/09/2026:** a lotaria saiu deste repositório e do keptra.io. Vive no seu próprio repositório e em instntwin.com; este documento fica aqui como registo, e é para lá que servirá se for construído.
 
 Esta sessão **não implementa nada**. Sem código de produção, sem chaves, sem envios.
 
@@ -108,7 +109,7 @@ Os motores de busca ainda servem estas páginas, mas as páginas já não existe
 gatilho   PrizeAwarded(roundId indexed, winner indexed, rank indexed, amount)
 destinat. o `winner` do próprio evento, e mais ninguém
 condição  optIn(winner) == true  E  claimable(winner) > 0
-conteúdo  ronda, posição, montante, link directo para /play/raffle
+conteúdo  ronda, posição, montante, link directo para https://instntwin.com/play/raffle
 repetição no máximo 1 imediata + 1 lembrete a 24h + 1 a 7 dias, e para
           cancela   se claimable(winner) == 0 (já reclamou)
 ```
@@ -167,7 +168,7 @@ Regras invioláveis do worker:
 
 ## 3. Opt-in no site
 
-Um toggle na página do raffle, junto ao painel de compra:
+Um toggle na página do raffle (desde 30/09/2026, na app da lotaria em instntwin.com, não neste repositório), junto ao painel de compra:
 
 ```
 🔔 Notify me when I win

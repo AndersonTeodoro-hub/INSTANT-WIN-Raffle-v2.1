@@ -98,7 +98,6 @@ export function Film({
   proof,
   fallback,
   winners = 3,
-  lottery = null,
   campaign = null,
   pauseLabel,
   playLabel,
@@ -109,8 +108,7 @@ export function Film({
   /** What the rosettes are drawn from when there is no settled draw (or the read is slow). */
   fallback: string;
   winners?: number;
-  /** Each module's own latest settled draw (the modules shape); null draws rings. */
-  lottery?: string | null;
+  /** The modules' latest settled draw (the modules shape); null draws rings. */
   campaign?: string | null;
   pauseLabel: string;
   playLabel: string;
@@ -147,10 +145,9 @@ export function Film({
     if (module === null || source === undefined) return null;
     return module.buildShapes(module.proofBytes(source), {
       winners,
-      lottery: lottery ? module.proofBytes(lottery) : null,
       campaign: campaign ? module.proofBytes(campaign) : null,
     });
-  }, [module, source, winners, lottery, campaign]);
+  }, [module, source, winners, campaign]);
 
   const register = useCallback((registration: Registration) => {
     registrations.current.add(registration);

@@ -32,9 +32,11 @@ export default {
           card: '#0F0F11',   // Dark Gray Card
           border: '#1E1E22', // Subtle Border
           input: '#18181B',  // Input Background
-          // Papel do bilhete. Deliberadamente mais claro e mais quente que
-          // `card`: o bilhete da lotaria tem de se ler como um objecto em cima
-          // da página, não como mais um painel dentro dela.
+          // O cartão que pede uma acção (EventDashboard: uma campanha com um
+          // passo por dar). Deliberadamente mais claro e mais quente que `card`:
+          // tem de se ler como um objecto em cima da página, não como mais um
+          // painel dentro dela. Nasceu como o papel do bilhete da lotaria, que
+          // saiu do keptra.io a 30/09/2026; o nome ficou.
           ticket: '#15151A',
           // Camada acima de `card` (painéis principais) e a aresta mais forte.
           raised: '#141418',

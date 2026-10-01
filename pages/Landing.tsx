@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
-import { ArrowRight, ExternalLink, Ticket, Gift, CalendarDays, PackageCheck, type LucideIcon } from 'lucide-react';
+import { ArrowRight, ExternalLink, Gift, CalendarDays, PackageCheck, type LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { CONTRACTS, INVESTOR_EMAIL } from '../constants';
 import { useLang, translations, type Lang } from './landing.i18n';
@@ -14,35 +14,60 @@ import { BrandFlow } from '../components/proof/BrandFlow';
 import { PurchaseFlow } from '../components/proof/PurchaseFlow';
 import { PoolFlow } from '../components/proof/PoolFlow';
 import { ContactEmail } from '../components/ContactEmail';
-import { useLatestDraw } from '../components/proof/useLatestDraw';
-import { GUARANTEE_READ_ABI, KEPTRA_GUARANTEE, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
+import { useLatestCampaignDraw } from '../components/proof/useLatestDraw';
+import { ESCROW_READ_ABI, GUARANTEE_READ_ABI, KEPTRA_ESCROW, KEPTRA_GUARANTEE, KEPTRA_VOUCHER, POOL_READ_ABI, USDC_DECIMALS, keptraConfigured } from '../lib/keptra/contracts';
 
 const ARBISCAN = 'https://arbiscan.io/address/';
 
-// Public landing: only these contracts may be surfaced (regulatory).
-// Do not add internal-only registries here. Names stay as on-chain identifiers.
-const contractLinks = [
-  { label: 'Raffle Manager', address: CONTRACTS.RAFFLE_MANAGER },
-  { label: 'Username Registry', address: CONTRACTS.USERNAME_REGISTRY },
-  { label: 'USDC', address: CONTRACTS.USDC },
-];
+/**
+ * The footer's "Verified Contracts": Keptra's contracts as the README lists them,
+ * then USDC — and nothing else (no internal registry, no account of the bridge).
+ * Names stay as on-chain identifiers. The pool and the reputation are not written
+ * in the code: they are the ones the guarantee (defaultSource) and the escrow
+ * (reputation) name, read like /pool and /business read them, and shown once read.
+ */
+const contractLinks = (pool: `0x${string}` | undefined, reputation: `0x${string}` | undefined) =>
+  [
+    { label: 'KeptraEscrow', address: KEPTRA_ESCROW },
+    { label: 'KeptraGuarantee', address: KEPTRA_GUARANTEE },
+    { label: 'KeptraPool', address: pool },
+    { label: 'KeptraReputation', address: reputation },
+    { label: 'KeptraVoucher', address: KEPTRA_VOUCHER },
+    { label: 'GiveawayManagerV2', address: CONTRACTS.GIVEAWAY_MANAGER_V2 },
+    { label: 'USDC', address: CONTRACTS.USDC },
+  ].filter((link): link is { label: string; address: `0x${string}` } => link.address !== undefined && link.address.toLowerCase() !== ZERO);
+
+/**
+ * The footer's contracts in groups that never break across lines — pairs, and a
+ * trio first when the count is odd — so no line ever holds a contract alone.
+ * The trio goes first because the opening names are the shortest: stacked, it
+ * fits a 360-px phone.
+ * ponytail: under ~330 px the trio wraps inside itself (2 + 1); fine until the list grows.
+ */
+function inGroups<T>(items: readonly T[]): T[][] {
+  const groups: T[][] = [];
+  for (let i = 0; i < items.length; ) {
+    const size = i === 0 && items.length % 2 === 1 ? 3 : 2;
+    groups.push(items.slice(i, i + size));
+    i += size;
+  }
+  return groups;
+}
 
 /**
  * Os cartões da grelha: a entrega verificada à frente (decisão do owner de
- * 27/09/2026, commit B) e os três módulos da Keptra. Emparelham posicionalmente
+ * 27/09/2026, commit B) e os módulos de sorteios da Keptra. Emparelham posicionalmente
  * com `copy.modules.items`, que só tem o que se traduz — aqui fica a identidade
  * do cartão: nome, rota, ícone e estado. A entrega verificada não tem nome aqui:
  * o seu traduz-se, e vem de `copy.modules.items[0].name`.
  *
  * `live` é a única autorização de verde nesta secção: verde significa
- * "verificável agora". Lido na cadeia a 25/09/2026: a RaffleManagerV3 não está
- * pausada e tem uma ronda aberta; a GiveawayManagerV2 (Giveaways e Event
- * Center) não está pausada e tem a campanha 2 liquidada. A 27/09/2026: o
+ * "verificável agora". Lido na cadeia a 25/09/2026: a GiveawayManagerV2 (Giveaways
+ * e Event Center) não está pausada e tem a campanha 2 liquidada. A 27/09/2026: o
  * KeptraEscrow não está pausado.
  */
 const MODULES: readonly { name?: string; to: string; icon: LucideIcon; live: boolean }[] = [
   { to: '/business', icon: PackageCheck, live: true },
-  { name: 'INSTANT WIN', to: '/play', icon: Ticket, live: true },
   { name: 'GIVEAWAYS', to: '/giveaways', icon: Gift, live: true },
   { name: 'EVENT CENTER', to: '/events', icon: CalendarDays, live: true },
 ];
@@ -134,11 +159,12 @@ export const Landing: React.FC = () => {
   const [lang] = useLang();
   const t = translations[lang];
   const pool = usePoolFigures();
-  const { latest, round: lotteryDraw, campaign, loading } = useLatestDraw();
+  const reputation = useReadContract({ address: KEPTRA_ESCROW, abi: ESCROW_READ_ABI, functionName: 'reputation', query: { enabled: keptraConfigured() } });
+  const { draw: latest, loading } = useLatestCampaignDraw();
 
   // A forma (a assinatura) desenha-se da prova do último sorteio liquidado; sem
-  // nenhum, do endereço do contrato da lotaria.
-  const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.RAFFLE_MANAGER);
+  // nenhum, do endereço do contrato das campanhas.
+  const proof = latest?.proof ?? (loading ? undefined : CONTRACTS.GIVEAWAY_MANAGER_V2);
   const [brandsWho, brandsWhat] = t.hero.ctaBrands.split(' — ');
   const [customersWho] = t.hero.ctaCustomers.split(' — ');
   // Os diagramas dos capítulos 02 a 04 (commit B): cliente, loja, escrow e oráculo vêm do diagrama da primeira tela.
@@ -171,10 +197,9 @@ export const Landing: React.FC = () => {
 
       <Film
         proof={proof}
-        fallback={CONTRACTS.RAFFLE_MANAGER}
+        fallback={CONTRACTS.GIVEAWAY_MANAGER_V2}
         winners={latest?.winnersCount ?? 3}
-        lottery={lotteryDraw?.proof ?? null}
-        campaign={campaign?.proof ?? null}
+        campaign={latest?.proof ?? null}
         pauseLabel={t.film.pause}
         playLabel={t.film.play}
       >
@@ -256,8 +281,9 @@ export const Landing: React.FC = () => {
             <p className="mt-5 max-w-[46ch] text-base sm:text-lg leading-relaxed text-gray-300">{t.modules.obligation}</p>
           </Chapter>
 
+          {/* Três cartões sem órfão: uma coluna no telemóvel; entre md e lg a entrega verificada ocupa a linha e os dois módulos seguem lado a lado; de lg em diante, três colunas. */}
           <section className="relative z-10 px-5 sm:px-6 pb-16 md:pb-24">
-            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+            <div className="container mx-auto max-w-6xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {MODULES.map((m, i) => {
                 const copy = t.modules.items[i];
                 const Icon = m.icon;
@@ -265,7 +291,7 @@ export const Landing: React.FC = () => {
                   <Link
                     key={m.to}
                     to={m.to}
-                    className={clsx('group flex flex-col p-6 sm:p-8', m.live ? 'iw-surface-raised' : 'iw-surface !bg-dark-bg/60')}
+                    className={clsx('group flex flex-col p-6 sm:p-8', i === 0 && 'md:col-span-2 lg:col-span-1', m.live ? 'iw-surface-raised' : 'iw-surface !bg-dark-bg/60')}
                   >
                     <div className="flex items-center justify-between mb-6">
                       <Icon className={clsx('w-5 h-5', m.live ? 'text-gray-200' : 'text-gray-400')} aria-hidden="true" />
@@ -299,17 +325,21 @@ export const Landing: React.FC = () => {
         <div className="container mx-auto px-6 space-y-6">
           <div>
             <p className="text-center text-xs text-gray-400 font-medium mb-4">{t.footer.contractsLabel}</p>
-            <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-xs font-mono text-gray-400">
-              {contractLinks.map((link) => (
-                <a
-                  key={link.address}
-                  href={`${ARBISCAN}${link.address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 min-h-[44px] hover:text-success transition-colors"
-                >
-                  <span className="font-sans font-medium text-gray-400">{link.label}:</span> {short(link.address)}
-                </a>
+            <div className="flex flex-wrap justify-center gap-x-4 md:gap-x-8 gap-y-2 text-xs font-mono text-gray-400">
+              {inGroups(contractLinks(pool.pool, reputation.data)).map((group) => (
+                <div key={group[0].address} className="flex flex-wrap justify-center gap-x-4 md:gap-x-8 gap-y-2">
+                  {group.map((link) => (
+                    <a
+                      key={link.address}
+                      href={`${ARBISCAN}${link.address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex flex-col md:flex-row items-center justify-center md:gap-1 min-h-[44px] hover:text-success transition-colors"
+                    >
+                      <span className="font-sans font-medium text-gray-400">{link.label}:</span> {short(link.address)}
+                    </a>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
@@ -318,7 +348,6 @@ export const Landing: React.FC = () => {
           <PublicFooterNav />
 
           <div className="border-t border-dark-border/60 pt-6 max-w-2xl mx-auto text-center space-y-2">
-            <p className="text-xs text-gray-400 font-medium">{t.footer.responsible}</p>
             <p className="text-xs text-gray-400">{t.footer.disclaimer}</p>
           </div>
         </div>

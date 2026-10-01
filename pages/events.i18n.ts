@@ -3,7 +3,7 @@ import { useLang } from './landing.i18n';
 // i18n do Event Center (/events/*). Mesmo padrão de app.i18n.ts e
 // giveaways.i18n.ts: objecto de lookup por idioma, useLang partilhado.
 //
-// Não se traduz: Keptra, Instant Win, USDC, Arbitrum One, Telegram, Event Center.
+// Não se traduz: Keptra, USDC, Arbitrum One, Telegram, Event Center.
 
 export interface EventsCopy {
   list: {

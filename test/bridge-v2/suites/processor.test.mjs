@@ -1241,7 +1241,7 @@ await test(['D7'], 'a settled campaign tells the winner what they won', async ()
   );
 });
 
-// SPEC-BLOCO-03 T9: the product domain is keptra.io now; instntwin.com only redirects there.
+// SPEC-BLOCO-03 T9: the product domain is keptra.io; instntwin.com is the lottery's own domain since 30/09/2026.
 await test(['D7', 'AT9'], 'both notices link to the product domain, keptra.io, and to no other', async () => {
   fresh();
   settledCampaign([
